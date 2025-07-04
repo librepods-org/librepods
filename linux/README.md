@@ -58,7 +58,7 @@ A native Linux application to control your AirPods, with support for:
 3. Run the application:
 
    ```bash
-   ./applinux
+   ./librepods
    ```
 
 ## Usage
