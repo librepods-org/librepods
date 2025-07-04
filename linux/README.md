@@ -25,9 +25,19 @@ A native Linux application to control your AirPods, with support for:
     # For Fedora
     sudo dnf install qt6-qtbase-devel qt6-qtconnectivity-devel \
         qt6-qtmultimedia-devel qt6-qtdeclarative-devel
-
    ```
+3. OpenSSL development headers
 
+    ```bash
+    # On Arch Linux / EndevaourOS, these are included in the OpenSSL package, so you might already have them installed.
+    sudo pacman -S openssl
+    
+    # For Debian / Ubuntu
+    sudo apt-get install libssl-devel
+    
+    # For Fedora
+    sudo dnf install openssl-devel
+    ```
 ## Setup
 
 1. Edit `main.h` and update `PHONE_MAC_ADDRESS` with your phone's Bluetooth MAC address:
