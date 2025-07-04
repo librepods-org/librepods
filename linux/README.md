@@ -40,10 +40,10 @@ A native Linux application to control your AirPods, with support for:
     ```
 ## Setup
 
-1. Edit `main.h` and update `PHONE_MAC_ADDRESS` with your phone's Bluetooth MAC address:
+1. Set the `PHONE_MAC_ADDRESS` environment variable to your phone's Bluetooth MAC address by running the following:
 
-   ```cpp
-   #define PHONE_MAC_ADDRESS "XX:XX:XX:XX:XX:XX"  // Replace with your phone's MAC
+   ```bash
+   export PHONE_MAC_ADDRESS="XX:XX:XX:XX:XX:XX"  # Replace with your phone's MAC
    ```
 
 2. Build the application:
