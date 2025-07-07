@@ -2117,7 +2117,32 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             e.printStackTrace()
         }
         try {
+            unregisterReceiver(a2dpConnectionStateReceiver)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            unregisterReceiver(BatteryChangedIntentReceiver)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            unregisterReceiver(showIslandReceiver)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
             bleManager.stopScanning()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            aacpManager.cleanup()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            islandWindow?.forceClose()
         } catch (e: Exception) {
             e.printStackTrace()
         }

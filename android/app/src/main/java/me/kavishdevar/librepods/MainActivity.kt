@@ -121,7 +121,10 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.io.encoding.Base64
 
 lateinit var serviceConnection: ServiceConnection
-lateinit var connectionStatusReceiver: BroadcastReceiver
+// TODO: Implement connectionStatusReceiver if needed
+// lateinit var connectionStatusReceiver: BroadcastReceiver
+// var isReceiverRegistered = false
+var isServiceBound = false
 
 @ExperimentalMaterial3Api
 class MainActivity : ComponentActivity() {
@@ -148,34 +151,52 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         try {
-            unbindService(serviceConnection)
-            Log.d("MainActivity", "Unbound service")
+            if (isServiceBound && ::serviceConnection.isInitialized) {
+                unbindService(serviceConnection)
+                isServiceBound = false
+                Log.d("MainActivity", "Unbound service")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unbinding service: $e")
         }
+        // TODO: Implement receiver registration/unregistration if needed
+        /*
         try {
-            unregisterReceiver(connectionStatusReceiver)
-            Log.d("MainActivity", "Unregistered receiver")
+            if (isReceiverRegistered && ::connectionStatusReceiver.isInitialized) {
+                unregisterReceiver(connectionStatusReceiver)
+                isReceiverRegistered = false
+                Log.d("MainActivity", "Unregistered receiver")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unregistering receiver: $e")
         }
+        */
         sendBroadcast(Intent(AirPodsNotifications.DISCONNECT_RECEIVERS))
         super.onDestroy()
     }
 
     override fun onStop() {
         try {
-            unbindService(serviceConnection)
-            Log.d("MainActivity", "Unbound service")
+            if (isServiceBound && ::serviceConnection.isInitialized) {
+                unbindService(serviceConnection)
+                isServiceBound = false
+                Log.d("MainActivity", "Unbound service")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unbinding service: $e")
         }
+        // TODO: Implement receiver registration/unregistration if needed
+        /*
         try {
-            unregisterReceiver(connectionStatusReceiver)
-            Log.d("MainActivity", "Unregistered receiver")
+            if (isReceiverRegistered && ::connectionStatusReceiver.isInitialized) {
+                unregisterReceiver(connectionStatusReceiver)
+                isReceiverRegistered = false
+                Log.d("MainActivity", "Unregistered receiver")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unregistering receiver: $e")
         }
+        */
         super.onStop()
     }
 
@@ -392,6 +413,7 @@ fun Main() {
         }
 
         context.bindService(Intent(context, AirPodsService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
+        isServiceBound = true
 
         if (airPodsService.value?.isConnectedLocally == true) {
             isConnected.value = true

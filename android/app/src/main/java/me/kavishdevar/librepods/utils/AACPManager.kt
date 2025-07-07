@@ -475,4 +475,13 @@ class AACPManager {
             return false
         }
     }
+
+    /**
+     * Cleanup resources and callbacks to prevent memory leaks
+     */
+    fun cleanup() {
+        callback = null
+        controlCommandListeners.clear()
+        controlCommandStatusList.clear()
+    }
 }
