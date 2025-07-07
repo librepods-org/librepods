@@ -1,6 +1,6 @@
 [versions]
 accompanistPermissions = "0.36.0"
-agp = "8.8.2"
+agp = "8.3.2"
 hiddenapibypass = "6.1"
 kotlin = "2.1.10"
 coreKtx = "1.16.0"
