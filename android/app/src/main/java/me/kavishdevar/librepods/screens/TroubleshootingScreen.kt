@@ -769,18 +769,31 @@ fun TroubleshootingScreen(navController: NavController) {
                             TextButton(
                                 onClick = {
                                     selectedLogFile?.let { file ->
-                                        if (file.delete()) {
-                                            savedLogs.remove(file)
+                                        try {
+                                            if (file.exists() && file.delete()) {
+                                                savedLogs.remove(file)
+                                                Toast.makeText(
+                                                    context,
+                                                    "Log file deleted",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Failed to delete log file - file may not exist",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        } catch (e: SecurityException) {
                                             Toast.makeText(
                                                 context,
-                                                "Log file deleted",
+                                                "Permission denied - cannot delete file",
                                                 Toast.LENGTH_SHORT
-                                            )
-                                                .show()
-                                        } else {
+                                            ).show()
+                                        } catch (e: Exception) {
                                             Toast.makeText(
                                                 context,
-                                                "Failed to delete log file",
+                                                "Error deleting file: ${e.localizedMessage}",
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
@@ -811,19 +824,31 @@ fun TroubleshootingScreen(navController: NavController) {
                                 onClick = {
                                     coroutineScope.launch(Dispatchers.IO) {
                                         var deletedCount = 0
-                                        savedLogs.forEach { file ->
-                                            if (file.delete()) {
-                                                deletedCount++
+                                        var failedCount = 0
+                                        val filesToDelete = savedLogs.toList() // Create a copy to avoid concurrent modification
+                                        
+                                        filesToDelete.forEach { file ->
+                                            try {
+                                                if (file.exists() && file.delete()) {
+                                                    deletedCount++
+                                                } else {
+                                                    failedCount++
+                                                }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                failedCount++
                                             }
                                         }
+                                        
                                         withContext(Dispatchers.Main) {
                                             if (deletedCount > 0) {
                                                 savedLogs.clear()
-                                                Toast.makeText(
-                                                    context,
-                                                    "Deleted $deletedCount log files",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
+                                                val message = if (failedCount > 0) {
+                                                    "Deleted $deletedCount files, failed to delete $failedCount files"
+                                                } else {
+                                                    "Deleted $deletedCount log files"
+                                                }
+                                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                                             } else {
                                                 Toast.makeText(
                                                     context,
@@ -864,8 +889,12 @@ fun TroubleshootingScreen(navController: NavController) {
                             isLoadingLogContent = true
                             logContent = try {
                                 selectedLogFile?.readText() ?: ""
+                            } catch (e: SecurityException) {
+                                "Error: Permission denied reading log file"
+                            } catch (e: java.io.FileNotFoundException) {
+                                "Error: Log file not found"
                             } catch (e: Exception) {
-                                "Error loading log content: ${e.message}"
+                                "Error loading log content: ${e.localizedMessage ?: e.message}"
                             }
                             isLoadingLogContent = false
                             logContentLoaded = true

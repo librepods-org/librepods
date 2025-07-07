@@ -114,16 +114,17 @@ data class PacketInfo(
 )
 
 fun parsePacket(message: String): PacketInfo {
-    val rawData = if (message.startsWith("Sent")) message.substring(5) else message.substring(9)
-    val bytes = rawData.split(" ").mapNotNull {
-        it.takeIf { it.isNotEmpty() }?.toIntOrNull(16)?.toByte()
-    }.toByteArray()
+    return try {
+        val rawData = if (message.startsWith("Sent")) message.substring(5) else message.substring(9)
+        val bytes = rawData.split(" ").mapNotNull {
+            it.takeIf { it.isNotEmpty() }?.toIntOrNull(16)?.toByte()
+        }.toByteArray()
 
-    val airPodsService = ServiceManager.getService()
-    if (airPodsService != null) {
-        return when {
-            message.startsWith("Sent") -> parseOutgoingPacket(bytes, rawData)
-            airPodsService.batteryNotification.isBatteryData(bytes) -> {
+        val airPodsService = ServiceManager.getService()
+        if (airPodsService != null) {
+            return when {
+                message.startsWith("Sent") -> parseOutgoingPacket(bytes, rawData)
+                airPodsService.batteryNotification.isBatteryData(bytes) -> {
                 val batteryInfo = mutableMapOf<String, String>()
                 airPodsService.batteryNotification.setBattery(bytes)
                 val batteries = airPodsService.batteryNotification.getBattery()
@@ -214,14 +215,19 @@ fun parsePacket(message: String): PacketInfo {
             PacketInfo("Unknown", "Unknown packet format", rawData, emptyMap(), true)
         }
     }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return PacketInfo("Error", "Failed to parse packet: ${e.localizedMessage}", message.take(100), emptyMap(), true)
+    }
 }
 
 fun parseOutgoingPacket(bytes: ByteArray, rawData: String): PacketInfo {
     if (bytes.size < 7) {
-        return PacketInfo("Unknown", "Unknown outgoing packet", rawData, emptyMap(), true)
+        return PacketInfo("Unknown", "Unknown outgoing packet (insufficient data)", rawData, emptyMap(), true)
     }
 
-    return when {
+    return try {
+        when {
         bytes.size >= 16 &&
         bytes[0] == 0x00.toByte() &&
         bytes[1] == 0x00.toByte() &&
@@ -301,6 +307,10 @@ fun parseOutgoingPacket(bytes: ByteArray, rawData: String): PacketInfo {
 
         else -> PacketInfo("Unknown", "Unknown outgoing packet", rawData, emptyMap(), true)
     }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return PacketInfo("Error", "Failed to parse outgoing packet: ${e.localizedMessage}", rawData.take(100), emptyMap(), true)
+    }
 }
 
 @Composable
@@ -363,7 +373,16 @@ fun DebugScreen(navController: NavController) {
 
     LaunchedEffect(packetLogs.size, refreshTrigger.value) {
         if (shouldScrollToBottom.value && packetLogs.isNotEmpty()) {
-            listState.animateScrollToItem(packetLogs.size - 1)
+            try {
+                listState.animateScrollToItem((packetLogs.size - 1).coerceAtLeast(0))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                try {
+                    listState.scrollToItem((packetLogs.size - 1).coerceAtLeast(0))
+                } catch (scrollException: Exception) {
+                    scrollException.printStackTrace()
+                }
+            }
         }
     }
 
@@ -500,10 +519,16 @@ fun DebugScreen(navController: NavController) {
                     .weight(1f),
                 content = {
                     items(packetLogs.size) { index ->
-                        val message = packetLogs.elementAt(index)
-                        val isSent = message.startsWith("Sent")
-                        val isExpanded = expandedItems.value.contains(index)
-                        val packetInfo = parsePacket(message)
+                        if (index < packetLogs.size) {
+                            val message = packetLogs.elementAtOrNull(index) ?: return@items
+                            val isSent = message.startsWith("Sent")
+                            val isExpanded = expandedItems.value.contains(index)
+                            val packetInfo = try {
+                                parsePacket(message)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                PacketInfo("Error", "Failed to parse packet", message, emptyMap(), true)
+                            }
 
                         Card(
                             modifier = Modifier
@@ -592,6 +617,7 @@ fun DebugScreen(navController: NavController) {
                                 }
                             }
                         }
+                        }
                     }
                 }
             )
@@ -617,30 +643,41 @@ fun DebugScreen(navController: NavController) {
                         IconButton(
                             onClick = {
                                 if (packet.value.text.isNotBlank()) {
-                                    airPodsService?.value?.aacpManager?.sendPacket(
-                                        packet.value.text
+                                    try {
+                                        val bytes = packet.value.text
                                             .split(" ")
                                             .map { it.toInt(16).toByte() }
                                             .toByteArray()
-                                    )
-                                    packet.value = TextFieldValue("")
-                                    focusManager.clearFocus()
+                                        airPodsService?.value?.aacpManager?.sendPacket(bytes)
+                                        packet.value = TextFieldValue("")
+                                        focusManager.clearFocus()
 
-                                    if (shouldScrollToBottom.value && packetLogs.isNotEmpty()) {
-                                        coroutineScope.launch {
-                                            try {
-                                                delay(100)
-                                                listState.animateScrollToItem(
-                                                    index = (packetLogs.size - 1).coerceAtLeast(0),
-                                                    scrollOffset = 0
-                                                )
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                                listState.scrollToItem(
-                                                    index = (packetLogs.size - 1).coerceAtLeast(0)
-                                                )
+                                        if (shouldScrollToBottom.value && packetLogs.isNotEmpty()) {
+                                            coroutineScope.launch {
+                                                try {
+                                                    delay(100)
+                                                    listState.animateScrollToItem(
+                                                        index = (packetLogs.size - 1).coerceAtLeast(0),
+                                                        scrollOffset = 0
+                                                    )
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                    try {
+                                                        listState.scrollToItem(
+                                                            index = (packetLogs.size - 1).coerceAtLeast(0)
+                                                        )
+                                                    } catch (scrollException: Exception) {
+                                                        scrollException.printStackTrace()
+                                                    }
+                                                }
                                             }
                                         }
+                                    } catch (e: NumberFormatException) {
+                                        Toast.makeText(context, "Invalid packet format", Toast.LENGTH_SHORT).show()
+                                        e.printStackTrace()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error sending packet", Toast.LENGTH_SHORT).show()
+                                        e.printStackTrace()
                                     }
                                 }
                             }

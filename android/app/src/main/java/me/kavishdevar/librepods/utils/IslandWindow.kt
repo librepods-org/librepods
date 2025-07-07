@@ -106,14 +106,12 @@ class IslandWindow(private val context: Context) {
                 val batteryList = intent.getParcelableArrayListExtra<Battery>("data")
                 updateBatteryDisplay(batteryList)
             } else if (intent?.action == AirPodsNotifications.DISCONNECT_RECEIVERS) {
-                try {
-                    context?.unregisterReceiver(this)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                unregisterBatteryReceiver()
             }
         }
     }
+
+    private var isBatteryReceiverRegistered = false
 
     val isVisible: Boolean
         get() = containerView.parent != null && containerView.visibility == View.VISIBLE
@@ -192,13 +190,7 @@ class IslandWindow(private val context: Context) {
         batteryProgressBar.isIndeterminate = false
         islandView.findViewById<TextView>(R.id.island_device_name).text = name
 
-        val batteryIntentFilter = IntentFilter(AirPodsNotifications.BATTERY_DATA)
-        batteryIntentFilter.addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(batteryReceiver, batteryIntentFilter, Context.RECEIVER_EXPORTED)
-        } else {
-            context.registerReceiver(batteryReceiver, batteryIntentFilter)
-        }
+        registerBatteryReceiver()
 
         ServiceManager.getService()?.sendBatteryBroadcast()
 
@@ -409,7 +401,9 @@ class IslandWindow(private val context: Context) {
                 containerView.layoutParams = containerParams
                 
                 try {
-                    windowManager.updateViewLayout(containerView, params)
+                    if (containerView.parent != null) {
+                        windowManager.updateViewLayout(containerView, params)
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -443,7 +437,9 @@ class IslandWindow(private val context: Context) {
         if (params != null) {
             params!!.height = WindowManager.LayoutParams.WRAP_CONTENT
             try {
-                windowManager.updateViewLayout(containerView, params)
+                if (containerView.parent != null) {
+                    windowManager.updateViewLayout(containerView, params)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -524,7 +520,9 @@ class IslandWindow(private val context: Context) {
         if (params != null) {
             params!!.height = screenHeight
             try {
-                windowManager.updateViewLayout(containerView, params)
+                if (containerView.parent != null) {
+                    windowManager.updateViewLayout(containerView, params)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -603,11 +601,7 @@ class IslandWindow(private val context: Context) {
             if (isClosing) return
             isClosing = true
 
-            try {
-                context.unregisterReceiver(batteryReceiver)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            unregisterBatteryReceiver()
 
             ServiceManager.getService()?.islandOpen = false
             autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return)
@@ -617,6 +611,7 @@ class IslandWindow(private val context: Context) {
             val videoView = islandView.findViewById<VideoView>(R.id.island_video_view)
             try {
                 videoView.stopPlayback()
+                videoView.suspend()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -661,11 +656,7 @@ class IslandWindow(private val context: Context) {
             if (isClosing) return
             isClosing = true
             
-            try {
-                context.unregisterReceiver(batteryReceiver)
-            } catch (e: Exception) {
-                // Silent catch - receiver might already be unregistered
-            }
+            unregisterBatteryReceiver()
             
             ServiceManager.getService()?.islandOpen = false
             autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return)
@@ -679,6 +670,36 @@ class IslandWindow(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
             isClosing = false
+        }
+    }
+
+    private fun registerBatteryReceiver() {
+        if (!isBatteryReceiverRegistered) {
+            try {
+                val batteryIntentFilter = IntentFilter(AirPodsNotifications.BATTERY_DATA)
+                batteryIntentFilter.addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    context.registerReceiver(batteryReceiver, batteryIntentFilter, Context.RECEIVER_EXPORTED)
+                } else {
+                    context.registerReceiver(batteryReceiver, batteryIntentFilter)
+                }
+                isBatteryReceiverRegistered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun unregisterBatteryReceiver() {
+        if (isBatteryReceiverRegistered) {
+            try {
+                context.unregisterReceiver(batteryReceiver)
+                isBatteryReceiverRegistered = false
+            } catch (e: Exception) {
+                e.printStackTrace()
+                // Set to false even if unregister fails to avoid double unregistration
+                isBatteryReceiverRegistered = false
+            }
         }
     }
 }

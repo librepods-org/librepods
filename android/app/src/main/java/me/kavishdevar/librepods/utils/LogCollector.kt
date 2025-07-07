@@ -30,6 +30,7 @@ import java.io.InputStreamReader
 class LogCollector(private val context: Context) {
     private var isCollecting = false
     private var logProcess: Process? = null
+    private var logReader: BufferedReader? = null
     
     suspend fun openXposedSettings(context: Context) {
         withContext(Dispatchers.IO) {
@@ -93,11 +94,11 @@ class LogCollector(private val context: Context) {
             val logs = StringBuilder()
             try {
                 logProcess = Runtime.getRuntime().exec(command)
-                val reader = BufferedReader(InputStreamReader(logProcess!!.inputStream))
+                logReader = BufferedReader(InputStreamReader(logProcess!!.inputStream))
                 var line: String? = null
                 var connectionDetected = false
                 
-                while (isCollecting && reader.readLine().also { line = it } != null) {
+                while (isCollecting && logReader?.readLine().also { line = it } != null) {
                     line?.let {
                         if (it.contains("<LogCollector:")) {
                             logs.append("\n=============\n")
@@ -138,6 +139,13 @@ class LogCollector(private val context: Context) {
             } catch (e: Exception) {
                 logs.append("Error collecting logs: ${e.message}").append("\n")
                 e.printStackTrace()
+            } finally {
+                try {
+                    logReader?.close()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                logReader = null
             }
             
             logs.toString()
@@ -146,7 +154,18 @@ class LogCollector(private val context: Context) {
     
     fun stopLogCollection() {
         isCollecting = false
-        logProcess?.destroy()
+        try {
+            logReader?.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        logReader = null
+        
+        try {
+            logProcess?.destroy()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         logProcess = null
     }
     
@@ -194,9 +213,11 @@ class LogCollector(private val context: Context) {
     
     private suspend fun executeRootCommand(command: String): String {
         return withContext(Dispatchers.IO) {
+            var process: Process? = null
+            var reader: BufferedReader? = null
             try {
-                val process = Runtime.getRuntime().exec("su -c $command")
-                val reader = BufferedReader(InputStreamReader(process.inputStream))
+                process = Runtime.getRuntime().exec("su -c $command")
+                reader = BufferedReader(InputStreamReader(process.inputStream))
                 val output = StringBuilder()
                 var line: String?
                 
@@ -209,6 +230,17 @@ class LogCollector(private val context: Context) {
             } catch (e: Exception) {
                 e.printStackTrace()
                 ""
+            } finally {
+                try {
+                    reader?.close()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                try {
+                    process?.destroy()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
