@@ -2146,6 +2146,11 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        try {
+            MediaController.cleanup()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
         isConnectedLocally = false
         CrossDevice.isAvailable = true

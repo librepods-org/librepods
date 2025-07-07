@@ -200,4 +200,25 @@ object MediaController {
             }
         })
     }
+
+    /**
+     * Cleanup method to unregister listeners and remove callbacks to prevent memory leaks
+     */
+    fun cleanup() {
+        try {
+            sharedPreferences.unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
+        } catch (e: Exception) {
+            Log.e("MediaController", "Error unregistering preference listener", e)
+        }
+        try {
+            audioManager.unregisterAudioPlaybackCallback(cb)
+        } catch (e: Exception) {
+            Log.e("MediaController", "Error unregistering audio callback", e)
+        }
+        try {
+            handler.removeCallbacksAndMessages(null)
+        } catch (e: Exception) {
+            Log.e("MediaController", "Error removing handler callbacks", e)
+        }
+    }
 }
