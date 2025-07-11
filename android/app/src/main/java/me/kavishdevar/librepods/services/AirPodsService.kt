@@ -1068,7 +1068,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         if (isInCall) return
         if (config.headGestures) {
             initGestureDetector()
-            aacpManager.sendStartHeadTracking()
+            startHeadTracking()
             gestureDetector?.startDetection { accepted ->
                 if (accepted) {
                     answerCall()
@@ -2131,12 +2131,22 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     fun startHeadTracking() {
         isHeadTrackingActive = true
-        aacpManager.sendStartHeadTracking()
+        val useAlternatePackets = sharedPreferences.getBoolean("use_alternate_head_tracking_packets", false)
+        if (useAlternatePackets) {
+            aacpManager.sendDataPacket(aacpManager.createAlternateStartHeadTrackingPacket())
+        } else {
+            aacpManager.sendStartHeadTracking()
+        }
         HeadTracking.reset()
     }
 
     fun stopHeadTracking() {
-        aacpManager.sendStopHeadTracking()
+        val useAlternatePackets = sharedPreferences.getBoolean("use_alternate_head_tracking_packets", false)
+        if (useAlternatePackets) {
+            aacpManager.sendDataPacket(aacpManager.createAlternateStopHeadTrackingPacket())
+        } else {
+            aacpManager.sendStopHeadTracking()
+        }
         isHeadTrackingActive = false
     }
 

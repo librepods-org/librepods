@@ -179,6 +179,10 @@ fun AppSettingsScreen(navController: NavController) {
         mutableStateOf(sharedPreferences.getBoolean("takeover_when_media_start", true))
     }
 
+    var useAlternateHeadTrackingPackets by remember {
+        mutableStateOf(sharedPreferences.getBoolean("use_alternate_head_tracking_packets", false))
+    }
+
     var mDensity by remember { mutableFloatStateOf(0f) }
 
     fun validateHexInput(input: String): Boolean {
@@ -1038,6 +1042,47 @@ fun AppSettingsScreen(navController: NavController) {
                             lineHeight = 16.sp,
                         )
                     }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {
+                            useAlternateHeadTrackingPackets = !useAlternateHeadTrackingPackets
+                            sharedPreferences.edit().putBoolean("use_alternate_head_tracking_packets", useAlternateHeadTrackingPackets).apply()
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 8.dp)
+                            .padding(end = 4.dp)
+                    ) {
+                        Text(
+                            text = "Use alternate head tracking packets",
+                            fontSize = 16.sp,
+                            color = textColor
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Enable this if head tracking doesn't work for you. This sends different data to AirPods for requesting/stopping head tracking data.",
+                            fontSize = 14.sp,
+                            color = textColor.copy(0.6f),
+                            lineHeight = 16.sp,
+                        )
+                    }
+
+                    StyledSwitch(
+                        checked = useAlternateHeadTrackingPackets,
+                        onCheckedChange = {
+                            useAlternateHeadTrackingPackets = it
+                            sharedPreferences.edit().putBoolean("use_alternate_head_tracking_packets", it).apply()
+                        }
+                    )
                 }
 
                 Row(
