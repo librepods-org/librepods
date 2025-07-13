@@ -79,4 +79,12 @@
     <string name="takeover_ringing_call_desc">Your phone starts ringing</string>
     <string name="takeover_media_start">Starting media playback</string>
     <string name="takeover_media_start_desc">Your phone starts playing media</string>
+    
+    <!-- Google Assistant Shortcuts -->
+    <string name="shortcut_noise_cancellation">Turn on noise cancellation</string>
+    <string name="shortcut_transparency">Turn on transparency mode</string>
+    <string name="shortcut_adaptive">Turn on adaptive transparency</string>
+    <string name="shortcut_off">Turn off noise control</string>
+    <string name="shortcut_conversational_awareness_on">Turn on conversational awareness</string>
+    <string name="shortcut_conversational_awareness_off">Turn off conversational awareness</string>
 </resources>

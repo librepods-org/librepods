@@ -1,12 +1,12 @@
 [versions]
 accompanistPermissions = "0.36.0"
-agp = "8.1.4"
+agp = "8.0.2"
+kotlin = "1.9.10"
 hiddenapibypass = "6.1"
-kotlin = "2.1.10"
-coreKtx = "1.16.0"
-lifecycleRuntimeKtx = "2.8.7"
-activityCompose = "1.10.1"
-composeBom = "2025.04.00"
+coreKtx = "1.12.0"
+lifecycleRuntimeKtx = "2.7.0"
+activityCompose = "1.8.2"
+composeBom = "2024.04.01"
 annotations = "26.0.2"
 navigationCompose = "2.8.9"
 constraintlayout = "2.2.1"
@@ -41,5 +41,4 @@ androidx-dynamicanimation = { group = "androidx.dynamicanimation", name = "dynam
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 

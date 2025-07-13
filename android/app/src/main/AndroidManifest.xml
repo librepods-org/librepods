@@ -97,6 +97,26 @@
                 <data android:scheme="librepods" 
                     android:host="add-magic-keys" />
             </intent-filter>
+            
+            <!-- Google Assistant shortcuts metadata -->
+            <meta-data android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <activity
+            android:name=".ShortcutHandlerActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="me.kavishdevar.librepods.SHORTCUT_CONVERSATIONAL_AWARENESS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <activity

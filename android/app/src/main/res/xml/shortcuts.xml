@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- Noise Control Mode Shortcuts -->
+    <shortcut
+        android:shortcutId="noise_cancellation"
+        android:enabled="true"
+        android:icon="@drawable/noise_cancellation"
+        android:shortcutShortLabel="@string/noise_cancellation"
+        android:shortcutLongLabel="@string/shortcut_noise_cancellation"
+        android:shortcutDisabledMessage="AirPods not connected">
+        <intent
+            android:action="me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL"
+            android:targetPackage="me.kavishdevar.librepods"
+            android:targetClass="me.kavishdevar.librepods.ShortcutHandlerActivity">
+            <extra android:name="mode" android:value="2" />
+        </intent>
+    </shortcut>
+    
+    <shortcut
+        android:shortcutId="transparency"
+        android:enabled="true"
+        android:icon="@drawable/transparency"
+        android:shortcutShortLabel="@string/transparency"
+        android:shortcutLongLabel="@string/shortcut_transparency"
+        android:shortcutDisabledMessage="AirPods not connected">
+        <intent
+            android:action="me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL"
+            android:targetPackage="me.kavishdevar.librepods"
+            android:targetClass="me.kavishdevar.librepods.ShortcutHandlerActivity">
+            <extra android:name="mode" android:value="3" />
+        </intent>
+    </shortcut>
+    
+    <shortcut
+        android:shortcutId="adaptive"
+        android:enabled="true"
+        android:icon="@drawable/adaptive"
+        android:shortcutShortLabel="@string/adaptive"
+        android:shortcutLongLabel="@string/shortcut_adaptive"
+        android:shortcutDisabledMessage="AirPods not connected">
+        <intent
+            android:action="me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL"
+            android:targetPackage="me.kavishdevar.librepods"
+            android:targetClass="me.kavishdevar.librepods.ShortcutHandlerActivity">
+            <extra android:name="mode" android:value="4" />
+        </intent>
+    </shortcut>
+    
+    <shortcut
+        android:shortcutId="off"
+        android:enabled="true"
+        android:icon="@drawable/noise_cancellation"
+        android:shortcutShortLabel="@string/off"
+        android:shortcutLongLabel="@string/shortcut_off"
+        android:shortcutDisabledMessage="AirPods not connected">
+        <intent
+            android:action="me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL"
+            android:targetPackage="me.kavishdevar.librepods"
+            android:targetClass="me.kavishdevar.librepods.ShortcutHandlerActivity">
+            <extra android:name="mode" android:value="1" />
+        </intent>
+    </shortcut>
+    
+    <!-- Conversational Awareness Shortcuts -->
+    <shortcut
+        android:shortcutId="conversational_awareness_on"
+        android:enabled="true"
+        android:icon="@drawable/adaptive"
+        android:shortcutShortLabel="Conversational Awareness On"
+        android:shortcutLongLabel="@string/shortcut_conversational_awareness_on"
+        android:shortcutDisabledMessage="AirPods not connected">
+        <intent
+            android:action="me.kavishdevar.librepods.SHORTCUT_CONVERSATIONAL_AWARENESS"
+            android:targetPackage="me.kavishdevar.librepods"
+            android:targetClass="me.kavishdevar.librepods.ShortcutHandlerActivity">
+            <extra android:name="enabled" android:value="true" />
+        </intent>
+    </shortcut>
+    
+    <shortcut
+        android:shortcutId="conversational_awareness_off"
+        android:enabled="true"
+        android:icon="@drawable/adaptive"
+        android:shortcutShortLabel="Conversational Awareness Off"
+        android:shortcutLongLabel="@string/shortcut_conversational_awareness_off"
+        android:shortcutDisabledMessage="AirPods not connected">
+        <intent
+            android:action="me.kavishdevar.librepods.SHORTCUT_CONVERSATIONAL_AWARENESS"
+            android:targetPackage="me.kavishdevar.librepods"
+            android:targetClass="me.kavishdevar.librepods.ShortcutHandlerActivity">
+            <extra android:name="enabled" android:value="false" />
+        </intent>
+    </shortcut>
+
+</shortcuts>
