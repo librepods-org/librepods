@@ -25,6 +25,7 @@ Most features should work with any AirPods. Currently, testing is only performed
 ## Key Features
 
 - **Noise Control Modes**: Easily switch between noise control modes without having to reach out to your AirPods to long press
+- **Google Assistant Integration**: Control your AirPods with voice commands like "Hey Google, turn on noise cancellation"
 - **Ear Detection**: Controls your music automatically when you put your AirPods in or take them out, and switch to phone speaker when you take them out
 - **Battery Status**: Accurate battery levels
 - **Head Gestures**: Answer calls just by nodding your head
@@ -110,6 +111,29 @@ If you're unfamiliar with these steps, search for tutorials online or ask in And
 - If you have take both AirPods out, the app will automatically switch to the phone speaker. But, Android might keep on trying to connect to the AirPods because the phone is still connected to them, just the A2DP profile is not connected. The app tries to disconnect the A2DP profile as soon as it detects that Android has connected again if they're not in the ear.
 
 - When renaming your AirPods through the app, you'll need to re-pair them with your phone for the name change to take effect. This is a limitation of how Bluetooth device naming works on Android.
+
+## Google Assistant Integration
+
+LibrePods supports voice control through Google Assistant shortcuts. You can control your AirPods using natural voice commands:
+
+### Available Voice Commands
+
+**Noise Control:**
+- "Hey Google, turn on noise cancellation"
+- "Hey Google, turn on transparency mode"
+- "Hey Google, turn on adaptive transparency"
+- "Hey Google, turn off noise control"
+
+**Conversational Awareness:**
+- "Hey Google, turn on conversational awareness"
+- "Hey Google, turn off conversational awareness"
+
+### Requirements
+- LibrePods service must be running
+- AirPods must be connected
+- Google Assistant enabled on your device
+
+For detailed setup and troubleshooting, see the [Google Assistant Shortcuts Guide](docs/google-assistant-shortcuts.md).
 
 ## Development Resources
 

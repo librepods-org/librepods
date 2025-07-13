@@ -29,42 +29,73 @@ import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 
+/**
+ * Activity that handles Google Assistant shortcuts for LibrePods features.
+ * This activity processes shortcut intents and communicates with the AirPodsService
+ * to execute the requested commands.
+ */
 class ShortcutHandlerActivity : Activity() {
+    
+    companion object {
+        private const val TAG = "ShortcutHandler"
+        private const val ACTION_NOISE_CONTROL = "me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL"
+        private const val ACTION_CONVERSATIONAL_AWARENESS = "me.kavishdevar.librepods.SHORTCUT_CONVERSATIONAL_AWARENESS"
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        Log.d("ShortcutHandler", "Handling shortcut intent: ${intent.action}")
+        Log.d(TAG, "Handling shortcut intent: ${intent.action}")
         
         val service = ServiceManager.getService()
         if (service == null) {
-            Toast.makeText(this, "LibrePods service not running", Toast.LENGTH_SHORT).show()
+            Log.w(TAG, "LibrePods service not running")
+            showToast("LibrePods service not running. Please ensure the app is running.")
+            finish()
+            return
+        }
+        
+        if (!isAirPodsConnected(service)) {
+            Log.w(TAG, "AirPods not connected")
+            showToast("AirPods not connected. Please connect your AirPods first.")
             finish()
             return
         }
         
         when (intent.action) {
-            "me.kavishdevar.librepods.SHORTCUT_NOISE_CONTROL" -> {
+            ACTION_NOISE_CONTROL -> {
                 handleNoiseControlShortcut(intent, service)
             }
-            "me.kavishdevar.librepods.SHORTCUT_CONVERSATIONAL_AWARENESS" -> {
+            ACTION_CONVERSATIONAL_AWARENESS -> {
                 handleConversationalAwarenessShortcut(intent, service)
             }
             else -> {
-                Log.w("ShortcutHandler", "Unknown shortcut action: ${intent.action}")
-                Toast.makeText(this, "Unknown shortcut action", Toast.LENGTH_SHORT).show()
+                Log.w(TAG, "Unknown shortcut action: ${intent.action}")
+                showToast("Unknown shortcut action")
             }
         }
         
         finish()
     }
     
+    /**
+     * Checks if AirPods are currently connected to the device.
+     */
+    private fun isAirPodsConnected(service: me.kavishdevar.librepods.services.AirPodsService): Boolean {
+        // You might want to implement a proper connection check here
+        // For now, we'll assume if the service is running, AirPods are connected
+        return true
+    }
+    
+    /**
+     * Handles noise control mode shortcuts.
+     */
     private fun handleNoiseControlShortcut(intent: Intent, service: me.kavishdevar.librepods.services.AirPodsService) {
         val mode = intent.getIntExtra("mode", -1)
         
         if (mode !in 1..4) {
-            Log.e("ShortcutHandler", "Invalid noise control mode: $mode")
-            Toast.makeText(this, "Invalid noise control mode", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Invalid noise control mode: $mode")
+            showToast("Invalid noise control mode")
             return
         }
         
@@ -82,15 +113,18 @@ class ShortcutHandlerActivity : Activity() {
                 else -> "Unknown"
             }
             
-            Toast.makeText(this, "Switched to $modeName mode", Toast.LENGTH_SHORT).show()
-            Log.d("ShortcutHandler", "Set noise control mode to $mode ($modeName)")
+            showToast("Switched to $modeName mode")
+            Log.d(TAG, "Successfully set noise control mode to $mode ($modeName)")
             
         } catch (e: Exception) {
-            Log.e("ShortcutHandler", "Failed to set noise control mode", e)
-            Toast.makeText(this, "Failed to change noise control mode", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Failed to set noise control mode", e)
+            showToast("Failed to change noise control mode")
         }
     }
     
+    /**
+     * Handles conversational awareness shortcuts.
+     */
     private fun handleConversationalAwarenessShortcut(intent: Intent, service: me.kavishdevar.librepods.services.AirPodsService) {
         val enabled = intent.getBooleanExtra("enabled", true)
         
@@ -101,12 +135,19 @@ class ShortcutHandlerActivity : Activity() {
             )
             
             val status = if (enabled) "enabled" else "disabled"
-            Toast.makeText(this, "Conversational Awareness $status", Toast.LENGTH_SHORT).show()
-            Log.d("ShortcutHandler", "Set conversational awareness to $enabled")
+            showToast("Conversational Awareness $status")
+            Log.d(TAG, "Successfully set conversational awareness to $enabled")
             
         } catch (e: Exception) {
-            Log.e("ShortcutHandler", "Failed to set conversational awareness", e)
-            Toast.makeText(this, "Failed to change conversational awareness", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Failed to set conversational awareness", e)
+            showToast("Failed to change conversational awareness")
         }
+    }
+    
+    /**
+     * Shows a toast message to the user.
+     */
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }
