@@ -265,7 +265,7 @@ ApplicationWindow {
 
                         Button {
                             text: "Rename"
-                            onClicked: airPodsTrayApp.deviceInfo.renameAirPods(newNameField.text)
+                            onClicked: airPodsTrayApp.renameAirPods(newNameField.text)
                         }
                     }
 
