@@ -11,6 +11,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QProcess>
+#include <QRegularExpression>
 
 #include "airpods_packets.h"
 #include "logger.h"
@@ -40,6 +41,7 @@ class AirPodsTrayApp : public QObject {
     Q_PROPERTY(int retryAttempts READ retryAttempts WRITE setRetryAttempts NOTIFY retryAttemptsChanged)
     Q_PROPERTY(bool hideOnStart READ hideOnStart CONSTANT)
     Q_PROPERTY(DeviceInfo *deviceInfo READ deviceInfo CONSTANT)
+    Q_PROPERTY(QString phoneMacStatus READ phoneMacStatus NOTIFY phoneMacStatusChanged)
 
 public:
     AirPodsTrayApp(bool debugMode, bool hideOnStart, QQmlApplicationEngine *parent = nullptr)
@@ -119,6 +121,7 @@ public:
     int retryAttempts() const { return m_retryAttempts; }
     bool hideOnStart() const { return m_hideOnStart; }
     DeviceInfo *deviceInfo() const { return m_deviceInfo; }
+    QString phoneMacStatus() const { return m_phoneMacStatus; }
 
 private:
     bool debugMode;
@@ -308,6 +311,51 @@ public slots:
         saveCrossDeviceEnabled();
         connectToPhone();
         emit crossDeviceEnabledChanged(enabled);
+    }
+
+    void setPhoneMac(const QString &mac)
+    {
+        if (mac.isEmpty()) {
+            LOG_WARN("Empty MAC provided, ignoring");
+            m_phoneMacStatus = QStringLiteral("No MAC provided (ignoring)");
+            emit phoneMacStatusChanged();
+            return;
+        }
+
+        // Basic MAC address validation (accepts formats like AA:BB:CC:DD:EE:FF, AABBCCDDEEFF, AA-BB-CC-DD-EE-FF)
+        QRegularExpression re("^([0-9A-Fa-f]{2}([-:]?)){5}[0-9A-Fa-f]{2}$");
+        if (!re.match(mac).hasMatch()) {
+            LOG_ERROR("Invalid MAC address format: " << mac);
+            m_phoneMacStatus = QStringLiteral("Invalid MAC: ") + mac;
+            emit phoneMacStatusChanged();
+            return;
+        }
+
+        // Set environment variable for the running process
+        qputenv("PHONE_MAC_ADDRESS", mac.toUtf8());
+        LOG_INFO("PHONE_MAC_ADDRESS environment variable set to: " << mac);
+
+        m_phoneMacStatus = QStringLiteral("Updated MAC: ") + mac;
+        emit phoneMacStatusChanged();
+
+        // Update QML context property so UI placeholders reflect the new value
+        if (parent) {
+            parent->rootContext()->setContextProperty("PHONE_MAC_ADDRESS", mac);
+        }
+
+        // If a phone socket exists, restart connection using the new MAC
+        if (phoneSocket && phoneSocket->isOpen()) {
+            phoneSocket->close();
+            phoneSocket->deleteLater();
+            phoneSocket = nullptr;
+        }
+        connectToPhone();
+    }
+
+    void updatePhoneMacStatus(const QString &status)
+    {
+        m_phoneMacStatus = status;
+        emit phoneMacStatusChanged();
     }
 
     bool writePacketToSocket(const QByteArray &packet, const QString &logMessage)
@@ -658,6 +706,7 @@ private slots:
         }
         QBluetoothAddress phoneAddress("00:00:00:00:00:00"); // Default address, will be overwritten if PHONE_MAC_ADDRESS is set
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        
         if (!env.value("PHONE_MAC_ADDRESS").isEmpty())
         {
             phoneAddress = QBluetoothAddress(env.value("PHONE_MAC_ADDRESS"));
@@ -854,6 +903,7 @@ signals:
     void notificationsEnabledChanged(bool enabled);
     void retryAttemptsChanged(int attempts);
     void oneBudANCModeChanged(bool enabled);
+    void phoneMacStatusChanged();
 
 private:
     QBluetoothSocket *socket = nullptr;
@@ -870,6 +920,7 @@ private:
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
+    QString m_phoneMacStatus;
 };
 
 int main(int argc, char *argv[]) {
@@ -917,6 +968,16 @@ int main(int argc, char *argv[]) {
     qmlRegisterType<DeviceInfo>("me.kavishdevar.DeviceInfo", 1, 0, "DeviceInfo");
     AirPodsTrayApp *trayApp = new AirPodsTrayApp(debugMode, hideOnStart, &engine);
     engine.rootContext()->setContextProperty("airPodsTrayApp", trayApp);
+
+    // Expose PHONE_MAC_ADDRESS environment variable to QML for placeholder in settings
+    {
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        QString phoneMacEnv = env.value("PHONE_MAC_ADDRESS", "");
+        engine.rootContext()->setContextProperty("PHONE_MAC_ADDRESS", phoneMacEnv);
+        // Initialize the visible status in the GUI
+        trayApp->updatePhoneMacStatus(phoneMacEnv.isEmpty() ? QStringLiteral("No phone MAC set") : phoneMacEnv);
+    }
+
     engine.addImageProvider("qrcode", new QRCodeImageProvider());
     trayApp->loadMainModule();
 
