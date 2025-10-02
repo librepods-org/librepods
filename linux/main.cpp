@@ -967,7 +967,7 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
     QSharedMemory sharedMemory;
-    sharedMemory.setKey("TcpServer-Key");
+    sharedMemory.setKey("TcpServer-Key2");
 
     // Check if app is already open
     if(sharedMemory.create(1) == false) 

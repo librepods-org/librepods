@@ -2,14 +2,21 @@
 #include "logger.h"
 #include "eardetection.hpp"
 #include "playerstatuswatcher.h"
+#include "pulseaudiocontroller.h"
 
 #include <QDebug>
 #include <QProcess>
+#include <QThread>
 #include <QRegularExpression>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 
 MediaController::MediaController(QObject *parent) : QObject(parent) {
+  m_pulseAudio = new PulseAudioController(this);
+  if (!m_pulseAudio->initialize())
+  {
+    LOG_ERROR("Failed to initialize PulseAudio controller");
+  }
 }
 
 void MediaController::handleEarDetection(EarDetection *earDetection)
@@ -87,12 +94,9 @@ void MediaController::followMediaChanges() {
 }
 
 bool MediaController::isActiveOutputDeviceAirPods() {
-  QProcess process;
-  process.start("pactl", QStringList() << "get-default-sink");
-  process.waitForFinished();
-  QString output = process.readAllStandardOutput().trimmed();
-  LOG_DEBUG("Default sink: " << output);
-  return output.contains(connectedDeviceMacAddress);
+  QString defaultSink = m_pulseAudio->getDefaultSink();
+  LOG_DEBUG("Default sink: " << defaultSink);
+  return defaultSink.contains(connectedDeviceMacAddress);
 }
 
 void MediaController::handleConversationalAwareness(const QByteArray &data) {
@@ -102,32 +106,29 @@ void MediaController::handleConversationalAwareness(const QByteArray &data) {
 
   if (lowered) {
     if (initialVolume == -1 && isActiveOutputDeviceAirPods()) {
-      QProcess process;
-      process.start("pactl", QStringList()
-                                 << "get-sink-volume" << "@DEFAULT_SINK@");
-      process.waitForFinished();
-      QString output = process.readAllStandardOutput();
-      QRegularExpression re("front-left: \\d+ /\\s*(\\d+)%");
-      QRegularExpressionMatch match = re.match(output);
-      if (match.hasMatch()) {
-        LOG_DEBUG("Matched: " << match.captured(1));
-        initialVolume = match.captured(1).toInt();
-      } else {
-        LOG_ERROR("Failed to parse initial volume from output: " << output);
+      QString defaultSink = m_pulseAudio->getDefaultSink();
+      initialVolume = m_pulseAudio->getSinkVolume(defaultSink);
+      if (initialVolume == -1) {
+        LOG_ERROR("Failed to get initial volume");
         return;
       }
+      LOG_DEBUG("Initial volume: " << initialVolume << "%");
     }
-    QProcess::execute(
-        "pactl", QStringList() << "set-sink-volume" << "@DEFAULT_SINK@"
-                               << QString::number(initialVolume * 0.20) + "%");
-    LOG_INFO("Volume lowered to 0.20 of initial which is "
-             << initialVolume * 0.20 << "%");
+    QString defaultSink = m_pulseAudio->getDefaultSink();
+    int targetVolume = initialVolume * 0.20;
+    if (m_pulseAudio->setSinkVolume(defaultSink, targetVolume)) {
+      LOG_INFO("Volume lowered to 0.20 of initial which is " << targetVolume << "%");
+    } else {
+      LOG_ERROR("Failed to lower volume");
+    }
   } else {
     if (initialVolume != -1 && isActiveOutputDeviceAirPods()) {
-      QProcess::execute("pactl", QStringList()
-                                     << "set-sink-volume" << "@DEFAULT_SINK@"
-                                     << QString::number(initialVolume) + "%");
-      LOG_INFO("Volume restored to " << initialVolume << "%");
+      QString defaultSink = m_pulseAudio->getDefaultSink();
+      if (m_pulseAudio->setSinkVolume(defaultSink, initialVolume)) {
+        LOG_INFO("Volume restored to " << initialVolume << "%");
+      } else {
+        LOG_ERROR("Failed to restore volume");
+      }
       initialVolume = -1;
     }
   }
@@ -138,26 +139,33 @@ bool MediaController::isA2dpProfileAvailable() {
     return false;
   }
 
-  QProcess process;
-  process.start("pactl", QStringList() << "list" << "cards");
-  if (!process.waitForFinished(3000)) {
-    LOG_ERROR("pactl command timed out while checking A2DP availability");
-    return false;
+  return m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc_xq") || 
+         m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc") ||
+         m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink");
+}
+
+QString MediaController::getPreferredA2dpProfile() {
+  if (m_deviceOutputName.isEmpty()) {
+    return QString();
   }
 
-  QString output = process.readAllStandardOutput();
-
-  // Check if the card section contains our device
-  int cardStart = output.indexOf(m_deviceOutputName);
-  if (cardStart == -1) {
-    return false;
+  if (!m_cachedA2dpProfile.isEmpty() && 
+      m_pulseAudio->isProfileAvailable(m_deviceOutputName, m_cachedA2dpProfile)) {
+    return m_cachedA2dpProfile;
   }
 
-  // Look for a2dp-sink profile in the card's section
-  int nextCard = output.indexOf("Name: ", cardStart + m_deviceOutputName.length());
-  QString cardSection = (nextCard == -1) ? output.mid(cardStart) : output.mid(cardStart, nextCard - cardStart);
+  QStringList profiles = {"a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp-sink"};
 
-  return cardSection.contains("a2dp-sink");
+  for (const QString &profile : profiles) {
+    if (m_pulseAudio->isProfileAvailable(m_deviceOutputName, profile)) {
+      LOG_INFO("Selected best available A2DP profile: " << profile);
+      m_cachedA2dpProfile = profile;
+      return profile;
+    }
+  }
+
+  m_cachedA2dpProfile.clear();
+  return QString();
 }
 
 bool MediaController::restartWirePlumber() {
@@ -165,11 +173,10 @@ bool MediaController::restartWirePlumber() {
   int result = QProcess::execute("systemctl", QStringList() << "--user" << "restart" << "wireplumber");
   if (result == 0) {
     LOG_INFO("WirePlumber restarted successfully");
-    // Wait a bit for WirePlumber to rediscover profiles
-    QProcess::execute("sleep", QStringList() << "2");
+    QThread::sleep(2);
     return true;
   } else {
-    LOG_ERROR("Failed to restart WirePlumber");
+    LOG_ERROR("Failed to restart WirePlumber. Do you use wireplumber?");
     return false;
   }
 }
@@ -180,11 +187,9 @@ void MediaController::activateA2dpProfile() {
     return;
   }
 
-  // Check if A2DP profile is available
   if (!isA2dpProfileAvailable()) {
     LOG_WARN("A2DP profile not available, attempting to restart WirePlumber");
     if (restartWirePlumber()) {
-      // Update device output name after restart
       m_deviceOutputName = getAudioDeviceName();
       if (!isA2dpProfileAvailable()) {
         LOG_ERROR("A2DP profile still not available after WirePlumber restart");
@@ -196,13 +201,15 @@ void MediaController::activateA2dpProfile() {
     }
   }
 
-  LOG_INFO("Activating A2DP profile for AirPods");
-  int result = QProcess::execute(
-      "pactl", QStringList()
-                   << "set-card-profile"
-                   << m_deviceOutputName << "a2dp-sink");
-  if (result != 0) {
-    LOG_ERROR("Failed to activate A2DP profile");
+  QString preferredProfile = getPreferredA2dpProfile();
+  if (preferredProfile.isEmpty()) {
+    LOG_ERROR("No suitable A2DP profile found");
+    return;
+  }
+
+  LOG_INFO("Activating A2DP profile for AirPods: " << preferredProfile);
+  if (!m_pulseAudio->setCardProfile(m_deviceOutputName, preferredProfile)) {
+    LOG_ERROR("Failed to activate A2DP profile: " << preferredProfile);
   }
 }
 
@@ -213,11 +220,7 @@ void MediaController::removeAudioOutputDevice() {
   }
   
   LOG_INFO("Removing AirPods as audio output device");
-  int result = QProcess::execute(
-      "pactl", QStringList()
-                   << "set-card-profile"
-                   << m_deviceOutputName << "off");
-  if (result != 0) {
+  if (!m_pulseAudio->setCardProfile(m_deviceOutputName, "off")) {
     LOG_ERROR("Failed to remove AirPods as audio output device");
   }
 }
@@ -225,6 +228,7 @@ void MediaController::removeAudioOutputDevice() {
 void MediaController::setConnectedDeviceMacAddress(const QString &macAddress) {
   connectedDeviceMacAddress = macAddress;
   m_deviceOutputName = getAudioDeviceName();
+  m_cachedA2dpProfile.clear();
   LOG_INFO("Device output name set to: " << m_deviceOutputName);
 }
 
@@ -345,40 +349,9 @@ QString MediaController::getAudioDeviceName()
 {
   if (connectedDeviceMacAddress.isEmpty()) { return QString(); }
 
-  // Set up QProcess to run pactl directly
-  QProcess process;
-  process.start("pactl", QStringList() << "list" << "cards" << "short");
-  if (!process.waitForFinished(3000)) // Timeout after 3 seconds
-  {
-    LOG_ERROR("pactl command failed or timed out: " << process.errorString());
-    return QString();
+  QString cardName = m_pulseAudio->getCardNameForDevice(connectedDeviceMacAddress);
+  if (cardName.isEmpty()) {
+    LOG_ERROR("No matching Bluetooth card found for MAC address: " << connectedDeviceMacAddress);
   }
-
-  // Check for execution errors
-  if (process.exitCode() != 0)
-  {
-    LOG_ERROR("pactl exited with error code: " << process.exitCode());
-    return QString();
-  }
-
-  // Read and parse the command output
-  QString output = process.readAllStandardOutput();
-  QStringList lines = output.split("\n", Qt::SkipEmptyParts);
-
-  // Iterate through each line to find a matching Bluetooth sink
-  for (const QString &line : lines)
-  {
-    QStringList fields = line.split("\t", Qt::SkipEmptyParts);
-    if (fields.size() < 2) { continue; }
-
-    QString sinkName = fields[1].trimmed();
-    if (sinkName.startsWith("bluez") && sinkName.contains(connectedDeviceMacAddress))
-    {
-      return sinkName;
-    }
-  }
-
-  // No matching sink found
-  LOG_ERROR("No matching Bluetooth sink found for MAC address: " << connectedDeviceMacAddress);
-  return QString();
+  return cardName;
 }

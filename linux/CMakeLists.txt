@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS Quick Widgets Bluetooth DBus)
 find_package(OpenSSL REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PULSEAUDIO REQUIRED libpulse)
 
 qt_standard_project_setup(REQUIRES 6.4)
 
@@ -14,6 +16,8 @@ qt_add_executable(librepods
     logger.h
     media/mediacontroller.cpp
     media/mediacontroller.h
+    media/pulseaudiocontroller.cpp
+    media/pulseaudiocontroller.h
     airpods_packets.h
     trayiconmanager.cpp
     trayiconmanager.h
@@ -66,8 +70,10 @@ qt_add_resources(librepods "resources"
 )
 
 target_link_libraries(librepods
-    PRIVATE Qt6::Quick Qt6::Widgets Qt6::Bluetooth Qt6::DBus OpenSSL::SSL OpenSSL::Crypto
+    PRIVATE Qt6::Quick Qt6::Widgets Qt6::Bluetooth Qt6::DBus OpenSSL::SSL OpenSSL::Crypto ${PULSEAUDIO_LIBRARIES}
 )
+
+target_include_directories(librepods PRIVATE ${PULSEAUDIO_INCLUDE_DIRS})
 
 include(GNUInstallDirs)
 install(TARGETS librepods

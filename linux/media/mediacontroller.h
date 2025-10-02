@@ -2,6 +2,7 @@
 #define MEDIACONTROLLER_H
 
 #include <QObject>
+#include "pulseaudiocontroller.h"
 
 class QProcess;
 class EarDetection;
@@ -38,6 +39,7 @@ public:
   void removeAudioOutputDevice();
   void setConnectedDeviceMacAddress(const QString &macAddress);
   bool isA2dpProfileAvailable();
+  QString getBestA2dpProfile();
   bool restartWirePlumber();
 
   void setEarDetectionBehavior(EarDetectionBehavior behavior);
@@ -61,6 +63,8 @@ private:
   EarDetectionBehavior earDetectionBehavior = PauseWhenOneRemoved;
   QString m_deviceOutputName;
   PlayerStatusWatcher *playerStatusWatcher = nullptr;
+  PulseAudioController *m_pulseAudio = nullptr;
+  QString m_cachedA2dpProfile;
 };
 
 #endif // MEDIACONTROLLER_H
