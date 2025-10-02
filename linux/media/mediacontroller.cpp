@@ -53,6 +53,7 @@ void MediaController::handleEarDetection(EarDetection *earDetection)
   {
     if (getCurrentMediaState() == Playing)
     {
+      LOG_DEBUG("Pausing playback for ear detection");
       pause();
     }
   }
@@ -64,7 +65,7 @@ void MediaController::handleEarDetection(EarDetection *earDetection)
     activateA2dpProfile();
 
     // Resume if conditions are met and we previously paused
-    if (shouldResume && wasPausedByApp && isActiveOutputDeviceAirPods())
+    if (shouldResume && !pausedByAppServices.isEmpty() && isActiveOutputDeviceAirPods())
     {
       play();
     }
@@ -211,6 +212,7 @@ void MediaController::activateA2dpProfile() {
   if (!m_pulseAudio->setCardProfile(m_deviceOutputName, preferredProfile)) {
     LOG_ERROR("Failed to activate A2DP profile: " << preferredProfile);
   }
+  LOG_INFO("A2DP profile activated successfully");
 }
 
 void MediaController::removeAudioOutputDevice() {
@@ -248,31 +250,53 @@ MediaController::MediaState MediaController::getCurrentMediaState() const
   return mediaStateFromPlayerctlOutput(PlayerStatusWatcher::getCurrentPlaybackStatus(""));
 }
 
-bool MediaController::sendMediaPlayerCommand(const QString &method)
+QStringList MediaController::getPlayingMediaPlayers()
 {
-  // Connect to the session bus
+  QStringList playingServices;
   QDBusConnection bus = QDBusConnection::sessionBus();
 
-  // Find available MPRIS-compatible media players
   QStringList services = bus.interface()->registeredServiceNames().value();
-  QStringList mprisServices;
   for (const QString &service : services)
   {
-    if (service.startsWith("org.mpris.MediaPlayer2."))
+    if (!service.startsWith("org.mpris.MediaPlayer2."))
     {
-      mprisServices << service;
+      continue;
+    }
+
+    QDBusInterface playerInterface(
+        service,
+        "/org/mpris/MediaPlayer2",
+        "org.mpris.MediaPlayer2.Player",
+        bus);
+
+    if (!playerInterface.isValid())
+    {
+      continue;
+    }
+
+    QVariant playbackStatus = playerInterface.property("PlaybackStatus");
+    if (playbackStatus.isValid() && playbackStatus.toString() == "Playing")
+    {
+      playingServices << service;
+      LOG_DEBUG("Found playing service: " << service);
     }
   }
 
-  if (mprisServices.isEmpty())
+  return playingServices;
+}
+
+void MediaController::play()
+{
+  if (pausedByAppServices.isEmpty())
   {
-    LOG_ERROR("No MPRIS-compatible media players found on DBus");
-    return false;
+    LOG_INFO("No services to resume");
+    return;
   }
 
-  bool success = false;
-  // Try each MPRIS service until one succeeds
-  for (const QString &service : mprisServices)
+  QDBusConnection bus = QDBusConnection::sessionBus();
+  int resumedCount = 0;
+
+  for (const QString &service : pausedByAppServices)
   {
     QDBusInterface playerInterface(
         service,
@@ -282,63 +306,87 @@ bool MediaController::sendMediaPlayerCommand(const QString &method)
 
     if (!playerInterface.isValid())
     {
-      LOG_ERROR("Invalid DBus interface for service: " << service);
+      LOG_WARN("Service no longer available: " << service);
       continue;
     }
 
-    // Send the Play or Pause command
-    if (method == "Play" || method == "Pause")
+    QDBusReply<void> reply = playerInterface.call("Play");
+    if (reply.isValid())
     {
-      QDBusReply<void> reply = playerInterface.call(method);
-      if (reply.isValid())
-      {
-        LOG_INFO("Successfully sent " << method << " to " << service);
-        success = true;
-        break; // Exit after the first successful command
-      }
-      else
-      {
-        LOG_ERROR("Failed to send " << method << " to " << service
-                                    << ": " << reply.error().message());
-      }
+      LOG_INFO("Resumed playback for: " << service);
+      resumedCount++;
     }
     else
     {
-      LOG_ERROR("Unsupported method: " << method);
-      return false;
+      LOG_ERROR("Failed to resume " << service << ": " << reply.error().message());
     }
   }
 
-  if (!success)
+  if (resumedCount > 0)
   {
-    LOG_ERROR("No media player responded successfully to " << method);
-  }
-  return success;
-}
-
-void MediaController::play()
-{
-  if (sendMediaPlayerCommand("Play"))
-  {
-    LOG_INFO("Resumed playback via DBus");
-    wasPausedByApp = false;
+    LOG_INFO("Resumed " << resumedCount << " media player(s) via DBus");
+    pausedByAppServices.clear();
   }
   else
   {
-    LOG_ERROR("Failed to resume playback via DBus");
+    LOG_ERROR("Failed to resume any media players via DBus");
   }
 }
 
 void MediaController::pause()
 {
-  if (sendMediaPlayerCommand("Pause"))
+  QDBusConnection bus = QDBusConnection::sessionBus();
+  QStringList services = bus.interface()->registeredServiceNames().value();
+
+  pausedByAppServices.clear();
+  int pausedCount = 0;
+
+  for (const QString &service : services)
   {
-    LOG_INFO("Paused playback via DBus");
-    wasPausedByApp = true;
+    if (!service.startsWith("org.mpris.MediaPlayer2."))
+    {
+      continue;
+    }
+
+    QDBusInterface playerInterface(
+        service,
+        "/org/mpris/MediaPlayer2",
+        "org.mpris.MediaPlayer2.Player",
+        bus);
+
+    if (!playerInterface.isValid())
+    {
+      continue;
+    }
+
+    QVariant playbackStatus = playerInterface.property("PlaybackStatus");
+    LOG_DEBUG("PlaybackStatus for " << service << ": " << playbackStatus.toString());
+    if (!playbackStatus.isValid() || playbackStatus.toString() != "Playing")
+    {
+      continue;
+    }
+
+    QDBusReply<void> reply = playerInterface.call("Pause");
+    LOG_DEBUG("Pausing service: " << service);
+    if (reply.isValid())
+    {
+      LOG_INFO("Paused playback for: " << service);
+      pausedByAppServices << service;
+      pausedCount++;
+    }
+    else
+    {
+      LOG_ERROR("Failed to pause " << service << ": " << reply.error().message());
+    }
+  }
+
+  if (pausedCount > 0)
+  {
+    LOG_INFO("Paused " << pausedCount << " media player(s) via DBus");
   }
   else
   {
-    LOG_ERROR("Failed to pause playback via DBus");
+    LOG_INFO("No playing media players found to pause");
   }
 }
 

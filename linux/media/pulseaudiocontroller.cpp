@@ -157,7 +157,14 @@ bool PulseAudioController::setSinkVolume(const QString &sinkName, int volumePerc
     pa_cvolume_set(&volume, 2, (volumePercent * PA_VOLUME_NORM) / 100);
 
     pa_threaded_mainloop_lock(m_mainloop);
-    pa_operation *op = pa_context_set_sink_volume_by_name(m_context, sinkName.toUtf8().constData(), &volume, nullptr, nullptr);
+    
+    auto successCallback = [](pa_context *c, int success, void *userdata) {
+        pa_threaded_mainloop *mainloop = static_cast<pa_threaded_mainloop*>(userdata);
+        pa_threaded_mainloop_signal(mainloop, 0);
+    };
+    
+    pa_operation *op = pa_context_set_sink_volume_by_name(m_context, sinkName.toUtf8().constData(), &volume, successCallback, m_mainloop);
+
     bool success = waitForOperation(op);
     if (op) pa_operation_unref(op);
     pa_threaded_mainloop_unlock(m_mainloop);
@@ -170,10 +177,16 @@ bool PulseAudioController::setCardProfile(const QString &cardName, const QString
     if (!m_initialized) return false;
 
     pa_threaded_mainloop_lock(m_mainloop);
+    
+    auto successCallback = [](pa_context *c, int success, void *userdata) {
+        pa_threaded_mainloop *mainloop = static_cast<pa_threaded_mainloop*>(userdata);
+        pa_threaded_mainloop_signal(mainloop, 0);
+    };
+    
     pa_operation *op = pa_context_set_card_profile_by_name(m_context, 
         cardName.toUtf8().constData(), 
         profileName.toUtf8().constData(), 
-        nullptr, nullptr);
+        successCallback, m_mainloop);
     bool success = waitForOperation(op);
     if (op) pa_operation_unref(op);
     pa_threaded_mainloop_unlock(m_mainloop);

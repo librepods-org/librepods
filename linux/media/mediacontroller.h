@@ -55,9 +55,9 @@ Q_SIGNALS:
 private:
   MediaState mediaStateFromPlayerctlOutput(const QString &output) const;
   QString getAudioDeviceName();
-  bool sendMediaPlayerCommand(const QString &method);
+  QStringList getPlayingMediaPlayers();
 
-  bool wasPausedByApp = false;
+  QStringList pausedByAppServices;
   int initialVolume = -1;
   QString connectedDeviceMacAddress;
   EarDetectionBehavior earDetectionBehavior = PauseWhenOneRemoved;
