@@ -187,6 +187,7 @@ class AirPodsPro3: AirPodsBase(
     capabilities = setOf(
         Capability.LISTENING_MODE,
         Capability.CONVERSATION_AWARENESS,
+        Capability.HEAD_GESTURES,
         Capability.STEM_CONFIG,
         Capability.LOUD_SOUND_REDUCTION,
         Capability.PPE,
