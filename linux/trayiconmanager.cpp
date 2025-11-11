@@ -127,7 +127,7 @@ void TrayIconManager::updateIconFromBattery(const QString &status)
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
-    painter.setPen(QApplication::palette().color(QPalette::WindowText));
+    painter.setPen(Qt::white);
     painter.setFont(QFont("Arial", 12, QFont::Bold));
     painter.drawText(pixmap.rect(), Qt::AlignCenter, QString::number(minLevel) + "%");
     painter.end();
@@ -142,3 +142,4 @@ void TrayIconManager::onTrayIconActivated(QSystemTrayIcon::ActivationReason reas
         emit trayClicked();
     }
 }
+
