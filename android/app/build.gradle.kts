@@ -38,6 +38,9 @@ android {
         compose = true
         viewBinding = true
     }
+    androidResources {
+        generateLocaleConfig = true
+    }
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")

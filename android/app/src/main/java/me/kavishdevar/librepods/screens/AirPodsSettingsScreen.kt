@@ -384,7 +384,7 @@ fun AirPodsSettingsScreen(dev: BluetoothDevice?, service: AirPodsService,
                         .fillMaxWidth(0.9f)
                 ) {
                     Text(
-                        text = "Troubleshoot Connection",
+                        text = stringResource(R.string.troubleshooting),
                         style = TextStyle(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,

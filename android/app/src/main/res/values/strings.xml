@@ -210,4 +210,8 @@
     <string name="never_show_again">Never show again</string>
     <string name="support_dialog_description">I recently lost my left AirPod. If you\'ve found LibrePods useful, consider supporting me on GitHub Sponsors so I can buy a replacement and continue working on this project- even a little amount goes a long way. Thank you for your support!</string>
     <string name="support_librepods">Support LibrePods</string>
+    <string name="listening_mode_off_description">Turns off noise management</string>
+    <string name="listening_mode_transparency_description">Lets in external sounds</string>
+    <string name="listening_mode_adaptive_description">Dynamically adjust external noise</string>
+    <string name="listening_mode_noise_cancellation_description">Blocks out external sounds</string>
 </resources>
