@@ -82,7 +82,8 @@ Then restart WirePlumber:
 systemctl --user restart wireplumber
 ```
 
-**Note:** Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
+> [!WARNING]
+> Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
 
 #### PulseAudio
 
