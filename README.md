@@ -19,6 +19,7 @@ LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get a
 | ------ | --------------------- | ---------------------------------------------------------- |
 | ✅      | AirPods Pro (2nd Gen) | Fully supported and tested                                 |
 | ✅      | AirPods Pro (3rd Gen) | Fully supported (except heartrate monitoring)              |
+| ✅      | AirPods Max           | Fully supported (client shows unsupported features)        |
 | ⚠️      | Other AirPods models  | Basic features (battery status, ear detection) should work |
 
 Most features should work with any AirPods. Currently, I've only got AirPods Pro 2 to test with.
