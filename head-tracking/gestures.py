@@ -1,88 +1,65 @@
-import bluetooth
-import threading
-import time
 import logging
 import statistics
+import time
+from bluetooth import BluetoothSocket
 from collections import deque
+from colors import *
+from connection_manager import ConnectionManager
+from logging import Logger, StreamHandler
+from threading import Lock, Thread
+from typing import Any, Deque, List, Optional, Tuple
 
-class Colors:
-    RESET = "\033[0m"
-    BOLD = "\033[1m"
-    RED = "\033[91m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    BLUE = "\033[94m"
-    MAGENTA = "\033[95m"
-    CYAN = "\033[96m"
-    WHITE = "\033[97m"
-    BG_BLACK = "\033[40m"
-
-class ColorFormatter(logging.Formatter):
-    FORMATS = {
-        logging.DEBUG: Colors.BLUE + "[%(levelname)s] %(message)s" + Colors.RESET,
-        logging.INFO: Colors.GREEN + "%(message)s" + Colors.RESET,
-        logging.WARNING: Colors.YELLOW + "%(message)s" + Colors.RESET,
-        logging.ERROR: Colors.RED + "[%(levelname)s] %(message)s" + Colors.RESET,
-        logging.CRITICAL: Colors.RED + Colors.BOLD + "[%(levelname)s] %(message)s" + Colors.RESET
-    }
-
-    def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt, datefmt="%H:%M:%S")
-        return formatter.format(record)
-
-handler = logging.StreamHandler()
+handler: StreamHandler = StreamHandler()
 handler.setFormatter(ColorFormatter())
-log = logging.getLogger(__name__)
+log: Logger = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 log.addHandler(handler)
 log.propagate = False
 
 class GestureDetector:
-    INIT_CMD  = "00 00 04 00 01 00 02 00 00 00 00 00 00 00 00 00"
-    START_CMD = "04 00 04 00 17 00 00 00 10 00 10 00 08 A1 02 42 0B 08 0E 10 02 1A 05 01 40 9C 00 00"
-    STOP_CMD  = "04 00 04 00 17 00 00 00 10 00 11 00 08 7E 10 02 42 0B 08 4E 10 02 1A 05 01 00 00 00 00"
+    INIT_CMD: str = "00 00 04 00 01 00 02 00 00 00 00 00 00 00 00 00"
+    START_CMD: str = "04 00 04 00 17 00 00 00 10 00 10 00 08 A1 02 42 0B 08 0E 10 02 1A 05 01 40 9C 00 00"
+    STOP_CMD: str = "04 00 04 00 17 00 00 00 10 00 11 00 08 7E 10 02 42 0B 08 4E 10 02 1A 05 01 00 00 00 00"
 
-    def __init__(self, conn=None):
-        self.sock = None
-        self.bt_addr = "28:2D:7F:C2:05:5B"
-        self.psm = 0x1001
-        self.running = False
-        self.data_lock = threading.Lock()
+    def __init__(self, conn: ConnectionManager = None) -> None:
+        self.sock: BluetoothSocket = None
+        self.bt_addr: str = "28:2D:7F:C2:05:5B"
+        self.psm: int = 0x1001
+        self.running: bool = False
+        self.data_lock: Lock = Lock()
         
-        self.horiz_buffer = deque(maxlen=100)
-        self.vert_buffer = deque(maxlen=100)
+        self.horiz_buffer: Deque[int] = deque(maxlen=100)
+        self.vert_buffer: Deque[int] = deque(maxlen=100)
         
-        self.horiz_avg_buffer = deque(maxlen=5)
-        self.vert_avg_buffer = deque(maxlen=5)
+        self.horiz_avg_buffer: Deque[float] = deque(maxlen=5)
+        self.vert_avg_buffer: Deque[float] = deque(maxlen=5)
         
-        self.horiz_peaks = []
-        self.horiz_troughs = []
-        self.vert_peaks = []
-        self.vert_troughs = []
+        self.horiz_peaks: List[int] = []
+        self.horiz_troughs: List[int] = []
+        self.vert_peaks: List[int] = []
+        self.vert_troughs: List[int] = []
         
-        self.last_peak_time = 0
-        self.peak_intervals = deque(maxlen=5)
+        self.last_peak_time: float = 0
+        self.peak_intervals: Deque[float] = deque(maxlen=5)
         
-        self.peak_threshold = 400
-        self.direction_change_threshold = 175
-        self.rhythm_consistency_threshold = 0.5
+        self.peak_threshold: int = 400
+        self.direction_change_threshold: int = 175
+        self.rhythm_consistency_threshold: float = 0.5
         
-        self.horiz_increasing = None
-        self.vert_increasing = None
+        self.horiz_increasing: Optional[bool] = None
+        self.vert_increasing: Optional[bool] = None
         
         self.required_extremes = 3
-        self.detection_timeout = 15
+        self.detection_timeout: int = 15
         
-        self.min_confidence_threshold = 0.7
+        self.min_confidence_threshold: float = 0.7
         
-        self.conn = conn
+        self.conn: ConnectionManager = conn
 
-    def connect(self):
+    def connect(self) -> bool:
         try:
             log.info(f"Connecting to AirPods at {self.bt_addr}...")
             if self.conn is None:
-                from connection_manager import ConnectionManager
                 self.conn = ConnectionManager(self.bt_addr, self.psm, logger=log)
                 if not self.conn.connect():
                     return False
@@ -97,13 +74,13 @@ class GestureDetector:
             log.error(f"{Colors.RED}Connection failed: {e}{Colors.RESET}")
             return False
     
-    def process_data(self):
+    def process_data(self) -> None:
         """Process incoming head tracking data."""
         self.conn.send_start()
         log.info(f"{Colors.GREEN}✓ Head tracking activated{Colors.RESET}")
     
         self.running = True
-        start_time = time.time()
+        start_time: float = time.time()
 
         log.info(f"{Colors.GREEN}Ready! Make a YES or NO gesture{Colors.RESET}")
         log.info(f"{Colors.YELLOW}Tip: Use natural, moderate speed head movements{Colors.RESET}")
@@ -118,10 +95,10 @@ class GestureDetector:
                 if not self.sock:
                     log.error("Socket not available.")
                     break
-                data = self.sock.recv(1024)
-                formatted = self.format_hex(data)
+                data: bytes = self.sock.recv(1024)
+                formatted: str = self.format_hex(data)
                 if self.is_valid_tracking_packet(formatted):
-                    raw_bytes = bytes.fromhex(formatted.replace(" ", ""))
+                    raw_bytes: bytes = bytes.fromhex(formatted.replace(" ", ""))
                     horizontal, vertical = self.extract_orientation_values(raw_bytes)
                     
                     if horizontal is not None and vertical is not None:
@@ -132,7 +109,7 @@ class GestureDetector:
                             self.vert_buffer.append(smooth_v)
                             
                             self.detect_peaks_and_troughs()
-                            gesture = self.detect_gestures()
+                            gesture: Optional[str] = self.detect_gestures()
                             
                             if gesture:
                                 self.running = False
@@ -143,19 +120,19 @@ class GestureDetector:
                     log.error(f"Data processing error: {e}")
                 break
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         """Disconnect from socket."""
         self.conn.disconnect()
 
-    def format_hex(self, data):
+    def format_hex(self, data: bytes) -> str:
         """Format binary data to readable hex string."""
-        hex_str = data.hex()
+        hex_str: str = data.hex()
         return ' '.join(hex_str[i:i+2] for i in range(0, len(hex_str), 2))
     
-    def is_valid_tracking_packet(self, hex_string):
+    def is_valid_tracking_packet(self, hex_string: str) -> bool:
         """Verify packet is a valid head tracking packet."""
-        standard_header = "04 00 04 00 17 00 00 00 10 00 45 00"
-        alternate_header = "04 00 04 00 17 00 00 00 10 00 44 00"
+        standard_header: str = "04 00 04 00 17 00 00 00 10 00 45 00"
+        alternate_header: str = "04 00 04 00 17 00 00 00 10 00 44 00"
         if not hex_string.startswith(standard_header) and not hex_string.startswith(alternate_header):
             return False
             
@@ -164,55 +141,55 @@ class GestureDetector:
             
         return True
     
-    def extract_orientation_values(self, raw_bytes):
+    def extract_orientation_values(self, raw_bytes: bytes) -> Tuple[Optional[int], Optional[int]]:
         """Extract head orientation data from packet."""
         try:
-            horizontal = int.from_bytes(raw_bytes[51:53], byteorder='little', signed=True)
-            vertical = int.from_bytes(raw_bytes[53:55], byteorder='little', signed=True)
+            horizontal: int = int.from_bytes(raw_bytes[51:53], byteorder='little', signed=True)
+            vertical: int = int.from_bytes(raw_bytes[53:55], byteorder='little', signed=True)
             
             return horizontal, vertical
         except Exception as e:
             log.debug(f"Failed to extract orientation: {e}")
             return None, None
     
-    def apply_smoothing(self, horizontal, vertical):
+    def apply_smoothing(self, horizontal: int, vertical: int) -> Tuple[float, float]:
         """Apply moving average smoothing (Apple-like filtering)."""
         self.horiz_avg_buffer.append(horizontal)
         self.vert_avg_buffer.append(vertical)
         
-        smooth_horiz = sum(self.horiz_avg_buffer) / len(self.horiz_avg_buffer)
-        smooth_vert = sum(self.vert_avg_buffer) / len(self.vert_avg_buffer)
+        smooth_horiz: float = sum(self.horiz_avg_buffer) / len(self.horiz_avg_buffer)
+        smooth_vert: float = sum(self.vert_avg_buffer) / len(self.vert_avg_buffer)
         
         return smooth_horiz, smooth_vert
     
-    def detect_peaks_and_troughs(self):
+    def detect_peaks_and_troughs(self) -> None:
         """Detect motion direction changes with Apple-like refinements."""
         if len(self.horiz_buffer) < 4 or len(self.vert_buffer) < 4:
             return
             
-        h_values = list(self.horiz_buffer)[-4:]
-        v_values = list(self.vert_buffer)[-4:]
+        h_values: List[int] = list(self.horiz_buffer)[-4:]
+        v_values: List[int] = list(self.vert_buffer)[-4:]
         
-        h_variance = statistics.variance(h_values) if len(h_values) > 1 else 0
-        v_variance = statistics.variance(v_values) if len(v_values) > 1 else 0
+        h_variance: float = statistics.variance(h_values) if len(h_values) > 1 else 0
+        v_variance: float = statistics.variance(v_values) if len(v_values) > 1 else 0
         
-        current = self.horiz_buffer[-1]
-        prev = self.horiz_buffer[-2]
+        current: int = self.horiz_buffer[-1]
+        prev: int = self.horiz_buffer[-2]
         
         if self.horiz_increasing is None:
             self.horiz_increasing = current > prev
         
-        dynamic_h_threshold = max(100, min(self.direction_change_threshold, h_variance / 3))
+        dynamic_h_threshold: float = max(100, min(self.direction_change_threshold, h_variance / 3))
         
         if self.horiz_increasing and current < prev - dynamic_h_threshold:
             if abs(prev) > self.peak_threshold:
                 self.horiz_peaks.append((len(self.horiz_buffer)-1, prev, time.time()))
-                direction = "➡️ " if prev > 0 else "⬅️ "
+                direction: str = "➡️ " if prev > 0 else "⬅️ "
                 log.info(f"{Colors.CYAN}{direction} Horizontal max: {prev} (threshold: {dynamic_h_threshold:.1f}){Colors.RESET}")
                 
-                now = time.time()
+                now: float = time.time()
                 if self.last_peak_time > 0:
-                    interval = now - self.last_peak_time
+                    interval: float = now - self.last_peak_time
                     self.peak_intervals.append(interval)
                 self.last_peak_time = now
                 
@@ -221,34 +198,34 @@ class GestureDetector:
         elif not self.horiz_increasing and current > prev + dynamic_h_threshold:
             if abs(prev) > self.peak_threshold:
                 self.horiz_troughs.append((len(self.horiz_buffer)-1, prev, time.time()))
-                direction = "➡️ " if prev > 0 else "⬅️ "
+                direction: str = "➡️ " if prev > 0 else "⬅️ "
                 log.info(f"{Colors.CYAN}{direction} Horizontal max: {prev} (threshold: {dynamic_h_threshold:.1f}){Colors.RESET}")
                 
-                now = time.time()
+                now: float = time.time()
                 if self.last_peak_time > 0:
-                    interval = now - self.last_peak_time
+                    interval: float = now - self.last_peak_time
                     self.peak_intervals.append(interval)
                 self.last_peak_time = now
                 
             self.horiz_increasing = True
         
-        current = self.vert_buffer[-1]
-        prev = self.vert_buffer[-2]
+        current: int = self.vert_buffer[-1]
+        prev: int = self.vert_buffer[-2]
         
         if self.vert_increasing is None:
             self.vert_increasing = current > prev
         
-        dynamic_v_threshold = max(100, min(self.direction_change_threshold, v_variance / 3))
+        dynamic_v_threshold: float = max(100, min(self.direction_change_threshold, v_variance / 3))
         
         if self.vert_increasing and current < prev - dynamic_v_threshold:
             if abs(prev) > self.peak_threshold:
                 self.vert_peaks.append((len(self.vert_buffer)-1, prev, time.time()))
-                direction = "⬆️ " if prev > 0 else "⬇️ "
+                direction: str = "⬆️ " if prev > 0 else "⬇️ "
                 log.info(f"{Colors.MAGENTA}{direction} Vertical max: {prev} (threshold: {dynamic_v_threshold:.1f}){Colors.RESET}")
                 
-                now = time.time()
+                now: float = time.time()
                 if self.last_peak_time > 0:
-                    interval = now - self.last_peak_time
+                    interval: float = now - self.last_peak_time
                     self.peak_intervals.append(interval)
                 self.last_peak_time = now
                 
@@ -257,60 +234,60 @@ class GestureDetector:
         elif not self.vert_increasing and current > prev + dynamic_v_threshold:
             if abs(prev) > self.peak_threshold:
                 self.vert_troughs.append((len(self.vert_buffer)-1, prev, time.time()))
-                direction = "⬆️ " if prev > 0 else "⬇️ "
+                direction: str = "⬆️ " if prev > 0 else "⬇️ "
                 log.info(f"{Colors.MAGENTA}{direction} Vertical max: {prev} (threshold: {dynamic_v_threshold:.1f}){Colors.RESET}")
                 
-                now = time.time()
+                now: float = time.time()
                 if self.last_peak_time > 0:
-                    interval = now - self.last_peak_time
+                    interval: float = now - self.last_peak_time
                     self.peak_intervals.append(interval)
                 self.last_peak_time = now
                 
             self.vert_increasing = True
     
-    def calculate_rhythm_consistency(self):
+    def calculate_rhythm_consistency(self) -> float:
         """Calculate how consistent the timing between peaks is (Apple-like)."""
         if len(self.peak_intervals) < 2:
             return 0
             
-        mean_interval = statistics.mean(self.peak_intervals)
+        mean_interval: float = statistics.mean(self.peak_intervals)
         if mean_interval == 0:
             return 0
             
-        variances = [(i/mean_interval - 1.0) ** 2 for i in self.peak_intervals]
-        consistency = 1.0 - min(1.0, statistics.mean(variances) / self.rhythm_consistency_threshold)
+        variances: List[float] = [(i/mean_interval - 1.0) ** 2 for i in self.peak_intervals]
+        consistency: float = 1.0 - min(1.0, statistics.mean(variances) / self.rhythm_consistency_threshold)
         return max(0, consistency)
     
-    def calculate_confidence_score(self, extremes, is_vertical=True):
+    def calculate_confidence_score(self, extremes: List[Tuple[int, int, float]], is_vertical: bool = True) -> float:
         """Calculate confidence score for gesture detection (Apple-like)."""
         if len(extremes) < self.required_extremes:
             return 0.0
             
-        sorted_extremes = sorted(extremes, key=lambda x: x[0])
+        sorted_extremes: List[Tuple[int, int, float]] = sorted(extremes, key=lambda x: x[0])
         
-        recent = sorted_extremes[-self.required_extremes:]
+        recent: List[Tuple[int, int, float]] = sorted_extremes[-self.required_extremes:]
         
-        avg_amplitude = sum(abs(val) for _, val, _ in recent) / len(recent)
-        amplitude_factor = min(1.0, avg_amplitude / 600)
+        avg_amplitude: float = sum(abs(val) for _, val, _ in recent) / len(recent)
+        amplitude_factor: float = min(1.0, avg_amplitude / 600)
         
-        rhythm_factor = self.calculate_rhythm_consistency()
+        rhythm_factor: float = self.calculate_rhythm_consistency()
         
-        signs = [1 if val > 0 else -1 for _, val, _ in recent]
-        alternating = all(signs[i] != signs[i-1] for i in range(1, len(signs)))
-        alternation_factor = 1.0 if alternating else 0.5
+        signs: List[int] = [1 if val > 0 else -1 for _, val, _ in recent]
+        alternating: bool = all(signs[i] != signs[i-1] for i in range(1, len(signs)))
+        alternation_factor: float = 1.0 if alternating else 0.5
         
         if is_vertical:
-            vert_amp = sum(abs(val) for _, val, _ in recent) / len(recent)
-            horiz_vals = list(self.horiz_buffer)[-len(recent)*2:]
-            horiz_amp = sum(abs(val) for val in horiz_vals) / len(horiz_vals) if horiz_vals else 0
-            isolation_factor = min(1.0, vert_amp / (horiz_amp + 0.1) * 1.2)
+            vert_amp: float = sum(abs(val) for _, val, _ in recent) / len(recent)
+            horiz_vals: List[int] = list(self.horiz_buffer)[-len(recent)*2:]
+            horiz_amp: float = sum(abs(val) for val in horiz_vals) / len(horiz_vals) if horiz_vals else 0
+            isolation_factor: float = min(1.0, vert_amp / (horiz_amp + 0.1) * 1.2)
         else:
-            horiz_amp = sum(abs(val) for _, val, _ in recent)
-            vert_vals = list(self.vert_buffer)[-len(recent)*2:]
-            vert_amp = sum(abs(val) for val in vert_vals) / len(vert_vals) if vert_vals else 0
-            isolation_factor = min(1.0, horiz_amp / (vert_amp + 0.1) * 1.2)
+            horiz_amp: float = sum(abs(val) for _, val, _ in recent)
+            vert_vals: List[int] = list(self.vert_buffer)[-len(recent)*2:]
+            vert_amp: float = sum(abs(val) for val in vert_vals) / len(vert_vals) if vert_vals else 0
+            isolation_factor: float = min(1.0, horiz_amp / (vert_amp + 0.1) * 1.2)
         
-        confidence = (
+        confidence: float = (
             amplitude_factor * 0.4 + 
             rhythm_factor * 0.2 +
             alternation_factor * 0.2 +
@@ -319,12 +296,12 @@ class GestureDetector:
         
         return confidence
     
-    def detect_gestures(self):
+    def detect_gestures(self) -> Optional[str]:
         """Recognize head gesture patterns with Apple-like intelligence."""
         if len(self.vert_peaks) + len(self.vert_troughs) >= self.required_extremes:
-            all_extremes = sorted(self.vert_peaks + self.vert_troughs, key=lambda x: x[0])
+            all_extremes: List[Tuple[int, int, float]] = sorted(self.vert_peaks + self.vert_troughs, key=lambda x: x[0])
             
-            confidence = self.calculate_confidence_score(all_extremes, is_vertical=True)
+            confidence: float = self.calculate_confidence_score(all_extremes, is_vertical=True)
             
             log.info(f"Vertical motion confidence: {confidence:.2f} (need {self.min_confidence_threshold:.2f})")
             
@@ -333,9 +310,9 @@ class GestureDetector:
                 return "YES"
         
         if len(self.horiz_peaks) + len(self.horiz_troughs) >= self.required_extremes:
-            all_extremes = sorted(self.horiz_peaks + self.horiz_troughs, key=lambda x: x[0])
+            all_extremes: List[Tuple[int, int, float]] = sorted(self.horiz_peaks + self.horiz_troughs, key=lambda x: x[0])
             
-            confidence = self.calculate_confidence_score(all_extremes, is_vertical=False)
+            confidence: float = self.calculate_confidence_score(all_extremes, is_vertical=False)
             
             log.info(f"Horizontal motion confidence: {confidence:.2f} (need {self.min_confidence_threshold:.2f})")
             
@@ -345,7 +322,7 @@ class GestureDetector:
         
         return None
     
-    def start_detection(self):
+    def start_detection(self) -> None:
         """Begin gesture detection process."""
         log.info(f"{Colors.BOLD}{Colors.WHITE}Starting gesture detection...{Colors.RESET}")
         
@@ -353,7 +330,7 @@ class GestureDetector:
             log.error(f"{Colors.RED}Failed to connect to AirPods.{Colors.RESET}")
             return
         
-        data_thread = threading.Thread(target=self.process_data)
+        data_thread: Thread = Thread(target=self.process_data)
         data_thread.daemon = True
         data_thread.start()
         
@@ -377,5 +354,5 @@ if __name__ == "__main__":
     print(f"{Colors.GREEN}• YES: {Colors.WHITE}nodding head up and down{Colors.RESET}")
     print(f"{Colors.RED}• NO: {Colors.WHITE}shaking head left and right{Colors.RESET}\n")
     
-    detector = GestureDetector()
+    detector: GestureDetector = GestureDetector()
     detector.start_detection()
