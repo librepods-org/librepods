@@ -48,6 +48,8 @@ A native Linux application to control your AirPods, with support for:
 1. Build the application:
 
    ```bash
+   git clone https://github.com/kavishdevar/librepods.git
+   cd librepods/linux
    mkdir build
    cd build
    cmake ..
