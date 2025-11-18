@@ -25,5 +25,5 @@ class ColorFormatter(Formatter):
 
     def format(self, record: LogRecord) -> str:
         log_fmt: str = self.FORMATS.get(record.levelno)
-        formatter = Formatter(log_fmt, datefmt="%H:%M:%S")
+        formatter: Formatter = Formatter(log_fmt, datefmt="%H:%M:%S")
         return formatter.format(record)
