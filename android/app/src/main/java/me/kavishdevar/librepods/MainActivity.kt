@@ -156,10 +156,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             LibrePodsTheme {
-                getSharedPreferences("settings", MODE_PRIVATE).edit {
-                    putLong(
-                        "textColor",
-                        MaterialTheme.colorScheme.onSurface.toArgb().toLong())}
                 Main()
             }
         }
