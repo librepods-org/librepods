@@ -666,7 +666,7 @@ private slots:
         else if (data.startsWith(AirPodsPackets::Parse::FEATURES_ACK))
         {
             writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
-            
+
             QTimer::singleShot(2000, this, [this]() {
                 if (m_deviceInfo->batteryStatus().isEmpty()) {
                     writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
@@ -718,7 +718,7 @@ private slots:
             mediaController->handleEarDetection(m_deviceInfo->getEarDetection());
         }
         // Battery Status
-        else if (data.size() == 22 && data.startsWith(AirPodsPackets::Parse::BATTERY_STATUS))
+        else if ((data.size() == 22 || data.size() == 12) && data.startsWith(AirPodsPackets::Parse::BATTERY_STATUS))
         {
             m_deviceInfo->getBattery()->parsePacket(data);
             m_deviceInfo->updateBatteryStatus();
@@ -766,7 +766,7 @@ private slots:
         }
         QBluetoothAddress phoneAddress("00:00:00:00:00:00"); // Default address, will be overwritten if PHONE_MAC_ADDRESS is set
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        
+
         if (!env.value("PHONE_MAC_ADDRESS").isEmpty())
         {
             phoneAddress = QBluetoothAddress(env.value("PHONE_MAC_ADDRESS"));
@@ -875,7 +875,7 @@ private slots:
         if (BLEUtils::isValidIrkRpa(m_deviceInfo->magicAccIRK(), device.address)) {
             m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());
-            m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase);
+            m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase, isModelHeadset(m_deviceInfo->model()));
             m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar);
         }
     }
@@ -991,7 +991,7 @@ int main(int argc, char *argv[]) {
     sharedMemory.setKey("TcpServer-Key2");
 
     // Check if app is already open
-    if(sharedMemory.create(1) == false) 
+    if(sharedMemory.create(1) == false)
     {
         LOG_INFO("Another instance already running! Opening App Window Instead");
         QLocalSocket socket;
@@ -1083,7 +1083,7 @@ int main(int argc, char *argv[]) {
             LOG_ERROR("Failed to connect to the duplicate app instance");
             LOG_DEBUG("Connection error: " << socket->errorString());
         });
-        
+
         // Handle server-level errors
         QObject::connect(&server, &QLocalServer::serverError, [&]() {
             LOG_ERROR("Server failed to accept a new connection");

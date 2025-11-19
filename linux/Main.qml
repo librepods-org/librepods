@@ -118,6 +118,14 @@ ApplicationWindow {
                         batteryLevel: airPodsTrayApp.deviceInfo.battery.caseLevel
                         isCharging: airPodsTrayApp.deviceInfo.battery.caseCharging
                     }
+
+                    PodColumn {
+                        visible: airPodsTrayApp.deviceInfo.battery.headsetAvailable
+                        inEar: true
+                        iconSource: "qrc:/icons/assets/" + airPodsTrayApp.deviceInfo.podIcon
+                        batteryLevel: airPodsTrayApp.deviceInfo.battery.headsetLevel
+                        isCharging: airPodsTrayApp.deviceInfo.battery.headsetCharging
+                    }
                 }
 
                 SegmentedControl {

@@ -85,9 +85,21 @@ namespace AirpodsTrayApp
                     return {"podpro.png", "podpro_case.png"};
                 case AirPodsModel::AirPodsMaxLightning:
                 case AirPodsModel::AirPodsMaxUSBC:
-                    return {"max.png", "max_case.png"};
+                    return {"podmax.png", "max_case.png"};
                 default:
                     return {"pod.png", "pod_case.png"}; // Default icon for unknown models
+            }
+        }
+
+        // TODO: Only used for parseEncryptedPacket for battery status. Is it possible to determine this
+        // from the data in the packet rather than by model? i.e number of batteries
+        inline bool isModelHeadset(AirPodsModel model) {
+            switch (model) {
+                case AirPodsModel::AirPodsMaxLightning:
+                case AirPodsModel::AirPodsMaxUSBC:
+                    return true;
+                default:
+                    return false;
             }
         }
 
