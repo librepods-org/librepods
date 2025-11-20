@@ -109,20 +109,21 @@ void TrayIconManager::updateIconFromBattery(const QString &status)
 {
     int leftLevel = 0;
     int rightLevel = 0;
+    int minLevel = 0;
 
     if (!status.isEmpty())
     {
         // Parse the battery status string
         QStringList parts = status.split(", ");
-        if (parts.size() >= 2)
-        {
+        if (parts.size() >= 2) {
             leftLevel = parts[0].split(": ")[1].replace("%", "").toInt();
             rightLevel = parts[1].split(": ")[1].replace("%", "").toInt();
+            minLevel = (leftLevel == 0) ? rightLevel : (rightLevel == 0) ? leftLevel
+                                                                    : qMin(leftLevel, rightLevel);
+        } else if (parts.size() == 1) {
+            minLevel = parts[0].split(": ")[1].replace("%", "").toInt();
         }
     }
-    
-    int minLevel = (leftLevel == 0) ? rightLevel : (rightLevel == 0) ? leftLevel
-                                                                     : qMin(leftLevel, rightLevel);
 
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);

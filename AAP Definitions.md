@@ -122,7 +122,7 @@ If primary is removed, mic will be changed and the secondary will be the new pri
 
 ## Conversational Awareness
 
-AirPods send conversational awareness packets when the person wearing them start speaking. The packet format is as follows:
+AirPods send conversational awareness packets when the person wearing them starts speaking. The packet format is as follows:
 
 ```plaintext
 04 00 04 00 4B 00 02 00 01 [level]
@@ -307,7 +307,7 @@ All values are formatted as IEEE 754 floats in little endian order.
 
 ## Configure Stem Long Press
 
-I have noted all the packets sent to configure what the press and hold of the steam should do. The packets sent are specific to the current state. And are probably overwritten everytime the AirPods are connected to a new (apple) device that is not synced with icloud (i think)... So, for non-Apple device too, the configuration needs to be stored and overwritten everytime the AirPods are connected to the device. That is the only way to keep the configuration.
+I have noted all the packets sent to configure what the press and hold of the steam should do. The packets sent are specific to the current state. And are probably overwritten everytime the AirPods are connected to a new (apple) device that is not synced with icloud (i think)... So, for non-Apple devices too, the configuration needs to be stored and overwritten everytime the AirPods are connected to the device. That is the only way to keep the configuration.
 
 This is also the only way to control the configuration as the previous state needs to be known, and then the new state can be set. 
 

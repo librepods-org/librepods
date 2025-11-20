@@ -167,7 +167,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         var headGestures: Boolean = true,
         var disconnectWhenNotWearing: Boolean = false,
         var conversationalAwarenessVolume: Int = 43,
-        var textColor: Long = -1L,
         var qsClickBehavior: String = "cycle",
         var bleOnlyMode: Boolean = false,
 
@@ -475,8 +474,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     "conversational_awareness_volume",
                     43
                 )
-
-                if (!contains("textColor")) putLong("textColor", -1L)
 
                 if (!contains("qs_click_behavior")) putString("qs_click_behavior", "cycle")
                 if (!contains("name")) putString("name", "AirPods")
@@ -1229,7 +1226,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             headGestures = sharedPreferences.getBoolean("head_gestures", true),
             disconnectWhenNotWearing = sharedPreferences.getBoolean("disconnect_when_not_wearing", false),
             conversationalAwarenessVolume = sharedPreferences.getInt("conversational_awareness_volume", 43),
-            textColor = sharedPreferences.getLong("textColor", -1L),
             qsClickBehavior = sharedPreferences.getString("qs_click_behavior", "cycle") ?: "cycle",
 
             // AirPods state-based takeover
@@ -1291,7 +1287,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             "head_gestures" -> config.headGestures = preferences.getBoolean(key, true)
             "disconnect_when_not_wearing" -> config.disconnectWhenNotWearing = preferences.getBoolean(key, false)
             "conversational_awareness_volume" -> config.conversationalAwarenessVolume = preferences.getInt(key, 43)
-            "textColor" -> config.textColor = preferences.getLong(key, -1L)
             "qs_click_behavior" -> config.qsClickBehavior = preferences.getString(key, "cycle") ?: "cycle"
 
             // AirPods state-based takeover
