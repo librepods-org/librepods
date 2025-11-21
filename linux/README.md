@@ -43,6 +43,31 @@ A native Linux application to control your AirPods, with support for:
     # For Fedora
     sudo dnf install openssl-devel
     ```
+4. Libpulse development headers
+
+    ```bash
+    # On Arch Linux / EndevaourOS, these are included in the libpulse package, so you might already have them installed.
+    sudo pacman -S libpulse
+
+    # For Debian / Ubuntu
+    sudo apt-get install libpulse-dev
+
+    # For Fedora
+    sudo dnf install pulseaudio-libs-devel
+    ```
+5. Cmake
+
+    ```bash
+    # For Arch Linux / EndeavourOS
+    sudo pacman -S cmake
+
+    # For Debian / Ubuntu
+    sudo apt-get install cmake
+
+    # For Fedora
+    sudo dnf install cmake
+    ```
+
 ## Setup
 
 1. Build the application:
