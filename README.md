@@ -108,7 +108,7 @@ A huge thank you to everyone supporting the project!
 
 ## Special thanks
 - @tyalie for making the first documentation on the protocol! ([tyalie/AAP-Protocol-Definition](https://github.com/tyalie/AAP-Protocol-Defintion))
-- @rithvikvibhu and folks over at lagrangepoint for helping with the hearing aid feature ([gist](gist.github.com/rithvikvibhu/45e24bbe5ade30125f152383daf07016))
+- @rithvikvibhu and folks over at lagrangepoint for helping with the hearing aid feature ([gist](https://gist.github.com/rithvikvibhu/45e24bbe5ade30125f152383daf07016))
 - @devnoname120 for helping with the first root patch
 - @timgromeyer for making the first version of the linux app
 - @hackclub for hosting [High Seas](https://highseas.hackclub.com) and [Low Skies](low-skies.hackclub.com)!
