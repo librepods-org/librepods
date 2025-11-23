@@ -96,12 +96,9 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
             val toneSliderValue = remember { mutableFloatStateOf(0.5f) }
             val ambientNoiseReductionSliderValue = remember { mutableFloatStateOf(0.0f) }
             val conversationBoostEnabled = remember { mutableStateOf(false) }
-            val eq = remember { mutableStateOf(FloatArray(8)) }
+            val leftEQ = remember { mutableStateOf(FloatArray(8)) }
+            val rightEQ = remember { mutableStateOf(FloatArray(8)) }
             val ownVoiceAmplification = remember { mutableFloatStateOf(0.5f) }
-
-            val phoneMediaEQ = remember { mutableStateOf(FloatArray(8) { 0.5f }) }
-            val phoneEQEnabled = remember { mutableStateOf(false) }
-            val mediaEQEnabled = remember { mutableStateOf(false) }
 
             val initialLoadComplete = remember { mutableStateOf(false) }
 
@@ -111,8 +108,8 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
             val hearingAidSettings = remember {
                 mutableStateOf(
                     HearingAidSettings(
-                        leftEQ = eq.value,
-                        rightEQ = eq.value,
+                        leftEQ = leftEQ.value,
+                        rightEQ = rightEQ.value,
                         leftAmplification = amplificationSliderValue.floatValue + (0.5f - balanceSliderValue.floatValue) * amplificationSliderValue.floatValue * 2,
                         rightAmplification = amplificationSliderValue.floatValue + (balanceSliderValue.floatValue - 0.5f) * amplificationSliderValue.floatValue * 2,
                         leftTone = toneSliderValue.floatValue,
@@ -157,7 +154,8 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
                             toneSliderValue.floatValue = parsed.leftTone
                             ambientNoiseReductionSliderValue.floatValue = parsed.leftAmbientNoiseReduction
                             conversationBoostEnabled.value = parsed.leftConversationBoost
-                            eq.value = parsed.leftEQ.copyOf()
+                            leftEQ.value = parsed.leftEQ.copyOf()
+                            rightEQ.value = parsed.rightEQ.copyOf()
                             ownVoiceAmplification.floatValue = parsed.ownVoiceAmplification
                             Log.d(TAG, "Updated hearing aid settings from notification")
                         } else {
@@ -192,8 +190,8 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
                 }
 
                 hearingAidSettings.value = HearingAidSettings(
-                    leftEQ = eq.value,
-                    rightEQ = eq.value,
+                    leftEQ = leftEQ.value,
+                    rightEQ = rightEQ.value,
                     leftAmplification = amplificationSliderValue.floatValue + if (balanceSliderValue.floatValue < 0) -balanceSliderValue.floatValue else 0f,
                     rightAmplification = amplificationSliderValue.floatValue + if (balanceSliderValue.floatValue > 0) balanceSliderValue.floatValue else 0f,
                     leftTone = toneSliderValue.floatValue,
@@ -215,26 +213,6 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
                 try {
                     attManager.enableNotifications(ATTHandles.HEARING_AID)
                     attManager.registerListener(ATTHandles.HEARING_AID, hearingAidATTListener)
-
-                    try {
-                        if (aacpManager != null) {
-                            Log.d(TAG, "Found AACPManager, reading cached EQ data")
-                            val aacpEQ = aacpManager.eqData
-                            if (aacpEQ.isNotEmpty()) {
-                                eq.value = aacpEQ.copyOf()
-                                phoneMediaEQ.value = aacpEQ.copyOf()
-                                phoneEQEnabled.value = aacpManager.eqOnPhone
-                                mediaEQEnabled.value = aacpManager.eqOnMedia
-                                Log.d(TAG, "Populated EQ from AACPManager: ${aacpEQ.toList()}")
-                            } else {
-                                Log.d(TAG, "AACPManager EQ data empty")
-                            }
-                        } else {
-                            Log.d(TAG, "No AACPManager available")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error reading EQ from AACPManager: ${e.message}")
-                    }
 
                     var parsedSettings: HearingAidSettings? = null
                     for (attempt in 1..3) {
@@ -261,7 +239,8 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
                         toneSliderValue.floatValue = parsedSettings.leftTone
                         ambientNoiseReductionSliderValue.floatValue = parsedSettings.leftAmbientNoiseReduction
                         conversationBoostEnabled.value = parsedSettings.leftConversationBoost
-                        eq.value = parsedSettings.leftEQ.copyOf()
+                        leftEQ.value = parsedSettings.leftEQ.copyOf()
+                        rightEQ.value = parsedSettings.rightEQ.copyOf()
                         ownVoiceAmplification.floatValue = parsedSettings.ownVoiceAmplification
                         initialReadSucceeded.value = true
                     } else {

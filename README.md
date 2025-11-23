@@ -75,7 +75,7 @@ https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 If you are using ColorOS/OxygenOS 16, you don't need root for basic features! You will still not be able to customize transparency mode and setup hearing aid, and use Bluetooth Multipoint. For everyone else:
 
 > [!CAUTION]
-> **You must have a rooted device with Xposed to use LibrePods on Android.** This is due to a [bug in the Android Bluetooth stack](https://issuetracker.google.com/issues/371713238). Please upvote the issue by clicking the '+1' icon on the IssueTracker page.
+> **You must have a rooted device with Xposed to use LibrePods on Android.** This is due to a [bug in the Android Bluetooth stack](https://issuetracker.google.com/issues/371713238). Please upvote the issue by clicking the '+1' icon on the IssueTracker page. I don't know a fix for Android versions <13 either. So, this needs a phone running A13+.
 > 
 > There are **no exceptions** to the root requirement until Google/your OEM figures out a fix.
 
@@ -106,6 +106,23 @@ To enable these features, enable App Settings -> `act as Apple Device`.
 - When renaming your AirPods through the app, you'll need to re-pair them with your phone for the name change to take effect. This is a limitation of how Bluetooth device naming works on Android.
 
 - If you want the AirPods icon and battery status to show in Android Settings app, install the app as a system app by using the root module.
+
+## Supporters
+
+A huge thank you to everyone supporting the project!
+- @davdroman
+- @tedsalmon
+- @wiless
+- @SmartMsg
+- @lunaroyster
+- @ressiwage
+
+## Special thanks
+- @tyalie for making the first documentation on the protocol! ([tyalie/AAP-Protocol-Definition](https://github.com/tyalie/AAP-Protocol-Defintion))
+- @rithvikvibhu and folks over at lagrangepoint for helping with the hearing aid feature ([gist](https://gist.github.com/rithvikvibhu/45e24bbe5ade30125f152383daf07016))
+- @devnoname120 for helping with the first root patch
+- @timgromeyer for making the first version of the linux app
+- @hackclub for hosting [High Seas](https://highseas.hackclub.com) and [Low Skies](low-skies.hackclub.com)!
 
 ## Star History
 

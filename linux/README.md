@@ -63,6 +63,30 @@ If you wish to manually build and install LibrePods from source, please see the 
     # For Fedora
     sudo dnf install openssl-devel
     ```
+4. Libpulse development headers
+
+    ```bash
+    # On Arch Linux / EndevaourOS, these are included in the libpulse package, so you might already have them installed.
+    sudo pacman -S libpulse
+
+    # For Debian / Ubuntu
+    sudo apt-get install libpulse-dev
+
+    # For Fedora
+    sudo dnf install pulseaudio-libs-devel
+    ```
+5. Cmake
+
+    ```bash
+    # For Arch Linux / EndeavourOS
+    sudo pacman -S cmake
+
+    # For Debian / Ubuntu
+    sudo apt-get install cmake
+
+    # For Fedora
+    sudo dnf install cmake
+    ```
 
 ## Setup
 

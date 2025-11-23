@@ -12,9 +12,9 @@ android {
 
     defaultConfig {
         applicationId = "me.kavishdevar.librepods"
-        minSdk = 28
+        minSdk = 33
         targetSdk = 36
-        versionCode = 8
+        versionCode = 9
         versionName = "0.2.0"
     }
 

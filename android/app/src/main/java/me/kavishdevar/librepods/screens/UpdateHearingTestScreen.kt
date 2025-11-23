@@ -20,6 +20,7 @@ package me.kavishdevar.librepods.screens
 
 import android.annotation.SuppressLint
 import android.util.Log
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -39,11 +40,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -62,7 +65,6 @@ import kotlinx.coroutines.delay
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.services.ServiceManager
-import me.kavishdevar.librepods.utils.AACPManager
 import me.kavishdevar.librepods.utils.ATTHandles
 import me.kavishdevar.librepods.utils.HearingAidSettings
 import me.kavishdevar.librepods.utils.parseHearingAidSettingsResponse
@@ -91,7 +93,6 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
         return
     }
 
-    val aacpManager = remember { ServiceManager.getService()?.aacpManager }
     val backdrop = rememberLayerBackdrop()
     StyledScaffold(
         title = stringResource(R.string.hearing_test)
@@ -105,16 +106,25 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            val textColor = if (isSystemInDarkTheme()) Color.White else Color.Black
+
             Spacer(modifier = Modifier.height(spacerHeight))
 
             Text(
                 text = stringResource(R.string.hearing_test_value_instruction),
-                fontSize = 16.sp,
                 modifier = Modifier.fillMaxWidth(),
+                style = TextStyle(
+                    fontSize = 16.sp,
+                    color = textColor,
+                    fontFamily = FontFamily(Font(R.font.sf_pro))
+                ),
                 textAlign = TextAlign.Center,
-                fontFamily = FontFamily(Font(R.font.sf_pro))
             )
-
+            val tone = remember { mutableFloatStateOf(0.5f) }
+            val ambientNoiseReduction = remember { mutableFloatStateOf(0.0f) }
+            val ownVoiceAmplification = remember { mutableFloatStateOf(0.5f) }
+            val leftAmplification = remember { mutableFloatStateOf(0.5f) }
+            val rightAmplification = remember { mutableFloatStateOf(0.5f) }
             val conversationBoostEnabled = remember { mutableStateOf(false) }
             val leftEQ = remember { mutableStateOf(FloatArray(8)) }
             val rightEQ = remember { mutableStateOf(FloatArray(8)) }
@@ -128,38 +138,19 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                     HearingAidSettings(
                         leftEQ = leftEQ.value,
                         rightEQ = rightEQ.value,
-                        leftAmplification = 0.5f,
-                        rightAmplification = 0.5f,
-                        leftTone = 0.5f,
-                        rightTone = 0.5f,
+                        leftAmplification = leftAmplification.value,
+                        rightAmplification = rightAmplification.value,
+                        leftTone = tone.value,
+                        rightTone = tone.value,
                         leftConversationBoost = conversationBoostEnabled.value,
                         rightConversationBoost = conversationBoostEnabled.value,
-                        leftAmbientNoiseReduction = 0.0f,
-                        rightAmbientNoiseReduction = 0.0f,
-                        netAmplification = 0.5f,
-                        balance = 0.5f,
-                        ownVoiceAmplification = 0.5f
+                        leftAmbientNoiseReduction = ambientNoiseReduction.value,
+                        rightAmbientNoiseReduction = ambientNoiseReduction.value,
+                        netAmplification = leftAmplification.value + rightAmplification.value / 2,
+                        balance = 0.5f + (rightAmplification.value - leftAmplification.value) / 2,
+                        ownVoiceAmplification = ownVoiceAmplification.value
                     )
                 )
-            }
-
-            val hearingAidEnabled = remember {
-                val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-                val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-                mutableStateOf((aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte()))
-            }
-
-            val hearingAidListener = remember {
-                object : AACPManager.ControlCommandListener {
-                    override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                        if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value ||
-                            controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG.value) {
-                            val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-                            val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-                            hearingAidEnabled.value = (aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte())
-                        }
-                    }
-                }
             }
 
             val hearingAidATTListener = remember {
@@ -170,6 +161,11 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                             leftEQ.value = parsed.leftEQ.copyOf()
                             rightEQ.value = parsed.rightEQ.copyOf()
                             conversationBoostEnabled.value = parsed.leftConversationBoost
+                            tone.value = parsed.leftTone
+                            ambientNoiseReduction.value = parsed.leftAmbientNoiseReduction
+                            ownVoiceAmplification.value = parsed.ownVoiceAmplification
+                            leftAmplification.value = parsed.leftAmplification
+                            rightAmplification.value = parsed.rightAmplification
                             Log.d(TAG, "Updated hearing aid settings from notification")
                         } else {
                             Log.w(TAG, "Failed to parse hearing aid settings from notification")
@@ -178,20 +174,14 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 }
             }
 
-            LaunchedEffect(Unit) {
-                aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-                aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-            }
 
             DisposableEffect(Unit) {
                 onDispose {
-                    aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-                    aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
                     attManager.unregisterListener(ATTHandles.HEARING_AID, hearingAidATTListener)
                 }
             }
 
-            LaunchedEffect(leftEQ.value, rightEQ.value, conversationBoostEnabled.value, initialLoadComplete.value, initialReadSucceeded.value) {
+            LaunchedEffect(leftEQ.value, rightEQ.value, conversationBoostEnabled.value, initialLoadComplete.value, initialReadSucceeded.value, leftAmplification.value, rightAmplification.value, tone.value, ambientNoiseReduction.value, ownVoiceAmplification.value) {
                 if (!initialLoadComplete.value) {
                     Log.d(TAG, "Initial device load not complete - skipping send")
                     return@LaunchedEffect
@@ -205,17 +195,17 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 hearingAidSettings.value = HearingAidSettings(
                     leftEQ = leftEQ.value,
                     rightEQ = rightEQ.value,
-                    leftAmplification = 0.5f,
-                    rightAmplification = 0.5f,
-                    leftTone = 0.5f,
-                    rightTone = 0.5f,
+                    leftAmplification = leftAmplification.value,
+                    rightAmplification = rightAmplification.value,
+                    leftTone = tone.value,
+                    rightTone = tone.value,
                     leftConversationBoost = conversationBoostEnabled.value,
                     rightConversationBoost = conversationBoostEnabled.value,
-                    leftAmbientNoiseReduction = 0.0f,
-                    rightAmbientNoiseReduction = 0.0f,
-                    netAmplification = 0.5f,
-                    balance = 0.5f,
-                    ownVoiceAmplification = 0.5f
+                    leftAmbientNoiseReduction = ambientNoiseReduction.value,
+                    rightAmbientNoiseReduction = ambientNoiseReduction.value,
+                    netAmplification = leftAmplification.value + rightAmplification.value / 2,
+                    balance = 0.5f + (rightAmplification.value - leftAmplification.value) / 2,
+                    ownVoiceAmplification = ownVoiceAmplification.value
                 )
                 Log.d(TAG, "Updated settings: ${hearingAidSettings.value}")
                 sendHearingAidSettings(attManager, hearingAidSettings.value, debounceJob)
@@ -226,24 +216,6 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 try {
                     attManager.enableNotifications(ATTHandles.HEARING_AID)
                     attManager.registerListener(ATTHandles.HEARING_AID, hearingAidATTListener)
-
-                    try {
-                        if (aacpManager != null) {
-                            Log.d(TAG, "Found AACPManager, reading cached EQ data")
-                            val aacpEQ = aacpManager.eqData
-                            if (aacpEQ.isNotEmpty()) {
-                                leftEQ.value = aacpEQ.copyOf()
-                                rightEQ.value = aacpEQ.copyOf()
-                                Log.d(TAG, "Populated EQ from AACPManager: ${aacpEQ.toList()}")
-                            } else {
-                                Log.d(TAG, "AACPManager EQ data empty")
-                            }
-                        } else {
-                            Log.d(TAG, "No AACPManager available")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error reading EQ from AACPManager: ${e.message}")
-                    }
 
                     var parsedSettings: HearingAidSettings? = null
                     for (attempt in 1..3) {
@@ -268,6 +240,11 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                         leftEQ.value = parsedSettings.leftEQ.copyOf()
                         rightEQ.value = parsedSettings.rightEQ.copyOf()
                         conversationBoostEnabled.value = parsedSettings.leftConversationBoost
+                        tone.value = parsedSettings.leftTone
+                        ambientNoiseReduction.value = parsedSettings.leftAmbientNoiseReduction
+                        ownVoiceAmplification.value = parsedSettings.ownVoiceAmplification
+                        leftAmplification.value = parsedSettings.leftAmplification
+                        rightAmplification.value = parsedSettings.rightAmplification
                         initialReadSucceeded.value = true
                     } else {
                         Log.d(TAG, "Failed to read/parse initial hearing aid settings after ${initialReadAttempts.intValue} attempts")
@@ -288,17 +265,23 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 Spacer(modifier = Modifier.width(60.dp))
                 Text(
                     text = stringResource(R.string.left),
-                    fontSize = 18.sp,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
-                    fontFamily = FontFamily(Font(R.font.sf_pro))
+                    style = TextStyle(
+                        fontSize = 18.sp,
+                        fontFamily = FontFamily(Font(R.font.sf_pro)),
+                        color = textColor
+                    )
                 )
                 Text(
                     text = stringResource(R.string.right),
-                    fontSize = 18.sp,
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center,
-                    fontFamily = FontFamily(Font(R.font.sf_pro))
+                    style = TextStyle(
+                        fontSize = 18.sp,
+                        fontFamily = FontFamily(Font(R.font.sf_pro)),
+                        color = textColor
+                    )
                 )
             }
 
@@ -313,8 +296,11 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                             .width(60.dp)
                             .align(Alignment.CenterVertically),
                         textAlign = TextAlign.End,
-                        fontSize = 16.sp,
-                        fontFamily = FontFamily(Font(R.font.sf_pro)),
+                        style = TextStyle(
+                            color = textColor,
+                            fontSize = 16.sp,
+                            fontFamily = FontFamily(Font(R.font.sf_pro))
+                        ),
                     )
                     OutlinedTextField(
                         value = leftEQ.value[index].toString(),
@@ -324,10 +310,11 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                                 val newArray = leftEQ.value.copyOf()
                                 newArray[index] = parsed
                                 leftEQ.value = newArray
+                                Log.d(TAG, "Left EQ updated at index $index to $parsed")
                             }
                         },
 //                        label = { Text("Value", fontSize = 14.sp, fontFamily = FontFamily(Font(R.font.sf_pro))) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         textStyle = TextStyle(
                             fontFamily = FontFamily(Font(R.font.sf_pro)),
                             fontSize = 14.sp
@@ -342,10 +329,11 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                                 val newArray = rightEQ.value.copyOf()
                                 newArray[index] = parsed
                                 rightEQ.value = newArray
+                                Log.d(TAG, "Right EQ updated at index $index to $parsed")
                             }
                         },
 //                        label = { Text("Value", fontSize = 14.sp, fontFamily = FontFamily(Font(R.font.sf_pro))) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         textStyle = TextStyle(
                             fontFamily = FontFamily(Font(R.font.sf_pro)),
                             fontSize = 14.sp

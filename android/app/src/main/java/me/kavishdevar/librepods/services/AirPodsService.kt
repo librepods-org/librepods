@@ -2161,11 +2161,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 ?.getString("name", bluetoothDevice?.name)
             if (bluetoothDevice != null && action != null && !action.isEmpty()) {
                 Log.d(TAG, "Received bluetooth connection broadcast: action=$action")
-                if (ServiceManager.getService()?.isConnectedLocally == true) {
-                    Log.d(TAG, "Device is already connected locally, checking if we should keep audio connected")
-                    if (ServiceManager.getService()?.socket?.isConnected == true) ServiceManager.getService()?.manuallyCheckForAudioSource() else Log.d(TAG, "We're not connected, ignoring")
-                    return
-                }
                 if (BluetoothDevice.ACTION_ACL_CONNECTED == action) {
                     val uuid = ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a")
                     bluetoothDevice.fetchUuidsWithSdp()
@@ -2198,19 +2193,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         }
 
         return START_STICKY
-    }
-
-    fun manuallyCheckForAudioSource() {
-        val shouldResume = MediaController.getMusicActive() // todo: for some reason we lose this info after disconnecting, probably android dispatches some event. haven't investigated yet.
-	if (airpodsInstance == null) return
-        Log.d(TAG, "disconnectedBecauseReversed: $disconnectedBecauseReversed, otherDeviceTookOver: $otherDeviceTookOver")
-	if ((earDetectionNotification.status[0] != 0.toByte() && earDetectionNotification.status[1] != 0.toByte()) || disconnectedBecauseReversed || otherDeviceTookOver) {
-            Log.d(
-                TAG,
-                "For some reason, Android connected to the audio profile itself even after disconnecting. Disconnecting audio profile again! I will resume: $shouldResume"
-            )
-            disconnectAudio(this, device, shouldResume = shouldResume)
-        }
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
@@ -2653,7 +2635,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         return ancNotification.status
     }
 
-    fun disconnectAudio(context: Context, device: BluetoothDevice?, shouldResume: Boolean = false) {
+    fun disconnectAudio(context: Context, device: BluetoothDevice?) {
         val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
         bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
@@ -2664,13 +2646,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                             return
                         }
                         val method =
-                            proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
-                        if (shouldResume) {
-                            Handler(Looper.getMainLooper()).postDelayed({
-                                MediaController.sendPlay()
-                            }, 150)
-                        }
+                            proxy.javaClass.getMethod("setConnectionPolicy", BluetoothDevice::class.java, Int::class.java)
+                        method.invoke(proxy, device, 0)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     } finally {
@@ -2687,8 +2664,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 if (profile == BluetoothProfile.HEADSET) {
                     try {
                         val method =
-                            proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
+                            proxy.javaClass.getMethod("setConnectionPolicy", BluetoothDevice::class.java, Int::class.java)
+                        method.invoke(proxy, device, 0)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     } finally {
@@ -2708,9 +2685,11 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
                 if (profile == BluetoothProfile.A2DP) {
                     try {
-                        val method =
+                        val policyMethod = proxy.javaClass.getMethod("setConnectionPolicy", BluetoothDevice::class.java, Int::class.java)
+                        policyMethod.invoke(proxy, device, 100)
+                        val connectMethod =
                             proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
+                        connectMethod.invoke(proxy, device) // reduces the slight delay between allowing and actually connecting
                     } catch (e: Exception) {
                         e.printStackTrace()
                     } finally {

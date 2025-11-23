@@ -218,7 +218,9 @@ fun AirPodsSettingsScreen(dev: BluetoothDevice?, service: AirPodsService,
     val darkMode = isSystemInDarkTheme()
     val hazeStateS = remember { mutableStateOf(HazeState()) }
 
-    val showDialog = remember { mutableStateOf(!sharedPreferences.getBoolean("donationDialogShown", false)) }
+    // val showDialog = remember { mutableStateOf(!sharedPreferences.getBoolean("donationDialogShown", false)) }
+
+    val showDialog = remember { mutableStateOf(false) }
 
     StyledScaffold(
         title = deviceName.text,
