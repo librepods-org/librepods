@@ -2708,9 +2708,11 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
                 if (profile == BluetoothProfile.HEADSET) {
                     try {
-                        val method =
+                        val policyMethod = proxy.javaClass.getMethod("setConnectionPolicy", BluetoothDevice::class.java, Int::class.java)
+                        policyMethod.invoke(proxy, device, 100)
+                        val connectMethod =
                             proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
+                        connectMethod.invoke(proxy, device)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     } finally {
