@@ -2,20 +2,23 @@
 
 AAP runs on top of L2CAP, with a PSM of 0x1001 or 4097.
 
-# Handshake
+## Handshake
+
 This packet is necessary to establish a connection with the AirPods. Or else, the AirPods will not respond to any packets.
 
 ```plaintext
 00 00 04 00 01 00 02 00 00 00 00 00 00 00 00 00
 ```
 
-# Setting specific features for AirPods Pro 2
+## Setting specific features for AirPods Pro 2
 
 > *may work for airpods 4 anc also, not tested*
 
-Since apple likes to wall off some features behind specific OS versions, and apple silicon devices, some packets are necessary to enable these features.
+Since apple likes to wall off some features behind specific OS versions, and apple silicon devices, some packets are
+necessary to enable these features.
 
-I captured the following packet only accidentally, because Apple being Apple decided to hide *this* and *the handshake* from packetlogger, but sometimes it shows up.
+I captured the following packet only accidentally, because Apple being Apple decided to hide *this* and *the
+handshake* from packetlogger, but sometimes it shows up.
 
 *Captured using PacketLogger on an Intel Mac running macOS Sequoia 15.0.1*
 ```plaintext
@@ -24,11 +27,13 @@ I captured the following packet only accidentally, because Apple being Apple dec
 
 This packet enables conversational awareness when playing audio. (CA works without this packet only when no audio is playing)
 
-It also enables the Adaptive Transparency feature. (We can set Adaptive Transparency, but it doesn't respond with the same packet See [Noise Cancellation](#changing-noise-control))
+It also enables the Adaptive Transparency feature. (We can set Adaptive Transparency, but it doesn't respond with the
+same packet See [Noise Cancellation](#changing-noise-control))
 
-# Requesting notifications
+## Requesting notifications
 
-This packet is necessary to receive notifications from the AirPods like ear detection, noise control mode, conversational awareness, battery status, etc.
+This packet is necessary to receive notifications from the AirPods like ear detection, noise control mode,
+conversational awareness, battery status, etc.
 
 *Captured using PacketLogger on an Intel Mac running macOS Sequoia 15.0.1*
 ```plaintext
@@ -41,7 +46,7 @@ This packet also works.
 04 00 04 00 0F 00 FF FF FF FF
 ```
 
-# Notifications
+## Notifications
 
 ## Battery
 
@@ -92,7 +97,8 @@ Example packet from AirPods Pro 2
 
 ## Noise Control
 
-The AirPods Pro 2 send noise control packets when the noise control mode is changed (either by a stem long press or by the connected device, see [Changing noise control](#changing-noise-control)). The packet format is as follows:
+The AirPods Pro 2 send noise control packets when the noise control mode is changed (either by a stem long press or
+by the connected device, see [Changing noise control](#changing-noise-control)). The packet format is as follows:
 
 ```plaintext
 04 00 04 00 09 00 0D [mode] 00 00 00
@@ -108,11 +114,13 @@ The AirPods Pro 2 send noise control packets when the noise control mode is chan
 ## Ear Detection
 
 AirPods send ear detection packets when the ear detection status changes. The packet format is as follows:
+
 ```plaintext
 04 00 04 00 06 00 [primary pod] [secondary pod]
 ```
 
-If primary is removed, mic will be changed and the secondary will be the new primary, so the primary will be the one in the ear, and the packet will be sent again.
+If primary is removed, mic will be changed and the secondary will be the new primary, so the primary will be the one
+in the ear, and the packet will be sent again.
 
 | Pod Status | Byte value |
 |------------|------------|
@@ -134,9 +142,11 @@ AirPods send conversational awareness packets when the person wearing them start
 | 03                  | Person Stopped Speaking; increase volume back to normal |
 | Intermediate values | Intermediate volume levels                              |
 | 08/09               | Normal Volume                                           |
+
 ### Reading Conversational Awareness State
 
-After requesting notifications, the AirPods send a packet indicating the current state of Conversational Awareness (CA). This packet is only sent once after notifications are requested, not when the CA state is changed.
+After requesting notifications, the AirPods send a packet indicating the current state of Conversational Awareness
+(CA). This packet is only sent once after notifications are requested, not when the CA state is changed.
 
 The packet format is:
 
@@ -150,9 +160,11 @@ The packet format is:
     - Any other value — Unknown/undetermined state
 
 **Example:**
+
 ```plaintext
 04 00 04 00 09 00 28 01 00 00 00
 ```
+
 Here, `01` at the 8th byte (offset 7) means CA is enabled.
 
 ## Metadata
@@ -166,7 +178,7 @@ This packet contains device information like name, model number, etc. The packet
 The strings are null-terminated UTF-8 strings in the following order:
 
 1. Bluetooth advertising name (varies in length)
-2. Model number 
+2. Model number
 3. Manufacturer
 4. Serial number
 5. Firmware version
@@ -180,15 +192,16 @@ The strings are null-terminated UTF-8 strings in the following order:
 13. Additional encrypted data
 
 Example packet:
+
 ```plaintext
 040004001d0002d5000400416972506f64732050726f004133303438004170706c6520496e632e0051584e524848595850360036312e313836383034303030323030303030302e323731330036312e313836383034303030323030303030302e3237313300312e302e3000636f6d2e6170706c652e6163636573736f72792e757064617465722e6170702e3731004859394c5432454632364a59004833504c5748444a32364b3000363335373533360089312a6567a5400f84a3ca234947efd40b90d78436ae5946748d70273e66066a2589300035333935303630363400```
 
 The packet contains device identification and version information followed by some encrypted data whose format is not known.
 ```
 
-# Writing to the AirPods
+## Writing to the AirPods
 
-## Changing Noise Control
+### Changing Noise Control
 
 We can send a packet to change the noise control mode. The packet format is as follows:
 
@@ -205,7 +218,8 @@ We can send a packet to change the noise control mode. The packet format is as f
 
 The airpods will respond with the same packet after the mode has been changed.
 
-> But if your airpods support Adaptive Transparency, and you haven't sent that [special packet](#setting-specific-features-for-airpods-pro-2) to enable it, the airpods will respond with the same packet but with a different mode (like 0x02).
+> But if your airpods support Adaptive Transparency, and you haven't sent that [special packet](#setting-specific-features-for-airpods-pro-2)
+to enable it, the airpods will respond with the same packet but with a different mode (like 0x02).
 
 ## Renaming AirPods
 
@@ -217,7 +231,8 @@ We can send a packet to rename the AirPods. The packet format is as follows:
 
 ## Toggle case charging sounds
 
-> *This feature is only for cases with a speaker, i.e. the AirPods Pro 2 and the new AirPods 4. Tested only on AirPods Pro 2*
+> *This feature is only for cases with a speaker, i.e. the AirPods Pro 2 and the new AirPods 4. Tested only on
+AirPods Pro 2*
 
 We can send a packet to toggle if sounds should be played when the case is connected to a charger. The packet format is as follows:
 
