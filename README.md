@@ -43,7 +43,7 @@ phone speaker when you take them out
 
 ### Linux
 
-#### How are you install librepods on Linux?
+#### How to install LibrePods on Linux?
 
 First, you need to clone the entire Git repository. After this, create a build folder inside `linux/` **not in the
 root of the repository.**
@@ -91,7 +91,7 @@ on the IssueTracker page. I don't know a fix for Android versions <13 either. So
 >
 > There are **no exceptions** to the root requirement until Google/your OEM figures out a fix.
 
-Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlayfs to replace
+Until then, you must Xposed. I used to provide a non-Xposed method too, where the module used overlayfs to replace
 the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlayfs
 and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
 
