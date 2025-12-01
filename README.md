@@ -1,4 +1,4 @@
-![LibrePods Banner](/imgs/banner.png)
+![LibrePods Banner](./imgs/banner.png)
 
 ## What is LibrePods?
 
@@ -36,7 +36,7 @@ Most features should work with any AirPods. Currently, I've only got AirPods Pro
 ## Platform Support
 
 ### Linux
-for the old version see the [Linux README](/linux/README.md). (doesn't have many features, maintainer didn't have time to work on it)
+for the old version see the [Linux README](./linux/README.md). (doesn't have many features, maintainer didn't have time to work on it)
 
 new version in development ([#241](https://github.com/kavishdevar/librepods/pull/241))
 
@@ -48,11 +48,11 @@ new version in development ([#241](https://github.com/kavishdevar/librepods/pull
 
 |                                                                                        |                                                   |                                                                             |
 | -------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| ![Settings 1](/android/imgs/settings-1.png)                                            | ![Settings 2](/android/imgs/settings-2.png)       | ![Debug Screen](/android/imgs/debug.png)                                    |
-| ![Battery Notification and QS Tile for NC Mode](/android/imgs/notification-and-qs.png) | ![Popup](/android/imgs/popup.png)                 | ![Head Tracking and Gestures](/android/imgs/head-tracking-and-gestures.png) |
-| ![Long Press Configuration](/android/imgs/long-press.png)                              | ![Widget](/android/imgs/widget.png)               | ![Customizations 1](/android/imgs/customizations-1.png)                     |
-| ![Customizations 2](/android/imgs/customizations-2.png)                                | ![accessibility](/android/imgs/accessibility.png) | ![transparency](/android/imgs/transparency.png)                             |
-| ![hearing-aid](/android/imgs/hearing-aid.png)                                          | ![hearing-test](/android/imgs/hearing-test.png)   | ![hearing-aid-adjustments](/android/imgs/hearing-aid-adjustments.png)       |
+| ![Settings 1](./android/imgs/settings-1.png)                                            | ![Settings 2](./android/imgs/settings-2.png)       | ![Debug Screen](./android/imgs/debug.png)                                    |
+| ![Battery Notification and QS Tile for NC Mode](./android/imgs/notification-and-qs.png) | ![Popup](./android/imgs/popup.png)                 | ![Head Tracking and Gestures](./android/imgs/head-tracking-and-gestures.png) |
+| ![Long Press Configuration](./android/imgs/long-press.png)                              | ![Widget](./android/imgs/widget.png)               | ![Customizations 1](./android/imgs/customizations-1.png)                     |
+| ![Customizations 2](./android/imgs/customizations-2.png)                                | ![accessibility](./android/imgs/accessibility.png) | ![transparency](./android/imgs/transparency.png)                             |
+| ![hearing-aid](./android/imgs/hearing-aid.png)                                          | ![hearing-test](./android/imgs/hearing-test.png)   | ![hearing-aid-adjustments](./android/imgs/hearing-aid-adjustments.png)       |
 
 
 here's a very unprofessional demo video
