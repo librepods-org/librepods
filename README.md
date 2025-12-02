@@ -1,4 +1,4 @@
-![LibrePods Banner](/imgs/banner.png)
+![LibrePods Banner](./imgs/banner.png)
 
 ## What is LibrePods?
 
@@ -54,7 +54,7 @@ located in the `linux` folder.
 Next, compile the generated Makefiles created by the previous step. After the compilation finishes, you should have a
 `librepods` executable. Running this file completes the setup and starts LibrePods.
 
-If you need more help, check the [Linux README](/linux/README.md), which provides a more detailed,
+If you need more help, check the [Linux README](./linux/README.md), which provides a more detailed,
 copy-and-paste-ready instruction. (doesn't have many features, maintainer didn't have time to work on it)
 
 new version in development ([#241](https://github.com/kavishdevar/librepods/pull/241))
@@ -67,11 +67,11 @@ new version in development ([#241](https://github.com/kavishdevar/librepods/pull
 
 |                                                                                        |                                                   |                                                                             |
 | -------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
-| ![Settings 1](/android/imgs/settings-1.png)                                            | ![Settings 2](/android/imgs/settings-2.png)       | ![Debug Screen](/android/imgs/debug.png)                                    |
-| ![Battery Notification and QS Tile for NC Mode](/android/imgs/notification-and-qs.png) | ![Popup](/android/imgs/popup.png)                 | ![Head Tracking and Gestures](/android/imgs/head-tracking-and-gestures.png) |
-| ![Long Press Configuration](/android/imgs/long-press.png)                              | ![Widget](/android/imgs/widget.png)               | ![Customizations 1](/android/imgs/customizations-1.png)                     |
-| ![Customizations 2](/android/imgs/customizations-2.png)                                | ![accessibility](/android/imgs/accessibility.png) | ![transparency](/android/imgs/transparency.png)                             |
-| ![hearing-aid](/android/imgs/hearing-aid.png)                                          | ![hearing-test](/android/imgs/hearing-test.png)   | ![hearing-aid-adjustments](/android/imgs/hearing-aid-adjustments.png)       |
+| ![Settings 1](./android/imgs/settings-1.png)                                            | ![Settings 2](./android/imgs/settings-2.png)       | ![Debug Screen](./android/imgs/debug.png)                                    |
+| ![Battery Notification and QS Tile for NC Mode](./android/imgs/notification-and-qs.png) | ![Popup](./android/imgs/popup.png)                 | ![Head Tracking and Gestures](./android/imgs/head-tracking-and-gestures.png) |
+| ![Long Press Configuration](./android/imgs/long-press.png)                              | ![Widget](./android/imgs/widget.png)               | ![Customizations 1](./android/imgs/customizations-1.png)                     |
+| ![Customizations 2](./android/imgs/customizations-2.png)                                | ![accessibility](./android/imgs/accessibility.png) | ![transparency](./android/imgs/transparency.png)                             |
+| ![hearing-aid](./android/imgs/hearing-aid.png)                                          | ![hearing-test](./android/imgs/hearing-test.png)   | ![hearing-aid-adjustments](./android/imgs/hearing-aid-adjustments.png)       |
 
 
 here's a very unprofessional demo video
