@@ -14,13 +14,14 @@ This packet is necessary to establish a connection with the AirPods. Or else, th
 
 > *may work for airpods 4 anc also, not tested*
 
-Since apple likes to wall off some features behind specific OS versions, and apple silicon devices, some packets are
+Since Apple likes to wall off some features behind specific OS versions, and Apple silicon devices, some packets are
 necessary to enable these features.
 
 I captured the following packet only accidentally, because Apple being Apple decided to hide *this* and *the
 handshake* from packetlogger, but sometimes it shows up.
 
 *Captured using PacketLogger on an Intel Mac running macOS Sequoia 15.0.1*
+
 ```plaintext
 04 00 04 00 4d 00 ff 00 00 00 00 00 00 00
 ```
@@ -36,6 +37,7 @@ This packet is necessary to receive notifications from the AirPods like ear dete
 conversational awareness, battery status, etc.
 
 *Captured using PacketLogger on an Intel Mac running macOS Sequoia 15.0.1*
+
 ```plaintext
 04 00 04 00 0F 00 FF FF FE FF
 ```
@@ -68,7 +70,6 @@ AirPods occasionally send battery status packets. The packet format is as follow
 | Charging     | 01         |
 | Discharging  | 02         |
 | Disconnected | 04         |
-
 
 Example packet from AirPods Pro 2
 
@@ -155,9 +156,9 @@ The packet format is:
 ```
 
 - `[status]` is a single byte at offset 7 (zero-based), immediately after the header.
-    - `0x01` — Conversational Awareness is **enabled**
-    - `0x02` — Conversational Awareness is **disabled**
-    - Any other value — Unknown/undetermined state
+  - `0x01` — Conversational Awareness is **enabled**
+  - `0x02` — Conversational Awareness is **disabled**
+  - Any other value — Unknown/undetermined state
 
 **Example:**
 
@@ -234,7 +235,8 @@ We can send a packet to rename the AirPods. The packet format is as follows:
 > *This feature is only for cases with a speaker, i.e. the AirPods Pro 2 and the new AirPods 4. Tested only on
 AirPods Pro 2*
 
-We can send a packet to toggle if sounds should be played when the case is connected to a charger. The packet format is as follows:
+We can send a packet to toggle if sounds should be played when the case is connected to a charger. The packet
+format is as follows:
 
 ```plaintext
 12 3A 00 01 00 08 [setting]
@@ -249,7 +251,9 @@ We can send a packet to toggle if sounds should be played when the case is conne
 
 > *This feature is only for AirPods Pro 2 and the new AirPods 4 with ANC. Tested only on AirPods Pro 2*
 
-We can send a packet to toggle Conversational Awareness. If enabled, the AirPods will switch to Transparency mode when the person wearing them starts speaking (and sends packet for notifying the device to reduce volume). The packet format is as follows:
+We can send a packet to toggle Conversational Awareness. If enabled, the AirPods will switch to Transparency mode
+when the person wearing them starts speaking (and sends packet for notifying the device to reduce volume). The
+packet format is as follows:
 
 ```plaintext
 04 00 04 00 09 00 28 [setting] 00 00 00
@@ -264,22 +268,27 @@ We can send a packet to toggle Conversational Awareness. If enabled, the AirPods
 
 > *This feature is only for AirPods Pro 2 and the new AirPods 4 with ANC. Tested only on AirPods Pro 2*
 
-The new firmware `7A305` for app2 has a new feature called Adaptive Audio Noise. This allows us to control how much noise is passed through the AirPods when the noise control mode is set to Adaptive. The packet format is as follows:
+The new firmware `7A305` for app2 has a new feature called Adaptive Audio Noise. This allows us to control how
+much noise is passed through the AirPods when the noise control mode is set to Adaptive. The packet format is as follows:
 
 ```plaintext
 04 00 04 00 09 00 2E [level] 00 00 00
 ```
 
-The level can be any value between 0 and 100, 0 to allow maximum noise (i.e. minimum noise filtering), and 100 to filter out more noise.
+The level can be any value between 0 and 100, 0 to allow maximum noise (i.e. minimum noise filtering), and 100 to
+filter out more noise.
 
 > This feature is only effective when the noise control mode is set to Adaptive.
 
-*I find it quite funny how I have greater control over the noise control on the AirPods on non-Apple devices than on Apple devices, becuase on Apple Devices, there are just 3 options More Noise (0), Midway through (50), and Less Noise (100), but here I can set any value between 0 and 100.*
+*I find it quite funny how I have greater control over the noise control on the AirPods on non-Apple devices than
+on Apple devices, becuase on Apple Devices, there are just 3 options More Noise (0), Midway through (50), and Less
+Noise (100), but here I can set any value between 0 and 100.*
 
 ## Accessiblity Settings
 
 ## Headphone Accomodation
-```
+
+```plaintext
 04 00 04 00 53 00 84 00 02 02 [Phone] [Media]
 [EQ1][EQ2][EQ3][EQ4][EQ5][EQ6][EQ7][EQ8]
 duplicated thrice for some reason
@@ -293,7 +302,7 @@ duplicated thrice for some reason
 
 ## Customize Transparency mode
 
-```
+```plaintext
 12 18 00 [enabled]
 <left bud>
 [EQ1][EQ2][EQ3][EQ4][EQ5][EQ6][EQ7][EQ8]
@@ -304,8 +313,8 @@ duplicated thrice for some reason
 <repeat for right bud>
 ```
 
-
 All values are formatted as IEEE 754 floats in little endian order.
+
 | Data                    | Type          | Range |
 |-------------------------|---------------|-------|
 | Enabled                 | IEEE754 Float | 0/1   |
@@ -319,12 +328,16 @@ All values are formatted as IEEE 754 floats in little endian order.
 > [!IMPORTANT]
 > Also send the [Headphone Accomodation](#headphone-accomodation) after this.
 
-
 ## Configure Stem Long Press
 
-I have noted all the packets sent to configure what the press and hold of the steam should do. The packets sent are specific to the current state. And are probably overwritten everytime the AirPods are connected to a new (apple) device that is not synced with icloud (i think)... So, for non-Apple devices too, the configuration needs to be stored and overwritten everytime the AirPods are connected to the device. That is the only way to keep the configuration.
+I have noted all the packets sent to configure what the press and hold of the steam should do. The packets sent
+are specific to the current state. And are probably overwritten everytime the AirPods are connected to a new
+(Apple) device that is not synced with icloud (i think)... So, for non-Apple devices too, the configuration needs
+to be stored and overwritten everytime the AirPods are connected to the device. That is the only way to keep the
+configuration.
 
-This is also the only way to control the configuration as the previous state needs to be known, and then the new state can be set. 
+This is also the only way to control the configuration as the previous state needs to be known, and then the new
+state can be set.
 
 The packets sent (based on the previous states) are as follows:
 
@@ -390,11 +403,12 @@ The packets sent (based on the previous states) are as follows:
 
 > *i do hate apple for not hardcoding these, like there are literally only 4^2 - ${\binom{4}{1}}$ - $\binom{4}{2}$*
 
-# Head Tracking
+## Head Tracking
 
-## Start Tracking
+### Start Tracking
 
-This packet initiates head tracking. When sent, the AirPods begin streaming head tracking data (e.g. orientation and acceleration) for live plotting and analysis.
+This packet initiates head tracking. When sent, the AirPods begin streaming head tracking data (e.g. orientation
+and acceleration) for live plotting and analysis.
 
 ```plaintext
 04 00 04 00 17 00 00 00 10 00 10 00 08 A1 02 42 0B 08 0E 10 02 1A 05 01 40 9C 00 00
@@ -407,6 +421,7 @@ This packet stops the head tracking data stream.
 ```plaintext
 04 00 04 00 17 00 00 00 10 00 11 00 08 7E 10 02 42 0B 08 4E 10 02 1A 05 01 00 00 00 00
 ```
+
 ## Received Head Tracking Sensor Data
 
 Once tracking is active, the AirPods stream sensor packets with the following common structure:

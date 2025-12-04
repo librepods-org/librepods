@@ -9,8 +9,10 @@ A native Linux application to control your AirPods, with support for:
 - Battery monitoring
 - Auto play/pause on ear detection
 - Hearing Aid features
-   - Supports adjusting hearing aid- amplification, balance, tone, ambient noise reduction, own voice amplification, and conversation boost
-   - Supports setting the values for left and right hearing aids (this is not a hearing test! you need to have an audiogram to set the values)
+  - Supports adjusting hearing aid- amplification, balance, tone, ambient noise reduction, own voice amplification, and
+  conversation boost
+  - Supports setting the values for left and right hearing aids (this is not a hearing test! you need to have an audiogram
+   to set the values)
 - Seamless handoff between Android and Linux
 
 ## Prerequisites

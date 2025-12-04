@@ -73,7 +73,6 @@ new version in development ([#241](https://github.com/kavishdevar/librepods/pull
 | ![Customizations 2](./android/imgs/customizations-2.png)                                | ![accessibility](./android/imgs/accessibility.png) | ![transparency](./android/imgs/transparency.png)                             |
 | ![hearing-aid](./android/imgs/hearing-aid.png)                                          | ![hearing-test](./android/imgs/hearing-test.png)   | ![hearing-aid-adjustments](./android/imgs/hearing-aid-adjustments.png)       |
 
-
 here's a very unprofessional demo video
 
 https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
