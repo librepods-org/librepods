@@ -1171,6 +1171,7 @@ int main(int argc, char *argv[]) {
 
     QObject::connect(&server, &QLocalServer::newConnection, [&]() {
         QLocalSocket* socket = server.nextPendingConnection();
+        QObject::connect(socket, &QLocalSocket::disconnected, socket, &QLocalSocket::deleteLater);
 
         QObject::connect(socket, &QLocalSocket::readyRead, [socket, &engine, trayApp]() {
             QString msg = QString::fromUtf8(socket->readAll());
@@ -1191,8 +1192,11 @@ int main(int argc, char *argv[]) {
                 }
                 else if (msg.startsWith("cli:set-noise-mode:")) {
                     QString modeStr = msg.mid(QString("cli:set-noise-mode:").length());
-                    int mode = modeStr.toInt();
-                    if (!trayApp->areAirpodsConnected()) {
+                    bool ok;
+                    int mode = modeStr.toInt(&ok);
+                    if (!ok || mode < 0 || mode > 3) {
+                        response = "Error: Invalid noise mode";
+                    } else if (!trayApp->areAirpodsConnected()) {
                         response = "Error: AirPods not connected";
                     } else {
                         trayApp->setNoiseControlModeInt(mode);
@@ -1201,18 +1205,22 @@ int main(int argc, char *argv[]) {
                 }
                 else if (msg.startsWith("cli:set-ca:")) {
                     QString stateStr = msg.mid(QString("cli:set-ca:").length());
-                    bool enabled = (stateStr == "1");
-                    if (!trayApp->areAirpodsConnected()) {
+                    if (stateStr != "0" && stateStr != "1") {
+                        response = "Error: Invalid state";
+                    } else if (!trayApp->areAirpodsConnected()) {
                         response = "Error: AirPods not connected";
                     } else {
-                        trayApp->setConversationalAwareness(enabled);
+                        trayApp->setConversationalAwareness(stateStr == "1");
                         response = "OK";
                     }
                 }
                 else if (msg.startsWith("cli:set-adaptive-level:")) {
                     QString levelStr = msg.mid(QString("cli:set-adaptive-level:").length());
-                    int level = levelStr.toInt();
-                    if (!trayApp->areAirpodsConnected()) {
+                    bool ok;
+                    int level = levelStr.toInt(&ok);
+                    if (!ok || level < 0 || level > 100) {
+                        response = "Error: Invalid level (0-100)";
+                    } else if (!trayApp->areAirpodsConnected()) {
                         response = "Error: AirPods not connected";
                     } else {
                         trayApp->setAdaptiveNoiseLevel(level);
