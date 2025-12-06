@@ -4,7 +4,7 @@ import socket
 import struct
 import sys
 import threading
-from socket import socket as Socket, TimeoutError
+from socket import socket as Socket
 from queue import Queue
 from threading import Thread
 from typing import Any, Dict, List, Optional
