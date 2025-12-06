@@ -4,6 +4,9 @@ project(linux VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Pass version to C++ code
+add_compile_definitions(LIBREPODS_VERSION="${PROJECT_VERSION}")
+
 find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Bluetooth DBus)
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -13,6 +16,8 @@ qt_standard_project_setup()
 
 qt_add_executable(librepods
     main.cpp
+    cli.cpp
+    cli.h
     logger.h
     media/mediacontroller.cpp
     media/mediacontroller.h
