@@ -547,8 +547,12 @@ public slots:
 private slots:
     void onTrayIconActivated()
     {
-        QQuickWindow *window = qobject_cast<QQuickWindow *>(
-            QGuiApplication::topLevelWindows().constFirst());
+        const auto windows = QGuiApplication::topLevelWindows();
+        if (windows.isEmpty()) {
+            loadMainModule();
+            return;
+        }
+        QQuickWindow *window = qobject_cast<QQuickWindow *>(windows.constFirst());
         if (window)
         {
             window->show();
@@ -559,25 +563,25 @@ private slots:
 
     void onOpenApp()
     {
+        if (parent->rootObjects().isEmpty()) {
+            loadMainModule();
+            return;
+        }
         QObject *rootObject = parent->rootObjects().first();
         if (rootObject) {
             QMetaObject::invokeMethod(rootObject, "reopen", Q_ARG(QVariant, "app"));
-        }
-        else
-        {
-            loadMainModule();
         }
     }
 
     void onOpenSettings()
     {
+        if (parent->rootObjects().isEmpty()) {
+            loadMainModule();
+            return;
+        }
         QObject *rootObject = parent->rootObjects().first();
         if (rootObject) {
             QMetaObject::invokeMethod(rootObject, "reopen", Q_ARG(QVariant, "settings"));
-        }
-        else
-        {
-            loadMainModule();
         }
     }
 
@@ -1092,6 +1096,11 @@ private:
 };
 
 int main(int argc, char *argv[]) {
+    // Use Fusion style as fallback for missing theme modules
+    if (qgetenv("QT_STYLE_OVERRIDE").toLower() == "kvantum")
+        qputenv("QT_STYLE_OVERRIDE", "Fusion");
+    qputenv("QT_QUICK_CONTROLS_STYLE", "Fusion");
+
     QApplication app(argc, argv);
 
     // Handle CLI commands first (returns -1 if should continue to GUI)
@@ -1224,13 +1233,13 @@ int main(int argc, char *argv[]) {
             // Handle reopen command
             if (msg == "reopen") {
                 LOG_INFO("Reopening app window");
-                QObject *rootObject = engine.rootObjects().first();
-                if (rootObject) {
-                    QMetaObject::invokeMethod(rootObject, "reopen", Q_ARG(QVariant, "app"));
-                }
-                else
-                {
+                if (engine.rootObjects().isEmpty()) {
                     trayApp->loadMainModule();
+                } else {
+                    QObject *rootObject = engine.rootObjects().first();
+                    if (rootObject) {
+                        QMetaObject::invokeMethod(rootObject, "reopen", Q_ARG(QVariant, "app"));
+                    }
                 }
             }
             else
