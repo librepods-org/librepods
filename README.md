@@ -9,11 +9,11 @@ LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get a
 | Status | Device                | Features                                                   |
 | ------ | --------------------- | ---------------------------------------------------------- |
 | ✅      | AirPods Pro (2nd Gen) | Fully supported and tested                                 |
-| ✅      | AirPods Pro (3rd Gen) | Fully supported (except heartrate monitoring)              |
+| ✅      | AirPods Pro (3rd Gen) | Fully supported (except hear trate monitoring)              |
 | ✅      | AirPods Max           | Fully supported (client shows unsupported features)        |
 | ⚠️      | Other AirPods models  | Basic features (battery status, ear detection) should work |
 
-Most features should work with any AirPods. Currently, I've only got AirPods Pro 2 to test with. But, I believe the protocol remains the same for all other AirPods (based on analysis of the bluetooth stack on macOS).
+Most features should work with any version of AirPods. Currently, I only have AirPods Pro 2 available for testing; however, I believe the protocol remains the same for all other models based on my analysis of the Bluetooth stack on macOS.
 
 ## Key Features
 
@@ -24,7 +24,7 @@ Most features should work with any AirPods. Currently, I've only got AirPods Pro
 - **Conversational Awareness**: Volume automatically lowers when you speak
 - **Hearing Aid\***
 - **Customize Transparency Mode\***
-- **Multi-device connectivity\*** (upto 2 devices)
+- **Multi-device connectivity\*** (up to 2 devices)
 - **Other customizations**:
   - Rename your AirPods
   - Customize long-press actions
@@ -68,7 +68,7 @@ If you are using ColorOS/OxygenOS 16, you don't need root except for customizing
 > 
 > There are **no exceptions** to the root requirement until Google/your OEM figures out a fix.
 
-Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlayfs to replace the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlayfs and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
+Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlays to replace the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlays and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
 
 ## Changing VendorID in the DID profile to that of Apple
 
@@ -78,7 +78,7 @@ You can do this on Linux by editing the DeviceID in `/etc/bluetooth/main.conf`. 
 
 ### Multi-device Connectivity
 
-Upto two devices can be simultaneously connected to AirPods, for audio and control both. Seamless connection switching. The same notification shows up on Apple device when Android takes over the AirPods as if it were an Apple device ("Move to iPhone"). Android also shows a popup when the other device takes over.
+Up to two devices can be simultaneously connected to AirPods, for audio and control both. Seamless connection switching. The same notification shows up on Apple device when Android takes over the AirPods as if it were an Apple device ("Move to iPhone"). Android also shows a popup when the other device takes over.
 
 ### Accessibility Settings and Hearing Aid
 
