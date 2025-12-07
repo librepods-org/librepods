@@ -2,7 +2,7 @@
 
 ## What is LibrePods?
 
-LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get access to noise control modes, adaptive transparency, ear detection, hearing aid, customised transparency mode, battery status, and more - all the premium features you paid for but Apple locked to their ecosystem.
+LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get access to noise control modes, adaptive transparency, ear detection, hearing aid, customized transparency mode, battery status, and more - all the premium features you paid for but Apple locked to their ecosystem.
 
 ## Device Compatibility
 
@@ -17,7 +17,7 @@ Most features should work with any version of AirPods. Currently, I only have Ai
 
 ## Key Features
 
-- **Noise Control Modes**: Easily switch between noise control modes without having to reach out to your AirPods to long-press
+- **Noise Control Modes**: Easily switch between noise control modes without having to long-press your AirPods
 - **Ear Detection**: Controls your music automatically when you put your AirPods in or take them out, and switches to the phone speaker when you take them out
 - **Battery Status**: Accurate battery levels
 - **Head Gestures**: Answer calls just by nodding your head
@@ -27,7 +27,7 @@ Most features should work with any version of AirPods. Currently, I only have Ai
 - **Multi-device connectivity\*** (up to 2 devices)
 - **Other customizations**:
   - Rename your AirPods
-  - Customise long-press actions
+  - Customize long-press actions
   - All accessibility settings
   - And more!
 
@@ -61,7 +61,7 @@ https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 
 #### Root Requirement
 
-If you are using ColorOS/OxygenOS 16, you don't need root except for customising transparency mode, setting up a hearing aid, and using Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customisations will work without root. For everyone else:
+If you are using ColorOS/OxygenOS 16, you don't need root except for customizing transparency mode, setting up a hearing aid, and using Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customizations will work without root. For everyone else:
 
 > [!CAUTION]
 > **You must have a rooted device with Xposed to use LibrePods on Android.** This is due to a [bug in the Android Bluetooth stack](https://issuetracker.google.com/issues/371713238). Please upvote the issue by clicking the '+1' icon on the IssueTracker page. I don't know a fix for Android versions <13 either. So, this needs a phone running A13+.
@@ -82,9 +82,9 @@ Up to two devices can be simultaneously connected to AirPods for audio and contr
 
 ### Accessibility Settings and Hearing Aid
 
-Accessibility settings like customising transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
+Accessibility settings like customizing transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
 
-All hearing aid customisations can be done from Android (Linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
+All hearing aid customizations can be done from Android (Linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
 
 #### A few notes
 
