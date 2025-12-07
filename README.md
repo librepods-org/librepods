@@ -2,14 +2,14 @@
 
 ## What is LibrePods?
 
-LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get access to noise control modes, adaptive transparency, ear detection, hearing aid, customized transparency mode, battery status, and more - all the premium features you paid for but Apple locked to their ecosystem.
+LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get access to noise control modes, adaptive transparency, ear detection, hearing aid, customised transparency mode, battery status, and more - all the premium features you paid for but Apple locked to their ecosystem.
 
 ## Device Compatibility
 
 | Status | Device                | Features                                                   |
 | ------ | --------------------- | ---------------------------------------------------------- |
 | ✅      | AirPods Pro (2nd Gen) | Fully supported and tested                                 |
-| ✅      | AirPods Pro (3rd Gen) | Fully supported (except hear trate monitoring)              |
+| ✅      | AirPods Pro (3rd Gen) | Fully supported (except heart rate monitoring)              |
 | ✅      | AirPods Max           | Fully supported (client shows unsupported features)        |
 | ⚠️      | Other AirPods models  | Basic features (battery status, ear detection) should work |
 
@@ -17,8 +17,8 @@ Most features should work with any version of AirPods. Currently, I only have Ai
 
 ## Key Features
 
-- **Noise Control Modes**: Easily switch between noise control modes without having to reach out to your AirPods to long press
-- **Ear Detection**: Controls your music automatically when you put your AirPods in or take them out, and switch to phone speaker when you take them out
+- **Noise Control Modes**: Easily switch between noise control modes without having to reach out to your AirPods to long-press
+- **Ear Detection**: Controls your music automatically when you put your AirPods in or take them out, and switches to the phone speaker when you take them out
 - **Battery Status**: Accurate battery levels
 - **Head Gestures**: Answer calls just by nodding your head
 - **Conversational Awareness**: Volume automatically lowers when you speak
@@ -27,16 +27,16 @@ Most features should work with any version of AirPods. Currently, I only have Ai
 - **Multi-device connectivity\*** (up to 2 devices)
 - **Other customizations**:
   - Rename your AirPods
-  - Customize long-press actions
+  - Customise long-press actions
   - All accessibility settings
   - And more!
 
-&ast; Features marked with an asterisk require the VendorID to be change to that of Apple.
+&ast; Features marked with an asterisk require the VendorID to be changed to that of Apple.
 
 ## Platform Support
 
 ### Linux
-for the old version see the [Linux README](./linux/README.md). (doesn't have many features, maintainer didn't have time to work on it)
+For the old version, see the [Linux README](./linux/README.md). (doesn't have many features; the maintainer didn't have time to work on it)
 
 new version in development ([#241](https://github.com/kavishdevar/librepods/pull/241))
 
@@ -55,46 +55,46 @@ new version in development ([#241](https://github.com/kavishdevar/librepods/pull
 | ![hearing-aid](./android/imgs/hearing-aid.png)                                          | ![hearing-test](./android/imgs/hearing-test.png)   | ![hearing-aid-adjustments](./android/imgs/hearing-aid-adjustments.png)       |
 
 
-here's a very unprofessional demo video
+Here's a very unprofessional demo video
 
 https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 
 #### Root Requirement
 
-If you are using ColorOS/OxygenOS 16, you don't need root except for customizing transparency mode, setting up hearing aid, and use Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customizations will work without root. For everyone else:
+If you are using ColorOS/OxygenOS 16, you don't need root except for customising transparency mode, setting up a hearing aid, and using Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customisations will work without root. For everyone else:
 
 > [!CAUTION]
 > **You must have a rooted device with Xposed to use LibrePods on Android.** This is due to a [bug in the Android Bluetooth stack](https://issuetracker.google.com/issues/371713238). Please upvote the issue by clicking the '+1' icon on the IssueTracker page. I don't know a fix for Android versions <13 either. So, this needs a phone running A13+.
 > 
 > There are **no exceptions** to the root requirement until Google/your OEM figures out a fix.
 
-Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlays to replace the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlays and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
+Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlays to replace the Bluetooth library with a locally patched one, but that was broken due to how various devices handled overlays and a patched library. With xposed, you can also enable the DID hook, enabling a few extra features.
 
 ## Changing VendorID in the DID profile to that of Apple
 
 Turns out, if you change the VendorID in DID Profile to that of Apple, you get access to several special features!
 
-You can do this on Linux by editing the DeviceID in `/etc/bluetooth/main.conf`. Add this line to the config file `DeviceID = bluetooth:004C:0000:0000`. For android you can enable the `act as Apple device` setting in the app's settings.
+You can do this on Linux by editing the DeviceID in `/etc/bluetooth/main.conf`. Add this line to the config file `DeviceID = bluetooth:004C:0000:0000`. For Android, you can enable the `act as Apple device` setting in the app's settings.
 
 ### Multi-device Connectivity
 
-Up to two devices can be simultaneously connected to AirPods, for audio and control both. Seamless connection switching. The same notification shows up on Apple device when Android takes over the AirPods as if it were an Apple device ("Move to iPhone"). Android also shows a popup when the other device takes over.
+Up to two devices can be simultaneously connected to AirPods for audio and control both, for seamless connection switching. The same notification shows up on an Apple device when Android takes over the AirPods as if it were an Apple device ("Move to iPhone"). Android also shows a pop-up when the other device takes over.
 
 ### Accessibility Settings and Hearing Aid
 
-Accessibility settings like customizing transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
+Accessibility settings like customising transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
 
-All hearing aid customizations can be done from Android (linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
+All hearing aid customisations can be done from Android (Linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
 
 #### A few notes
 
 - Due to recent AirPods' firmware upgrades, you must enable `Off listening mode` to switch to `Off`. This is because in this mode, loud sounds are not reduced.
 
-- If you have take both AirPods out, the app will automatically switch to the phone speaker. But, Android might keep on trying to connect to the AirPods because the phone is still connected to them, just the A2DP profile is not connected. The app tries to disconnect the A2DP profile as soon as it detects that Android has connected again if they're not in the ear.
+- If you have to take both AirPods out, the app will automatically switch to the phone speaker. However, Android might keep on trying to connect to the AirPods because the phone is still connected to them, just the A2DP profile is not connected. The app tries to disconnect the A2DP profile as soon as it detects that Android has connected again if they're not in the ear.
 
 - When renaming your AirPods through the app, you'll need to re-pair them with your phone for the name change to take effect. This is a limitation of how Bluetooth device naming works on Android.
 
-- If you want the AirPods icon and battery status to show in Android Settings app, install the app as a system app by using the root module.
+- If you want the AirPods icon and battery status to show in the Android Settings app, install the app as a system app by using the root module.
 
 ## Supporters
 
@@ -110,7 +110,7 @@ A huge thank you to everyone supporting the project!
 - @tyalie for making the first documentation on the protocol! ([tyalie/AAP-Protocol-Definition](https://github.com/tyalie/AAP-Protocol-Defintion))
 - @rithvikvibhu and folks over at lagrangepoint for helping with the hearing aid feature ([gist](https://gist.github.com/rithvikvibhu/45e24bbe5ade30125f152383daf07016))
 - @devnoname120 for helping with the first root patch
-- @timgromeyer for making the first version of the linux app
+- @timgromeyer for making the first version of the Linux app
 - @hackclub for hosting [High Seas](https://highseas.hackclub.com) and [Low Skies](low-skies.hackclub.com)!
 
 ## Star History
