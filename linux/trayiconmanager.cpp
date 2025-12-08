@@ -36,7 +36,7 @@ void TrayIconManager::showNotification(const QString &title, const QString &mess
 
 void TrayIconManager::TrayIconManager::updateBatteryStatus(const QString &status)
 {
-    trayIcon->setToolTip("Battery Status: " + status);
+    trayIcon->setToolTip(tr("Battery Status: ") + status);
     updateIconFromBattery(status);
 }
 
@@ -57,20 +57,20 @@ void TrayIconManager::updateConversationalAwareness(bool enabled)
 void TrayIconManager::setupMenuActions()
 {
     // Open action
-    QAction *openAction = new QAction("Open", trayMenu);
+    QAction *openAction = new QAction(tr("Open"), trayMenu);
     trayMenu->addAction(openAction);
     connect(openAction, &QAction::triggered, qApp, [this](){emit openApp();});
 
     // Settings Menu
 
-    QAction *settingsMenu = new QAction("Settings", trayMenu);
+    QAction *settingsMenu = new QAction(tr("Settings"), trayMenu);
     trayMenu->addAction(settingsMenu);
     connect(settingsMenu, &QAction::triggered, qApp, [this](){emit openSettings();});
 
     trayMenu->addSeparator();
 
     // Conversational Awareness Toggle
-    caToggleAction = new QAction("Toggle Conversational Awareness", trayMenu);
+    caToggleAction = new QAction(tr("Toggle Conversational Awareness"), trayMenu);
     caToggleAction->setCheckable(true);
     trayMenu->addAction(caToggleAction);
     connect(caToggleAction, &QAction::triggered, this, [this](bool checked)
@@ -81,10 +81,10 @@ void TrayIconManager::setupMenuActions()
     // Noise Control Options
     noiseControlGroup = new QActionGroup(trayMenu);
     const QPair<QString, NoiseControlMode> noiseOptions[] = {
-        {"Adaptive", NoiseControlMode::Adaptive},
-        {"Transparency", NoiseControlMode::Transparency},
-        {"Noise Cancellation", NoiseControlMode::NoiseCancellation},
-        {"Off", NoiseControlMode::Off}};
+        {tr("Adaptive"), NoiseControlMode::Adaptive},
+        {tr("Transparency"), NoiseControlMode::Transparency},
+        {tr("Noise Cancellation"), NoiseControlMode::NoiseCancellation},
+        {tr("Off"), NoiseControlMode::Off}};
 
     for (auto option : noiseOptions)
     {
@@ -100,7 +100,7 @@ void TrayIconManager::setupMenuActions()
     trayMenu->addSeparator();
 
     // Quit action
-    QAction *quitAction = new QAction("Quit", trayMenu);
+    QAction *quitAction = new QAction(tr("Quit"), trayMenu);
     trayMenu->addAction(quitAction);
     connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
 }

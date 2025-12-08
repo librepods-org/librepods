@@ -81,7 +81,7 @@ ApplicationWindow {
 
                     Label {
                         anchors.centerIn: parent
-                        text: airPodsTrayApp.airpodsConnected ? "Connected" : "Disconnected"
+                        text: airPodsTrayApp.airpodsConnected ? qsTr("Connected") : qsTr("Disconnected")
                         color: "white"
                         font.pixelSize: 12
                         font.weight: Font.Medium
@@ -130,7 +130,7 @@ ApplicationWindow {
 
                 SegmentedControl {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    model: ["Off", "Noise Cancellation", "Transparency", "Adaptive"]
+                    model: [qsTr("Off"), qsTr("Noise Cancellation"), qsTr("Transparency"), qsTr("Adaptive")]
                     currentIndex: airPodsTrayApp.deviceInfo.noiseControlMode
                     onCurrentIndexChanged: airPodsTrayApp.setNoiseControlModeInt(currentIndex)
                     visible: airPodsTrayApp.airpodsConnected
@@ -153,21 +153,21 @@ ApplicationWindow {
                     onValueChanged: if (pressed) debounceTimer.restart()
 
                     Label {
-                        text: "Adaptive Noise Level: " + parent.value
+                        text: qsTr("Adaptive Noise Level: ") + parent.value
                         anchors.top: parent.bottom
                     }
                 }
 
                 Switch {
                     visible: airPodsTrayApp.airpodsConnected
-                    text: "Conversational Awareness"
+                    text: qsTr("Conversational Awareness")
                     checked: airPodsTrayApp.deviceInfo.conversationalAwareness
                     onCheckedChanged: airPodsTrayApp.setConversationalAwareness(checked)
                 }
 
                 Switch {
                     visible: airPodsTrayApp.airpodsConnected
-                    text: "Hearing Aid"
+                    text: qsTr("Hearing Aid")
                     checked: airPodsTrayApp.deviceInfo.hearingAidEnabled
                     onCheckedChanged: airPodsTrayApp.setHearingAidEnabled(checked)
                 }
@@ -189,7 +189,7 @@ ApplicationWindow {
         id: settingsPage
         Page {
             id: settingsPageItem
-            title: "Settings"
+            title: qsTr("Settings")
 
             ScrollView {
                 anchors.fill: parent
@@ -200,7 +200,7 @@ ApplicationWindow {
                     padding: 20
 
                     Label {
-                        text: "Settings"
+                        text: qsTr("Settings")
                         font.pixelSize: 24
                         // center the label
                         anchors.horizontalCenter: parent.horizontalCenter
@@ -210,19 +210,19 @@ ApplicationWindow {
                         spacing: 5 // Small gap between label and ComboBox
 
                         Label {
-                            text: "Pause Behavior When Removing AirPods:"
+                            text: qsTr("Pause Behavior When Removing AirPods:")
                         }
 
                         ComboBox {
                             width: parent.width // Ensures full width
-                            model: ["One Removed", "Both Removed", "Never"]
+                            model: [qsTr("One Removed"), qsTr("Both Removed"), qsTr("Never")]
                             currentIndex: airPodsTrayApp.earDetectionBehavior
                             onActivated: airPodsTrayApp.earDetectionBehavior = currentIndex
                         }
                     }
 
                     Switch {
-                        text: "Cross-Device Connectivity with Android"
+                        text: qsTr("Cross-Device Connectivity with Android")
                         checked: airPodsTrayApp.crossDeviceEnabled
                         onCheckedChanged: {
                             airPodsTrayApp.setCrossDeviceEnabled(checked)
@@ -230,26 +230,26 @@ ApplicationWindow {
                     }
 
                     Switch {
-                        text: "Auto-Start on Login"
+                        text: qsTr("Auto-Start on Login")
                         checked: airPodsTrayApp.autoStartManager.autoStartEnabled
                         onCheckedChanged: airPodsTrayApp.autoStartManager.autoStartEnabled = checked
                     }
 
                     Switch {
-                        text: "Enable System Notifications"
+                        text: qsTr("Enable System Notifications")
                         checked: airPodsTrayApp.notificationsEnabled
                         onCheckedChanged: airPodsTrayApp.notificationsEnabled = checked
                     }
 
                     Switch {
                         visible: airPodsTrayApp.airpodsConnected
-                        text: "One Bud ANC Mode"
+                        text: qsTr("One Bud ANC Mode")
                         checked: airPodsTrayApp.deviceInfo.oneBudANCMode
                         onCheckedChanged: airPodsTrayApp.deviceInfo.oneBudANCMode = checked
 
                         ToolTip {
                             visible: parent.hovered
-                            text: "Enable ANC when using one AirPod\n(More noise reduction, but uses more battery)"
+                            text: qsTr("Enable ANC when using one AirPod\n(More noise reduction, but uses more battery)")
                             delay: 500
                         }
                     }
@@ -257,7 +257,7 @@ ApplicationWindow {
                     Row {
                         spacing: 5
                         Label {
-                            text: "Bluetooth Retry Attempts:"
+                            text: qsTr("Bluetooth Retry Attempts:")
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         SpinBox {
@@ -279,7 +279,7 @@ ApplicationWindow {
                         }
 
                         Button {
-                            text: "Rename"
+                            text: qsTr("Rename")
                             onClicked: airPodsTrayApp.renameAirPods(newNameField.text)
                         }
                     }
@@ -295,14 +295,14 @@ ApplicationWindow {
                         }
 
                         Button {
-                            text: "Change Phone MAC"
+                            text: qsTr("Change Phone MAC")
                             onClicked: airPodsTrayApp.setPhoneMac(newPhoneMacField.text)
                         }
                     }
 
 
                     Button {
-                        text: "Show Magic Cloud Keys QR"
+                        text: qsTr("Show Magic Cloud Keys QR")
                         onClicked: keysQrDialog.show()
                     }
 

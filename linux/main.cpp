@@ -12,6 +12,10 @@
 #include <QTimer>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QTranslator>
+#include <QLibraryInfo>
+#include <QDir>
+#include <QStandardPaths>
 
 #include "airpods_packets.h"
 #include "logger.h"
@@ -986,6 +990,25 @@ private:
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
+
+    // Load translations
+    QTranslator translator;
+    QString locale = QLocale::system().name();
+
+    // Try to load translation from various locations
+    QStringList translationPaths = {
+        QCoreApplication::applicationDirPath() + "/translations",
+        QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/librepods/translations",
+        "/usr/share/librepods/translations",
+        "/usr/local/share/librepods/translations"
+    };
+
+    for (const QString &path : translationPaths) {
+        if (translator.load("librepods_" + locale, path)) {
+            app.installTranslator(&translator);
+            break;
+        }
+    }
 
     QLocalServer::removeServer("app_server");
 
