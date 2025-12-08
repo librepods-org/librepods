@@ -992,7 +992,7 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
     // Load translations
-    QTranslator translator;
+    QTranslator *translator = new QTranslator(&app);
     QString locale = QLocale::system().name();
 
     // Try to load translation from various locations
@@ -1004,8 +1004,8 @@ int main(int argc, char *argv[]) {
     };
 
     for (const QString &path : translationPaths) {
-        if (translator.load("librepods_" + locale, path)) {
-            app.installTranslator(&translator);
+        if (translator->load("librepods_" + locale, path)) {
+            app.installTranslator(translator);
             break;
         }
     }
