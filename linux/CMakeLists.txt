@@ -81,15 +81,23 @@ target_link_libraries(librepods
 target_include_directories(librepods PRIVATE ${PULSEAUDIO_INCLUDE_DIRS})
 
 include(GNUInstallDirs)
+
+# Install the binary
 install(TARGETS librepods
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+# Install desktop entry
 install(FILES assets/me.kavishdevar.librepods.desktop
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications"
+)
+
+# Install icon
 install(FILES assets/librepods.png
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/512x512/apps")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/512x512/apps"
+)
 
 # Translation support
 qt_add_translations(librepods
@@ -99,4 +107,16 @@ qt_add_translations(librepods
 
 # Install translation files
 install(FILES ${QM_FILES}
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/librepods/translations")
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/librepods/translations"
+)
+
+# --------------------------------------------------------------
+# Update icon and desktop caches after installation
+# --------------------------------------------------------------
+install(CODE "
+    message(STATUS \"Updating icon cache...\")
+    execute_process(COMMAND update-icon-caches ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor)
+
+    message(STATUS \"Updating desktop database...\")
+    execute_process(COMMAND update-desktop-database ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+")

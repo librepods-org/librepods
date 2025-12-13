@@ -24,8 +24,10 @@ A native Linux application to control your AirPods, with support for:
 
    # For Debian
    sudo apt-get install qt6-base-dev qt6-declarative-dev qt6-connectivity-dev qt6-multimedia-dev \
-        qml6-module-qtquick-controls qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
-        qml6-module-qtquick-window qml6-module-qtquick-layouts
+    qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools libxkbcommon-dev \
+    qml6-module-qtquick-controls qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
+    qml6-module-qtquick-window qml6-module-qtquick-layouts build-essential cmake ninja-build
+
 
     # For Fedora
     sudo dnf install qt6-qtbase-devel qt6-qtconnectivity-devel \
@@ -83,6 +85,14 @@ A native Linux application to control your AirPods, with support for:
 
    ```bash
    ./librepods
+   ```
+3. (Optional) Install system-wide desktop entry + icon
+   ```
+   sudo make install
+   ```
+   After this, you can launch LibrePods from your desktop menu or run:
+   ```
+   librepods
    ```
 
 ## Troubleshooting
