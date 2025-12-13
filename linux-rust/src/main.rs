@@ -89,11 +89,8 @@ async fn async_main(
         HashMap::new()
     });
     for (mac, device_data) in devices_list.iter() {
-        match device_data.type_ {
-            devices::enums::DeviceType::Nothing => {
-                managed_devices_mac.push(mac.clone());
-            }
-            _ => {}
+        if device_data.type_ == devices::enums::DeviceType::Nothing {
+            managed_devices_mac.push(mac.clone());
         }
     }
 
@@ -166,17 +163,14 @@ async fn async_main(
                 let device_managers = device_managers.clone();
                 tokio::spawn(async move {
                     let mut managers = device_managers.write().await;
-                    match type_ {
-                        devices::enums::DeviceType::Nothing => {
-                            let dev = devices::nothing::NothingDevice::new(device.address(), ui_tx_clone.clone()).await;
-                            let dev_managers = DeviceManagers::with_att(dev.att_manager.clone());
-                            managers
-                                .entry(addr_str.clone())
-                                .or_insert(dev_managers)
-                                .set_att(dev.att_manager);
-                            ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str)).unwrap();
-                        }
-                        _ => {}
+                    if type_ == devices::enums::DeviceType::Nothing {
+                        let dev = devices::nothing::NothingDevice::new(device.address(), ui_tx_clone.clone()).await;
+                        let dev_managers = DeviceManagers::with_att(dev.att_manager.clone());
+                        managers
+                            .entry(addr_str.clone())
+                            .or_insert(dev_managers)
+                            .set_att(dev.att_manager);
+                        ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str)).unwrap();
                     }
                     drop(managers)
                 });
@@ -221,23 +215,20 @@ async fn async_main(
         if managed_devices_mac.contains(&addr_str) {
             info!("Managed device connected: {}, initializing", addr_str);
             let type_ = devices_list.get(&addr_str).unwrap().type_.clone();
-            match type_ {
-                devices::enums::DeviceType::Nothing => {
-                    let ui_tx_clone = ui_tx.clone();
-                    let device_managers = device_managers.clone();
-                    tokio::spawn(async move {
-                        let mut managers = device_managers.write().await;
-                        let dev = devices::nothing::NothingDevice::new(addr, ui_tx_clone.clone()).await;
-                        let dev_managers = DeviceManagers::with_att(dev.att_manager.clone());
-                        managers
-                            .entry(addr_str.clone())
-                            .or_insert(dev_managers)
-                            .set_att(dev.att_manager);
-                        drop(managers);
-                        ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())).unwrap();
-                    });
-                }
-                _ => {}
+            if type_ == devices::enums::DeviceType::Nothing {
+                let ui_tx_clone = ui_tx.clone();
+                let device_managers = device_managers.clone();
+                tokio::spawn(async move {
+                    let mut managers = device_managers.write().await;
+                    let dev = devices::nothing::NothingDevice::new(addr, ui_tx_clone.clone()).await;
+                    let dev_managers = DeviceManagers::with_att(dev.att_manager.clone());
+                    managers
+                        .entry(addr_str.clone())
+                        .or_insert(dev_managers)
+                        .set_att(dev.att_manager);
+                    drop(managers);
+                    ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())).unwrap();
+                });
             }
             return true;
         }

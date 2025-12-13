@@ -619,7 +619,7 @@ impl AACPManager {
                 }
                 strings.remove(0);
                 let info = AirPodsInformation {
-                    name: strings.get(0).cloned().unwrap_or_default(),
+                    name: strings.first().cloned().unwrap_or_default(),
                     model_number: strings.get(1).cloned().unwrap_or_default(),
                     manufacturer: strings.get(2).cloned().unwrap_or_default(),
                     serial_number: strings.get(3).cloned().unwrap_or_default(),
@@ -636,19 +636,17 @@ impl AACPManager {
                     },
                 };
                 let mut state = self.state.lock().await;
-                if let Some(mac) = state.airpods_mac {
-                    if let Some(device_data) = state.devices.get_mut(&mac.to_string()) {
+                if let Some(mac) = state.airpods_mac
+                    && let Some(device_data) = state.devices.get_mut(&mac.to_string()) {
                         device_data.name = info.name.clone();
                         device_data.information = Some(DeviceInformation::AirPods(info.clone()));
                     }
-                }
                 let json = serde_json::to_string(&state.devices).unwrap();
-                if let Some(parent) = get_devices_path().parent() {
-                    if let Err(e) = tokio::fs::create_dir_all(&parent).await {
+                if let Some(parent) = get_devices_path().parent()
+                    && let Err(e) = tokio::fs::create_dir_all(&parent).await {
                         error!("Failed to create directory for devices: {}", e);
                         return;
                     }
-                }
                 if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
                     error!("Failed to save devices: {}", e);
                 }
@@ -683,8 +681,8 @@ impl AACPManager {
                 info!("Received Proximity Keys Response: {:?}", keys.iter().map(|(kt, kd)| (kt, hex::encode(kd))).collect::<Vec<_>>());
                 let mut state = self.state.lock().await;
                 for (key_type, key_data) in &keys {
-                    if let Some(kt) = ProximityKeyType::from_u8(*key_type) {
-                        if let Some(mac) = state.airpods_mac {
+                    if let Some(kt) = ProximityKeyType::from_u8(*key_type)
+                        && let Some(mac) = state.airpods_mac {
                             let mac_str = mac.to_string();
                             let device_data = state.devices.entry(mac_str.clone()).or_insert(DeviceData {
                                 name: mac_str.clone(),
@@ -714,15 +712,13 @@ impl AACPManager {
                                 }
                             }
                         }
-                    }
                 }
                 let json = serde_json::to_string(&state.devices).unwrap();
-                if let Some(parent) = get_devices_path().parent() {
-                    if let Err(e) = tokio::fs::create_dir_all(&parent).await {
+                if let Some(parent) = get_devices_path().parent()
+                    && let Err(e) = tokio::fs::create_dir_all(&parent).await {
                         error!("Failed to create directory for devices: {}", e);
                         return;
                     }
-                }
                 if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
                     error!("Failed to save devices: {}", e);
                 }

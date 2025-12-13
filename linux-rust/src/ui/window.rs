@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use iced::widget::button::Style;
 use iced::widget::{button, column, container, pane_grid, text, Space, combo_box, row, text_input, scrollable, vertical_rule, rule, toggler};
-use iced::{daemon, window, Background, Border, Center, Color, Element, Font, Length, Padding, Size, Subscription, Task, Theme};
+use iced::{daemon, window, Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme};
 use std::sync::Arc;
 use bluer::{Address, Session};
 use iced::border::Radius;
@@ -228,11 +228,11 @@ impl App {
                 match ui_message {
                     BluetoothUIMessage::NoOp => {
                         let ui_rx = Arc::clone(&self.ui_rx);
-                        let wait_task = Task::perform(
+                        
+                        Task::perform(
                             wait_for_message(ui_rx),
                             |msg| msg,
-                        );
-                        wait_task
+                        )
                     }
                     BluetoothUIMessage::OpenWindow => {
                         let ui_rx = Arc::clone(&self.ui_rx);
@@ -315,7 +315,7 @@ impl App {
                                     battery: state.battery_info.clone(),
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
                                         if status.identifier == ControlCommandIdentifiers::ListeningMode {
-                                            status.value.get(0).map(|b| AirPodsNoiseControlMode::from_byte(b))
+                                            status.value.first().map(AirPodsNoiseControlMode::from_byte)
                                         } else {
                                             None
                                         }
@@ -394,7 +394,7 @@ impl App {
                             AACPEvent::ControlCommand(status) => {
                                 match status.identifier {
                                     ControlCommandIdentifiers::ListeningMode => {
-                                        let mode = status.value.get(0).map(|b| AirPodsNoiseControlMode::from_byte(b)).unwrap_or(AirPodsNoiseControlMode::Transparency);
+                                        let mode = status.value.first().map(AirPodsNoiseControlMode::from_byte).unwrap_or(AirPodsNoiseControlMode::Transparency);
                                         if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
                                             state.noise_control_mode = mode;
                                         }
@@ -503,8 +503,8 @@ impl App {
                 Task::none()
             }
             Message::ConfirmAddDevice => {
-                if let Some((name, addr)) = self.pending_add_device.take() {
-                    if let Some(type_) = self.selected_device_type.take() {
+                if let Some((name, addr)) = self.pending_add_device.take()
+                    && let Some(type_) = self.selected_device_type.take() {
                         let devices_path = get_devices_path();
                         let devices_json = std::fs::read_to_string(&devices_path).unwrap_or_else(|e| {
                             error!("Failed to read devices file: {}", e);
@@ -528,7 +528,6 @@ impl App {
                         }
                         self.selected_tab = Tab::Device(addr.to_string());
                     }
-                }
                 Task::none()
             }
             Message::CancelAddDevice => {
@@ -550,26 +549,22 @@ impl App {
                     });
                     devices_list.get(&mac).map(|d| d.type_.clone())
                 };
-                match type_ {
-                    Some(DeviceType::AirPods) => {
-                        if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
-                            state.noise_control_state = combo_box::State::new(
-                                {
-                                    let mut modes = vec![
-                                        AirPodsNoiseControlMode::Transparency,
-                                        AirPodsNoiseControlMode::NoiseCancellation,
-                                        AirPodsNoiseControlMode::Adaptive
-                                    ];
-                                    if state.allow_off_mode {
-                                        modes.insert(0, AirPodsNoiseControlMode::Off);
-                                    }
-                                    modes
+                if let Some(DeviceType::AirPods) = type_
+                    && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                        state.noise_control_state = combo_box::State::new(
+                            {
+                                let mut modes = vec![
+                                    AirPodsNoiseControlMode::Transparency,
+                                    AirPodsNoiseControlMode::NoiseCancellation,
+                                    AirPodsNoiseControlMode::Adaptive
+                                ];
+                                if state.allow_off_mode {
+                                    modes.insert(0, AirPodsNoiseControlMode::Off);
                                 }
-                            );
-                        }
+                                modes
+                            }
+                        );
                     }
-                    _ => {}
-                }
                 Task::none()
             }
             Message::TrayTextModeChanged(is_enabled) => {
@@ -788,22 +783,17 @@ impl App {
                                 debug!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
                                 match device_type {
                                     Some(DeviceType::AirPods) => {
-                                        let view = device_state.as_ref().and_then(|state| {
+                                        
+                                        device_state.as_ref().and_then(|state| {
                                             match state {
                                                 DeviceState::AirPods(state) => {
                                                     device_managers.get(id).and_then(|managers| {
-                                                        managers.get_aacp().and_then(|aacp_manager| {
-                                                            // managers.get_att().map(|att_manager| {
-                                                                Some(airpods_view(
+                                                        managers.get_aacp().map(|aacp_manager| airpods_view(
                                                                     id,
                                                                     &devices_list,
                                                                     state,
                                                                     aacp_manager.clone()
-                                                                ),
-                                                                    // att_manager.clone(),
-                                                                )
-                                                            // })
-                                                        })
+                                                                ))
                                                     })
                                                 }
                                                 _ => None,
@@ -814,8 +804,7 @@ impl App {
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
-                                        });
-                                        view
+                                        })
                                     }
                                     Some(DeviceType::Nothing) => {
                                         if let Some(DeviceState::Nothing(state)) = device_state {
@@ -1029,14 +1018,14 @@ impl App {
                                                                 }
                                                             )
                                                             .padding(8)
-                                                            .on_press(Message::StartAddDevice(device.0.clone(), device.1.clone()))
+                                                            .on_press(Message::StartAddDevice(device.0.clone(), device.1))
                                                             .into()
                                                     );
                                                 }
                                                 item_col = item_col.push(row(row_elements).align_y(Center));
                                                 
-                                                if let Some((_, pending_addr)) = &self.pending_add_device {
-                                                    if pending_addr == &device.1 {
+                                                if let Some((_, pending_addr)) = &self.pending_add_device
+                                                    && pending_addr == &device.1 {
                                                         item_col = item_col.push(
                                                             row![
                                                                 text("Device Type:").size(16),
@@ -1112,7 +1101,6 @@ impl App {
                                                             .width(Length::Fill)
                                                         );
                                                     }
-                                                }
                                                 
                                                 list_col = list_col.push(
                                                     container(item_col)
@@ -1189,7 +1177,7 @@ async fn load_paired_devices() -> HashMap<String, Address> {
     let adapter = session.default_adapter().await.ok().unwrap();
     let addresses = adapter.device_addresses().await.ok().unwrap();
     for addr in addresses {
-        let device = adapter.device(addr.clone()).ok().unwrap();
+        let device = adapter.device(addr).ok().unwrap();
         let paired = device.is_paired().await.ok().unwrap();
         if paired {
             let name = device.name().await.ok().flatten().unwrap_or_else(|| "Unknown".to_string());

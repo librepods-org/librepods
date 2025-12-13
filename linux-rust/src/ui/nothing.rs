@@ -20,8 +20,8 @@ pub fn nothing_view<'a>(
 ) -> iced::widget::Container<'a, Message> {
     let mut information_col = iced::widget::column![];
     let mac = mac.to_string();
-    if let Some(device) = devices_list.get(mac.as_str()) {
-        if let Some(DeviceInformation::Nothing(ref nothing_info)) = device.information {
+    if let Some(device) = devices_list.get(mac.as_str())
+        && let Some(DeviceInformation::Nothing(ref nothing_info)) = device.information {
             information_col = information_col
                 .push(text("Device Information").size(18).style(
                     |theme: &Theme| {
@@ -58,7 +58,6 @@ pub fn nothing_view<'a>(
                     ]
                 );
         }
-    }
 
     let noise_control_mode = container(row![
             text("Noise Control Mode").size(16).style(

@@ -154,7 +154,7 @@ impl NothingDevice{
                         debug!("Serial number format unexpected from Nothing device {}: {:?}", mac_address, data);
                     }
                 }
-                else {}
+                
                 debug!("Received data from (Nothing) device {}, data: {:?}", mac_address, data);
             }
         });

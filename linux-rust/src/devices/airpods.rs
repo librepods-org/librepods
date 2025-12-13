@@ -1,6 +1,5 @@
 use crate::bluetooth::aacp::{AACPManager, ProximityKeyType, AACPEvent, AirPodsLEKeys};
 use crate::bluetooth::aacp::ControlCommandIdentifiers;
-use crate::bluetooth::att::ATTManager;
 use crate::media_controller::MediaController;
 use bluer::Address;
 use log::{debug, info, error};
@@ -140,7 +139,7 @@ impl AirPodsDevice {
         let mc_clone_owns = media_controller.clone();
         tokio::spawn(async move {
             while let Some(value) = owns_connection_rx.recv().await {
-                let owns = value.get(0).copied().unwrap_or(0) != 0;
+                let owns = value.first().copied().unwrap_or(0) != 0;
                 if !owns {
                     info!("Lost ownership, pausing media and disconnecting audio");
                     let controller = mc_clone_owns.lock().await;

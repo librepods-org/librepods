@@ -176,11 +176,10 @@ impl MediaController {
             }
             
             let proxy = conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
-            if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus") {
-                if playback_status == "Playing" {
+            if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus")
+                && playback_status == "Playing" {
                     return true;
                 }
-            }
         }
         false
     }
@@ -257,21 +256,19 @@ impl MediaController {
                     let mut state = self.state.lock().await;
                     state.i_paused_the_media = false;
                 }
+            } else if !old_all_out {
+                debug!("Pausing media as buds are not fully in ear");
+                self.pause().await;
+                {
+                    let mut state = self.state.lock().await;
+                    state.i_paused_the_media = true;
+                }
             } else {
-                if !old_all_out {
-                    debug!("Pausing media as buds are not fully in ear");
-                    self.pause().await;
-                    {
-                        let mut state = self.state.lock().await;
-                        state.i_paused_the_media = true;
-                    }
-                } else {
-                    debug!("Playing media");
-                    self.resume().await;
-                    {
-                        let mut state = self.state.lock().await;
-                        state.i_paused_the_media = false;
-                    }
+                debug!("Playing media");
+                self.resume().await;
+                {
+                    let mut state = self.state.lock().await;
+                    state.i_paused_the_media = false;
                 }
             }
         }
@@ -374,8 +371,8 @@ impl MediaController {
                 
                 debug!("Checking playback status for service: {}", service);
                 let proxy = conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
-                if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus") {
-                    if playback_status == "Playing" {
+                if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus")
+                    && playback_status == "Playing" {
                         debug!("Service {} is playing, attempting to pause", service);
                         if proxy.method_call::<(), _, &str, &str>("org.mpris.MediaPlayer2.Player", "Pause", ()).is_ok() {
                             info!("Paused playback for: {}", service);
@@ -385,7 +382,6 @@ impl MediaController {
                             error!("Failed to pause {}", service);
                         }
                     }
-                }
             }
             paused_services
         }).await.unwrap();
@@ -423,8 +419,8 @@ impl MediaController {
                 
                 debug!("Checking playback status for service: {}", service);
                 let proxy = conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
-                if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus") {
-                    if playback_status == "Playing" {
+                if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus")
+                    && playback_status == "Playing" {
                         debug!("Service {} is playing, attempting to pause", service);
                         if proxy.method_call::<(), _, &str, &str>("org.mpris.MediaPlayer2.Player", "Pause", ()).is_ok() {
                             info!("Paused playback for: {}", service);
@@ -434,7 +430,6 @@ impl MediaController {
                             error!("Failed to pause {}", service);
                         }
                     }
-                }
             }
             paused_count
         }).await.unwrap();
@@ -510,7 +505,7 @@ impl MediaController {
 
         tokio::task::spawn_blocking(move || {
             let mut mainloop = Mainloop::new().unwrap();
-            let mut context = Context::new(&mut mainloop, "LibrePods-is_a2dp_profile_available").unwrap();
+            let mut context = Context::new(&mainloop, "LibrePods-is_a2dp_profile_available").unwrap();
             context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
             loop {
                 match mainloop.iterate(false) {
@@ -548,17 +543,16 @@ impl MediaController {
             }
             mainloop.quit(Retval(0));
 
-            if let Some(list) = card_info_list.borrow().as_ref() {
-                if let Some(card) = list.iter().find(|c| c.index == index) {
+            if let Some(list) = card_info_list.borrow().as_ref()
+                && let Some(card) = list.iter().find(|c| c.index == index) {
                     let available = card.profiles.iter().any(|p| {
-                        p.name.as_ref().map_or(false, |name| {
+                        p.name.as_ref().is_some_and(|name| {
                             name.starts_with("a2dp-sink")
                         })
                     });
                     debug!("A2DP profile available: {}", available);
                     return available;
                 }
-            }
             debug!("A2DP profile not available");
             false
         }).await.unwrap_or(false)
@@ -604,7 +598,7 @@ impl MediaController {
         let profile_name = profile.to_string();
         tokio::task::spawn_blocking(move || {
             let mut mainloop = Mainloop::new().unwrap();
-            let mut context = Context::new(&mut mainloop, "LibrePods-is_profile_available").unwrap();
+            let mut context = Context::new(&mainloop, "LibrePods-is_profile_available").unwrap();
             context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
             loop {
                 match mainloop.iterate(false) {
@@ -614,7 +608,7 @@ impl MediaController {
                 }
             }
 
-            let mut introspector = context.introspect();
+            let introspector = context.introspect();
             let card_info_list = Rc::new(RefCell::new(None));
             let op = introspector.get_card_info_list({
                 let card_info_list = card_info_list.clone();
@@ -642,13 +636,12 @@ impl MediaController {
             }
             mainloop.quit(Retval(0));
 
-            if let Some(list) = card_info_list.borrow().as_ref() {
-                if let Some(card) = list.iter().find(|c| c.index == card_index) {
-                    let available = card.profiles.iter().any(|p| p.name.as_ref().map_or(false, |n| n == &profile_name));
+            if let Some(list) = card_info_list.borrow().as_ref()
+                && let Some(card) = list.iter().find(|c| c.index == card_index) {
+                    let available = card.profiles.iter().any(|p| p.name.as_ref() == Some(&profile_name));
                     debug!("Profile {} available: {}", profile_name, available);
                     return available;
                 }
-            }
             debug!("Profile {} not available", profile_name);
             false
         }).await.unwrap_or(false)
@@ -658,7 +651,7 @@ impl MediaController {
         debug!("Entering restart_wire_plumber");
         info!("Restarting WirePlumber to rediscover A2DP profiles");
         let result = Command::new("systemctl")
-            .args(&["--user", "restart", "wireplumber"])
+            .args(["--user", "restart", "wireplumber"])
             .output();
 
         match result {
@@ -684,7 +677,7 @@ impl MediaController {
 
         tokio::task::spawn_blocking(move || {
             let mut mainloop = Mainloop::new().unwrap();
-            let mut context = Context::new(&mut mainloop, "LibrePods-get_audio_device_index").unwrap();
+            let mut context = Context::new(&mainloop, "LibrePods-get_audio_device_index").unwrap();
             context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
 
             loop {
@@ -727,12 +720,11 @@ impl MediaController {
                 for card in list {
                     debug!("Checking card index {} for MAC match", card.index);
                     let props = &card.proplist;
-                    if let Some(device_string) = props.get_str("device.string") {
-                        if device_string.contains(&mac_clone) {
+                    if let Some(device_string) = props.get_str("device.string")
+                        && device_string.contains(&mac_clone) {
                             info!("Found audio device index for MAC {}: {}", mac_clone, card.index);
                             return Some(card.index);
                         }
-                    }
                 }
             }
             error!("No matching Bluetooth card found for MAC address: {}", mac_clone);
@@ -824,7 +816,7 @@ impl MediaController {
                 let original = {
                     let state = self.state.lock().await;
                     state.conv_original_volume
-                }.clone();
+                };
                 if let Some(orig) = original {
                     debug!("Conversation reduce (2). Original: {}", orig);
                     if orig > 15 {
@@ -945,7 +937,7 @@ impl MediaController {
 
 fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
     let mut mainloop = Mainloop::new().unwrap();
-    let mut context = Context::new(&mut mainloop, "LibrePods-get_sink_volume").unwrap();
+    let mut context = Context::new(&mainloop, "LibrePods-get_sink_volume").unwrap();
     context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
     loop {
         match mainloop.iterate(false) {
@@ -991,7 +983,7 @@ fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
 
 fn set_card_profile_sync(card_index: u32, profile_name: &str) -> bool {
     let mut mainloop = Mainloop::new().unwrap();
-    let mut context = Context::new(&mut mainloop, "LibrePods-set_card_profile").unwrap();
+    let mut context = Context::new(&mainloop, "LibrePods-set_card_profile").unwrap();
     context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
 
     loop {
@@ -1015,7 +1007,7 @@ fn set_card_profile_sync(card_index: u32, profile_name: &str) -> bool {
 
 pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
     let mut mainloop = Mainloop::new().unwrap();
-    let mut context = Context::new(&mut mainloop, "LibrePods-transition_sink_volume").unwrap();
+    let mut context = Context::new(&mainloop, "LibrePods-transition_sink_volume").unwrap();
     context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
     loop {
         match mainloop.iterate(false) {
@@ -1072,7 +1064,7 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
 
     tokio::task::spawn_blocking(move || {
         let mut mainloop = Mainloop::new().unwrap();
-        let mut context = Context::new(&mut mainloop, "LibrePods-get_sink_name_by_mac").unwrap();
+        let mut context = Context::new(&mainloop, "LibrePods-get_sink_name_by_mac").unwrap();
         context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).unwrap();
 
         loop {
@@ -1106,22 +1098,19 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
 
         if let Some(list) = sink_info_list.borrow().as_ref() {
             for sink in list {
-                if let Some(device_string) = sink.proplist.get_str("device.string") {
-                    if device_string.to_uppercase().contains(&mac_clone.to_uppercase()) {
-                        if let Some(name) = &sink.name {
+                if let Some(device_string) = sink.proplist.get_str("device.string")
+                    && device_string.to_uppercase().contains(&mac_clone.to_uppercase())
+                        && let Some(name) = &sink.name {
                             info!("Found sink name for MAC {}: {}", mac_clone, name);
                             return Some(name.to_string());
                         }
-                    }
-                }
                 if let Some(bluez_path) = sink.proplist.get_str("bluez.path") {
-                    let mac_from_path = bluez_path.split('/').last().unwrap_or("").replace("dev_", "").replace('_', ":");
-                    if mac_from_path.eq_ignore_ascii_case(&mac_clone) {
-                         if let Some(name) = &sink.name {
+                    let mac_from_path = bluez_path.split('/').next_back().unwrap_or("").replace("dev_", "").replace('_', ":");
+                    if mac_from_path.eq_ignore_ascii_case(&mac_clone)
+                         && let Some(name) = &sink.name {
                             info!("Found sink name for MAC {}: {}", mac_clone, name);
                             return Some(name.to_string());
                         }
-                    }
                 }
             }
         }

@@ -41,16 +41,14 @@ impl ksni::Tray for MyTray {
                     levels.push(h);
                 }
             } else {
-                if let Some(l) = self.battery_l {
-                    if self.battery_l_status != Some(BatteryStatus::Disconnected) {
+                if let Some(l) = self.battery_l
+                    && self.battery_l_status != Some(BatteryStatus::Disconnected) {
                         levels.push(l);
                     }
-                }
-                if let Some(r) = self.battery_r {
-                    if self.battery_r_status != Some(BatteryStatus::Disconnected) {
+                if let Some(r) = self.battery_r
+                    && self.battery_r_status != Some(BatteryStatus::Disconnected) {
                         levels.push(r);
                     }
-                }
                 // if let Some(c) = self.battery_c {
                 //     if self.battery_c_status != Some(BatteryStatus::Disconnected) {
                 //         levels.push(c);
@@ -157,14 +155,13 @@ impl ksni::Tray for MyTray {
                 checked: self.conversation_detect_enabled.unwrap_or(false),
                 enabled: self.conversation_detect_enabled.is_some(),
                 activate: Box::new(|this: &mut Self| {
-                    if let Some(tx) = &this.command_tx {
-                        if let Some(is_enabled) = this.conversation_detect_enabled {
+                    if let Some(tx) = &this.command_tx
+                        && let Some(is_enabled) = this.conversation_detect_enabled {
                             let new_state = !is_enabled;
                             let value = if !new_state { 0x02 } else { 0x01 };
                             let _ = tx.send((ControlCommandIdentifiers::ConversationDetectConfig, vec![value]));
                             this.conversation_detect_enabled = Some(new_state);
                         }
-                    }
                 }),
                 ..Default::default()
             }
