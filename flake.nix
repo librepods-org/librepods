@@ -39,6 +39,7 @@
               libpulseaudio
               alsa-lib
               bluez
+
               # https://github.com/max-privatevoid/iced/blob/master/DEPENDENCIES.md
               expat
               fontconfig
@@ -78,7 +79,7 @@
             inherit buildInputs nativeBuildInputs src;
             strictDeps = true;
 
-            RUST_BACKTRACE = "1";
+            # RUST_BACKTRACE = "1";
           };
 
           librepods = craneLib.buildPackage (
@@ -106,9 +107,9 @@
           );
         in
         {
-          # checks = {
-          #   inherit librepods;
-          # };
+          checks = {
+            inherit librepods;
+          };
 
           packages.default = librepods;
           apps.default = {
@@ -128,7 +129,6 @@
               ]
               ++ buildInputs;
 
-            # LD_LIBRARY_PATH = builtins.foldl' (a: b: "${a}:${b}/lib") "${pkgs.vulkan-loader}/lib" buildInputs;
             LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
           };
 
