@@ -42,13 +42,15 @@ impl ksni::Tray for MyTray {
                 }
             } else {
                 if let Some(l) = self.battery_l
-                    && self.battery_l_status != Some(BatteryStatus::Disconnected) {
-                        levels.push(l);
-                    }
+                    && self.battery_l_status != Some(BatteryStatus::Disconnected)
+                {
+                    levels.push(l);
+                }
                 if let Some(r) = self.battery_r
-                    && self.battery_r_status != Some(BatteryStatus::Disconnected) {
-                        levels.push(r);
-                    }
+                    && self.battery_r_status != Some(BatteryStatus::Disconnected)
+                {
+                    levels.push(r);
+                }
                 // if let Some(c) = self.battery_c {
                 //     if self.battery_c_status != Some(BatteryStatus::Disconnected) {
                 //         levels.push(c);
@@ -68,7 +70,8 @@ impl ksni::Tray for MyTray {
         let settings = std::fs::read_to_string(&app_settings_path)
             .ok()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
-        let text_mode = settings.clone()
+        let text_mode = settings
+            .clone()
             .and_then(|v| v.get("tray_text_mode").cloned())
             .and_then(|ttm| serde_json::from_value(ttm).ok())
             .unwrap_or(false);
@@ -76,20 +79,21 @@ impl ksni::Tray for MyTray {
         vec![icon]
     }
     fn tool_tip(&self) -> ToolTip {
-        let format_component = |label: &str, level: Option<u8>, status: Option<BatteryStatus>| -> String {
-            match status {
-                Some(BatteryStatus::Disconnected) => format!("{}: -", label),
-                _ => {
-                    let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
-                    let suffix = if status == Some(BatteryStatus::Charging) {
-                        "⚡"
-                    } else {
-                        ""
-                    };
-                    format!("{}: {}{}", label, pct, suffix)
+        let format_component =
+            |label: &str, level: Option<u8>, status: Option<BatteryStatus>| -> String {
+                match status {
+                    Some(BatteryStatus::Disconnected) => format!("{}: -", label),
+                    _ => {
+                        let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
+                        let suffix = if status == Some(BatteryStatus::Charging) {
+                            "⚡"
+                        } else {
+                            ""
+                        };
+                        format!("{}: {}{}", label, pct, suffix)
+                    }
                 }
-            }
-        };
+            };
 
         let l = format_component("L", self.battery_l, self.battery_l_status);
         let r = format_component("R", self.battery_r, self.battery_r_status);
@@ -119,9 +123,10 @@ impl ksni::Tray for MyTray {
                 ("Adaptive", 0x04),
             ]
         };
-        let selected = self.listening_mode.and_then(|mode| {
-            options.iter().position(|&(_, val)| val == mode)
-        }).unwrap_or(0);
+        let selected = self
+            .listening_mode
+            .and_then(|mode| options.iter().position(|&(_, val)| val == mode))
+            .unwrap_or(0);
         let options_clone = options.clone();
         vec![
             StandardItem {
@@ -133,19 +138,26 @@ impl ksni::Tray for MyTray {
                     }
                 }),
                 ..Default::default()
-            }.into(),
+            }
+            .into(),
             RadioGroup {
                 selected,
                 select: Box::new(move |this: &mut Self, current| {
                     if let Some(tx) = &this.command_tx {
-                        let value = options_clone.get(current).map(|&(_, val)| val).unwrap_or(0x02);
+                        let value = options_clone
+                            .get(current)
+                            .map(|&(_, val)| val)
+                            .unwrap_or(0x02);
                         let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
                     }
                 }),
-                options: options.into_iter().map(|(label, _)| RadioItem {
-                    label: label.into(),
-                    ..Default::default()
-                }).collect(),
+                options: options
+                    .into_iter()
+                    .map(|(label, _)| RadioItem {
+                        label: label.into(),
+                        ..Default::default()
+                    })
+                    .collect(),
                 ..Default::default()
             }
             .into(),
@@ -156,12 +168,16 @@ impl ksni::Tray for MyTray {
                 enabled: self.conversation_detect_enabled.is_some(),
                 activate: Box::new(|this: &mut Self| {
                     if let Some(tx) = &this.command_tx
-                        && let Some(is_enabled) = this.conversation_detect_enabled {
-                            let new_state = !is_enabled;
-                            let value = if !new_state { 0x02 } else { 0x01 };
-                            let _ = tx.send((ControlCommandIdentifiers::ConversationDetectConfig, vec![value]));
-                            this.conversation_detect_enabled = Some(new_state);
-                        }
+                        && let Some(is_enabled) = this.conversation_detect_enabled
+                    {
+                        let new_state = !is_enabled;
+                        let value = if !new_state { 0x02 } else { 0x01 };
+                        let _ = tx.send((
+                            ControlCommandIdentifiers::ConversationDetectConfig,
+                            vec![value],
+                        ));
+                        this.conversation_detect_enabled = Some(new_state);
+                    }
                 }),
                 ..Default::default()
             }
@@ -226,7 +242,8 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
                 let dist = (dx * dx + dy * dy).sqrt();
                 if dist > inner_radius && dist <= outer_radius {
                     let angle = dy.atan2(dx);
-                    let angle_from_top = (angle + std::f32::consts::PI / 2.0).rem_euclid(2.0 * std::f32::consts::PI);
+                    let angle_from_top =
+                        (angle + std::f32::consts::PI / 2.0).rem_euclid(2.0 * std::f32::consts::PI);
                     if angle_from_top <= percentage * 2.0 * std::f32::consts::PI {
                         img.put_pixel(x, y, Rgba([0u8, 255u8, 0u8, 255u8]));
                     }

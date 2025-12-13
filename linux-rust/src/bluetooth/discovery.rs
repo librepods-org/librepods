@@ -1,6 +1,6 @@
-use std::io::Error;
 use bluer::Adapter;
 use log::debug;
+use std::io::Error;
 
 pub(crate) async fn find_connected_airpods(adapter: &Adapter) -> bluer::Result<bluer::Device> {
     let target_uuid = uuid::Uuid::parse_str("74ec2172-0bad-4d01-8f77-997b2be0722a").unwrap();
@@ -10,15 +10,22 @@ pub(crate) async fn find_connected_airpods(adapter: &Adapter) -> bluer::Result<b
         let device = adapter.device(addr)?;
         if device.is_connected().await.unwrap_or(false)
             && let Ok(uuids) = device.uuids().await
-                && let Some(uuids) = uuids
-                    && uuids.iter().any(|u| *u == target_uuid) {
-                        return Ok(device);
-                    }
+            && let Some(uuids) = uuids
+            && uuids.iter().any(|u| *u == target_uuid)
+        {
+            return Ok(device);
+        }
     }
-    Err(bluer::Error::from(Error::new(std::io::ErrorKind::NotFound, "No connected AirPods found")))
+    Err(bluer::Error::from(Error::new(
+        std::io::ErrorKind::NotFound,
+        "No connected AirPods found",
+    )))
 }
 
-pub async fn find_other_managed_devices(adapter: &Adapter, managed_macs: Vec<String>) -> bluer::Result<Vec<bluer::Device>> {
+pub async fn find_other_managed_devices(
+    adapter: &Adapter,
+    managed_macs: Vec<String>,
+) -> bluer::Result<Vec<bluer::Device>> {
     let addrs = adapter.device_addresses().await?;
     let mut devices = Vec::new();
     for addr in addrs {
@@ -35,5 +42,8 @@ pub async fn find_other_managed_devices(adapter: &Adapter, managed_macs: Vec<Str
         return Ok(devices);
     }
     debug!("No other managed devices found");
-    Err(bluer::Error::from(Error::new(std::io::ErrorKind::NotFound, "No other managed devices found")))
+    Err(bluer::Error::from(Error::new(
+        std::io::ErrorKind::NotFound,
+        "No other managed devices found",
+    )))
 }

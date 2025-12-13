@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use crate::bluetooth::aacp::AACPManager;
 use crate::bluetooth::att::ATTManager;
+use std::sync::Arc;
 
 pub struct DeviceManagers {
     att: Option<Arc<ATTManager>>,
@@ -9,16 +9,25 @@ pub struct DeviceManagers {
 
 impl DeviceManagers {
     pub fn with_aacp(aacp: AACPManager) -> Self {
-        Self { att: None, aacp: Some(Arc::new(aacp)) }
+        Self {
+            att: None,
+            aacp: Some(Arc::new(aacp)),
+        }
     }
 
     pub fn with_att(att: ATTManager) -> Self {
-        Self { att: Some(Arc::new(att)), aacp: None }
+        Self {
+            att: Some(Arc::new(att)),
+            aacp: None,
+        }
     }
 
     // keeping the att for airpods optional as it requires changes in system bluez config
     pub fn with_both(aacp: AACPManager, att: ATTManager) -> Self {
-        Self { att: Some(Arc::new(att)), aacp: Some(Arc::new(aacp)) }
+        Self {
+            att: Some(Arc::new(att)),
+            aacp: Some(Arc::new(aacp)),
+        }
     }
 
     pub fn set_aacp(&mut self, manager: AACPManager) {

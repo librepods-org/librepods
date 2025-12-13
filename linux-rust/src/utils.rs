@@ -1,6 +1,6 @@
+use aes::Aes128;
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockEncrypt, KeyInit};
-use aes::Aes128;
 use iced::Theme;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -8,19 +8,25 @@ use std::path::PathBuf;
 pub fn get_devices_path() -> PathBuf {
     let data_dir = std::env::var("XDG_DATA_HOME")
         .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_default()));
-    PathBuf::from(data_dir).join("librepods").join("devices.json")
+    PathBuf::from(data_dir)
+        .join("librepods")
+        .join("devices.json")
 }
 
 pub fn get_preferences_path() -> PathBuf {
     let config_dir = std::env::var("XDG_CONFIG_HOME")
         .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_default()));
-    PathBuf::from(config_dir).join("librepods").join("preferences.json")
+    PathBuf::from(config_dir)
+        .join("librepods")
+        .join("preferences.json")
 }
 
 pub fn get_app_settings_path() -> PathBuf {
     let config_dir = std::env::var("XDG_CONFIG_HOME")
         .unwrap_or_else(|_| format!("{}/.local/share", std::env::var("HOME").unwrap_or_default()));
-    PathBuf::from(config_dir).join("librepods").join("app_settings.json")
+    PathBuf::from(config_dir)
+        .join("librepods")
+        .join("app_settings.json")
 }
 
 fn e(key: &[u8; 16], data: &[u8; 16]) -> [u8; 16] {

@@ -1,12 +1,12 @@
-use bluer::l2cap::{SocketAddr, Socket, SeqPacket};
-use bluer::{Address, AddressType, Result, Error};
-use log::{info, error, debug};
+use bluer::l2cap::{SeqPacket, Socket, SocketAddr};
+use bluer::{Address, AddressType, Error, Result};
+use hex;
+use log::{debug, error, info};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
-use tokio::time::{sleep, Duration, Instant};
-use std::collections::HashMap;
-use hex;
+use tokio::time::{Duration, Instant, sleep};
 
 const PSM_ATT: u16 = 0x001F;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -25,7 +25,7 @@ pub enum ATTHandles {
     AirPodsLoudSoundReduction = 0x1B,
     AirPodsHearingAid = 0x2A,
     NothingEverything = 0x8002,
-    NothingEverythingRead = 0x8005 // for some reason, and not the same as the write handle
+    NothingEverythingRead = 0x8005, // for some reason, and not the same as the write handle
 }
 
 #[repr(u16)]
@@ -43,7 +43,7 @@ impl From<ATTHandles> for ATTCCCDHandles {
             ATTHandles::AirPodsLoudSoundReduction => ATTCCCDHandles::LoudSoundReduction,
             ATTHandles::AirPodsHearingAid => ATTCCCDHandles::HearingAid,
             ATTHandles::NothingEverything => panic!("No CCCD for NothingEverything handle"), // we don't request it
-            ATTHandles::NothingEverythingRead => panic!("No CCD for NothingEverythingRead handle") // it sends notifications without CCCD
+            ATTHandles::NothingEverythingRead => panic!("No CCD for NothingEverythingRead handle"), // it sends notifications without CCCD
         }
     }
 }
@@ -57,7 +57,7 @@ impl ATTManagerState {
     fn new() -> Self {
         ATTManagerState {
             sender: None,
-            listeners: HashMap::new()
+            listeners: HashMap::new(),
         }
     }
 }
@@ -82,11 +82,15 @@ impl ATTManager {
     }
 
     pub async fn connect(&mut self, addr: Address) -> Result<()> {
-        info!("ATTManager connecting to {} on PSM {:#06X}...", addr, PSM_ATT);
+        info!(
+            "ATTManager connecting to {} on PSM {:#06X}...",
+            addr, PSM_ATT
+        );
         let target_sa = SocketAddr::new(addr, AddressType::BrEdr, PSM_ATT);
 
         let socket = Socket::new_seq_packet()?;
-        let seq_packet_result = tokio::time::timeout(CONNECT_TIMEOUT, socket.connect(target_sa)).await;
+        let seq_packet_result =
+            tokio::time::timeout(CONNECT_TIMEOUT, socket.connect(target_sa)).await;
         let seq_packet = match seq_packet_result {
             Ok(Ok(s)) => Arc::new(s),
             Ok(Err(e)) => {
@@ -95,7 +99,10 @@ impl ATTManager {
             }
             Err(_) => {
                 error!("L2CAP connect timed out");
-                return Err(Error::from(std::io::Error::new(std::io::ErrorKind::TimedOut, "Connection timeout")));
+                return Err(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Connection timeout",
+                )));
             }
         };
 
@@ -106,7 +113,8 @@ impl ATTManager {
                 Ok(peer) if peer.cid != 0 => break,
                 Ok(_) => {}
                 Err(e) => {
-                    if e.raw_os_error() == Some(107) { // ENOTCONN
+                    if e.raw_os_error() == Some(107) {
+                        // ENOTCONN
                         error!("Peer has disconnected during connection setup.");
                         return Err(e.into());
                     }
@@ -115,7 +123,10 @@ impl ATTManager {
             }
             if start.elapsed() >= CONNECT_TIMEOUT {
                 error!("Timed out waiting for L2CAP connection to be fully established.");
-                return Err(Error::from(std::io::Error::new(std::io::ErrorKind::TimedOut, "Connection timeout")));
+                return Err(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "Connection timeout",
+                )));
             }
             sleep(POLL_INTERVAL).await;
         }
@@ -180,11 +191,17 @@ impl ATTManager {
         if let Some(sender) = &state.sender {
             sender.send(data.to_vec()).await.map_err(|e| {
                 error!("Failed to send packet to channel: {}", e);
-                Error::from(std::io::Error::new(std::io::ErrorKind::NotConnected, "L2CAP send channel closed"))
+                Error::from(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "L2CAP send channel closed",
+                ))
             })
         } else {
             error!("Cannot send packet, sender is not available.");
-            Err(Error::from(std::io::Error::new(std::io::ErrorKind::NotConnected, "L2CAP stream not connected")))
+            Err(Error::from(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "L2CAP stream not connected",
+            )))
         }
     }
 
@@ -195,11 +212,11 @@ impl ATTManager {
             Ok(Some(resp)) => Ok(resp),
             Ok(None) => Err(Error::from(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
-                "Response channel closed"
+                "Response channel closed",
             ))),
             Err(_) => Err(Error::from(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                "Response timeout"
+                "Response timeout",
             ))),
         }
     }

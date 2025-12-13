@@ -1,16 +1,19 @@
-use bluer::{l2cap::{SocketAddr, Socket, SeqPacket}, Address, AddressType, Result, Error};
-use std::time::Duration;
-use log::{info, error, debug};
-use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
-use tokio::task::JoinSet;
-use tokio::time::{sleep, Instant};
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use serde_json;
 use crate::devices::airpods::AirPodsInformation;
 use crate::devices::enums::{DeviceData, DeviceInformation, DeviceType};
 use crate::utils::get_devices_path;
+use bluer::{
+    Address, AddressType, Error, Result,
+    l2cap::{SeqPacket, Socket, SocketAddr},
+};
+use log::{debug, error, info};
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinSet;
+use tokio::time::{Instant, sleep};
 
 const PSM: u16 = 0x1001;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -218,7 +221,7 @@ pub enum BatteryComponent {
     Headphone = 1,
     Left = 4,
     Right = 2,
-    Case = 8
+    Case = 8,
 }
 
 #[repr(u8)]
@@ -226,7 +229,7 @@ pub enum BatteryComponent {
 pub enum BatteryStatus {
     Charging = 1,
     NotCharging = 2,
-    Disconnected = 4
+    Disconnected = 4,
 }
 
 #[repr(u8)]
@@ -235,7 +238,7 @@ pub enum EarDetectionStatus {
     InEar = 0x00,
     OutOfEar = 0x01,
     InCase = 0x02,
-    Disconnected = 0x03
+    Disconnected = 0x03,
 }
 
 impl AudioSourceType {
@@ -291,7 +294,8 @@ pub struct AirPodsLEKeys {
 pub struct AACPManagerState {
     pub sender: Option<mpsc::Sender<Vec<u8>>>,
     pub control_command_status_list: Vec<ControlCommandStatus>,
-    pub control_command_subscribers: HashMap<ControlCommandIdentifiers, Vec<mpsc::UnboundedSender<Vec<u8>>>>,
+    pub control_command_subscribers:
+        HashMap<ControlCommandIdentifiers, Vec<mpsc::UnboundedSender<Vec<u8>>>>,
     pub owns: bool,
     pub old_connected_devices: Vec<ConnectedDevice>,
     pub connected_devices: Vec<ConnectedDevice>,
@@ -307,11 +311,10 @@ pub struct AACPManagerState {
 
 impl AACPManagerState {
     fn new() -> Self {
-        let devices: HashMap<String, DeviceData> =
-            std::fs::read_to_string(get_devices_path())
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default();
+        let devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
         AACPManagerState {
             sender: None,
             control_command_status_list: Vec::new(),
@@ -362,17 +365,18 @@ impl AACPManager {
             }
         };
 
-        let seq_packet = match tokio::time::timeout(CONNECT_TIMEOUT, socket.connect(target_sa)).await {
-            Ok(Ok(s)) => Arc::new(s),
-            Ok(Err(e)) => {
-                error!("L2CAP connect failed: {}", e);
-                return;
-            }
-            Err(_) => {
-                error!("L2CAP connect timed out");
-                return;
-            }
-        };
+        let seq_packet =
+            match tokio::time::timeout(CONNECT_TIMEOUT, socket.connect(target_sa)).await {
+                Ok(Ok(s)) => Arc::new(s),
+                Ok(Err(e)) => {
+                    error!("L2CAP connect failed: {}", e);
+                    return;
+                }
+                Err(_) => {
+                    error!("L2CAP connect timed out");
+                    return;
+                }
+            };
 
         // Wait for connection to be fully established
         let start = Instant::now();
@@ -381,7 +385,8 @@ impl AACPManager {
                 Ok(peer) if peer.cid != 0 => break,
                 Ok(_) => { /* still waiting */ }
                 Err(e) => {
-                    if e.raw_os_error() == Some(107) { // ENOTCONN
+                    if e.raw_os_error() == Some(107) {
+                        // ENOTCONN
                         error!("Peer has disconnected during connection setup.");
                         return;
                     }
@@ -438,19 +443,40 @@ impl AACPManager {
         let mut state = self.state.lock().await;
         state.event_tx = Some(tx);
     }
-    
-    pub async fn subscribe_to_control_command(&self, identifier: ControlCommandIdentifiers, tx: mpsc::UnboundedSender<Vec<u8>>) {
+
+    pub async fn subscribe_to_control_command(
+        &self,
+        identifier: ControlCommandIdentifiers,
+        tx: mpsc::UnboundedSender<Vec<u8>>,
+    ) {
         let mut state = self.state.lock().await;
-        state.control_command_subscribers.entry(identifier).or_default().push(tx);
+        state
+            .control_command_subscribers
+            .entry(identifier)
+            .or_default()
+            .push(tx);
         // send initial value if available
-        if let Some(status) = state.control_command_status_list.iter().find(|s| s.identifier == identifier) {
-            let _ = state.control_command_subscribers.get(&identifier).unwrap().last().unwrap().send(status.value.clone());
+        if let Some(status) = state
+            .control_command_status_list
+            .iter()
+            .find(|s| s.identifier == identifier)
+        {
+            let _ = state
+                .control_command_subscribers
+                .get(&identifier)
+                .unwrap()
+                .last()
+                .unwrap()
+                .send(status.value.clone());
         }
     }
 
     pub async fn receive_packet(&self, packet: &[u8]) {
         if !packet.starts_with(&HEADER_BYTES) {
-            debug!("Received packet does not start with expected header: {}", hex::encode(packet));
+            debug!(
+                "Received packet does not start with expected header: {}",
+                hex::encode(packet)
+            );
             return;
         }
         if packet.len() < 5 {
@@ -469,7 +495,10 @@ impl AACPManager {
                 }
                 let count = payload[2] as usize;
                 if payload.len() < 3 + count * 5 {
-                    error!("Battery Info packet length mismatch: {}", hex::encode(payload));
+                    error!(
+                        "Battery Info packet length mismatch: {}",
+                        hex::encode(payload)
+                    );
                     return;
                 }
                 let mut batteries = Vec::with_capacity(count);
@@ -495,7 +524,7 @@ impl AACPManager {
                                 error!("Unknown battery status: {:#04x}", payload[base_index + 3]);
                                 continue;
                             }
-                        }
+                        },
                     });
                 }
                 let mut state = self.state.lock().await;
@@ -520,9 +549,16 @@ impl AACPManager {
                 };
 
                 if let Some(identifier) = ControlCommandIdentifiers::from_u8(identifier_byte) {
-                    let status = ControlCommandStatus { identifier, value: value.clone() };
+                    let status = ControlCommandStatus {
+                        identifier,
+                        value: value.clone(),
+                    };
                     let mut state = self.state.lock().await;
-                    if let Some(existing) = state.control_command_status_list.iter_mut().find(|s| s.identifier == identifier) {
+                    if let Some(existing) = state
+                        .control_command_status_list
+                        .iter_mut()
+                        .find(|s| s.identifier == identifier)
+                    {
                         existing.value = value.clone();
                     } else {
                         state.control_command_status_list.push(status.clone());
@@ -538,9 +574,16 @@ impl AACPManager {
                     if let Some(ref tx) = state.event_tx {
                         let _ = tx.send(AACPEvent::ControlCommand(status));
                     }
-                    info!("Received Control Command: {:?}, value: {}", identifier, hex::encode(&value));
+                    info!(
+                        "Received Control Command: {:?}, value: {}",
+                        identifier,
+                        hex::encode(&value)
+                    );
                 } else {
-                    error!("Unknown Control Command identifier: {:#04x}", identifier_byte);
+                    error!(
+                        "Unknown Control Command identifier: {:#04x}",
+                        identifier_byte
+                    );
                 }
             }
             opcodes::EAR_DETECTION => {
@@ -570,12 +613,21 @@ impl AACPManager {
                 let mut state = self.state.lock().await;
                 state.old_ear_detection_status = state.ear_detection_status.clone();
                 state.ear_detection_status = statuses.clone();
-                
+
                 if let Some(ref tx) = state.event_tx {
-                    debug!("Sending Ear Detection event: old: {:?}, new: {:?}", state.old_ear_detection_status, statuses);
-                    let _ = tx.send(AACPEvent::EarDetection(state.old_ear_detection_status.clone(), statuses));
+                    debug!(
+                        "Sending Ear Detection event: old: {:?}, new: {:?}",
+                        state.old_ear_detection_status, statuses
+                    );
+                    let _ = tx.send(AACPEvent::EarDetection(
+                        state.old_ear_detection_status.clone(),
+                        statuses,
+                    ));
                 }
-                info!("Received Ear Detection Status: {:?}", state.ear_detection_status);
+                info!(
+                    "Received Ear Detection Status: {:?}",
+                    state.ear_detection_status
+                );
             }
             opcodes::CONVERSATION_AWARENESS => {
                 if packet.len() == 10 {
@@ -587,7 +639,10 @@ impl AACPManager {
                     }
                     info!("Received Conversation Awareness: {}", status);
                 } else {
-                    info!("Received Conversation Awareness packet with unexpected length: {}", packet.len());
+                    info!(
+                        "Received Conversation Awareness packet with unexpected length: {}",
+                        packet.len()
+                    );
                 }
             }
             opcodes::INFORMATION => {
@@ -637,25 +692,30 @@ impl AACPManager {
                 };
                 let mut state = self.state.lock().await;
                 if let Some(mac) = state.airpods_mac
-                    && let Some(device_data) = state.devices.get_mut(&mac.to_string()) {
-                        device_data.name = info.name.clone();
-                        device_data.information = Some(DeviceInformation::AirPods(info.clone()));
-                    }
+                    && let Some(device_data) = state.devices.get_mut(&mac.to_string())
+                {
+                    device_data.name = info.name.clone();
+                    device_data.information = Some(DeviceInformation::AirPods(info.clone()));
+                }
                 let json = serde_json::to_string(&state.devices).unwrap();
                 if let Some(parent) = get_devices_path().parent()
-                    && let Err(e) = tokio::fs::create_dir_all(&parent).await {
-                        error!("Failed to create directory for devices: {}", e);
-                        return;
-                    }
+                    && let Err(e) = tokio::fs::create_dir_all(&parent).await
+                {
+                    error!("Failed to create directory for devices: {}", e);
+                    return;
+                }
                 if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
                     error!("Failed to save devices: {}", e);
                 }
                 info!("Received Information: {:?}", info);
-            },
+            }
 
             opcodes::PROXIMITY_KEYS_RSP => {
                 if payload.len() < 4 {
-                    error!("Proximity Keys Response packet too short: {}", hex::encode(payload));
+                    error!(
+                        "Proximity Keys Response packet too short: {}",
+                        hex::encode(payload)
+                    );
                     return;
                 }
                 let key_count = payload[2] as usize;
@@ -664,65 +724,77 @@ impl AACPManager {
                 let mut keys = Vec::new();
                 for _ in 0..key_count {
                     if offset + 3 >= payload.len() {
-                        error!("Proximity Keys Response packet too short while parsing keys: {}", hex::encode(payload));
+                        error!(
+                            "Proximity Keys Response packet too short while parsing keys: {}",
+                            hex::encode(payload)
+                        );
                         return;
                     }
                     let key_type = payload[offset];
                     let key_length = payload[offset + 2] as usize;
                     offset += 4;
                     if offset + key_length > payload.len() {
-                        error!("Proximity Keys Response packet too short for key data: {}", hex::encode(payload));
+                        error!(
+                            "Proximity Keys Response packet too short for key data: {}",
+                            hex::encode(payload)
+                        );
                         return;
                     }
                     let key_data = payload[offset..offset + key_length].to_vec();
                     keys.push((key_type, key_data));
                     offset += key_length;
                 }
-                info!("Received Proximity Keys Response: {:?}", keys.iter().map(|(kt, kd)| (kt, hex::encode(kd))).collect::<Vec<_>>());
+                info!(
+                    "Received Proximity Keys Response: {:?}",
+                    keys.iter()
+                        .map(|(kt, kd)| (kt, hex::encode(kd)))
+                        .collect::<Vec<_>>()
+                );
                 let mut state = self.state.lock().await;
                 for (key_type, key_data) in &keys {
                     if let Some(kt) = ProximityKeyType::from_u8(*key_type)
-                        && let Some(mac) = state.airpods_mac {
-                            let mac_str = mac.to_string();
-                            let device_data = state.devices.entry(mac_str.clone()).or_insert(DeviceData {
+                        && let Some(mac) = state.airpods_mac
+                    {
+                        let mac_str = mac.to_string();
+                        let device_data =
+                            state.devices.entry(mac_str.clone()).or_insert(DeviceData {
                                 name: mac_str.clone(),
                                 type_: DeviceType::AirPods,
                                 information: None,
                             });
-                            match kt {
-                                ProximityKeyType::Irk => {
-                                    match device_data.information.as_mut() {
-                                        Some(DeviceInformation::AirPods(info)) => {
-                                            info.le_keys.irk = hex::encode(key_data);
-                                        }
-                                        _ => {
-                                            error!("Device information is not AirPods for adding LE IRK.");
-                                        }
-                                    }
+                        match kt {
+                            ProximityKeyType::Irk => match device_data.information.as_mut() {
+                                Some(DeviceInformation::AirPods(info)) => {
+                                    info.le_keys.irk = hex::encode(key_data);
                                 }
-                                ProximityKeyType::EncKey => {
-                                    match device_data.information.as_mut() {
-                                        Some(DeviceInformation::AirPods(info)) => {
-                                            info.le_keys.enc_key = hex::encode(key_data);
-                                        }
-                                        _ => {
-                                            error!("Device information is not AirPods for adding LE encryption key.");
-                                        }
-                                    }
+                                _ => {
+                                    error!("Device information is not AirPods for adding LE IRK.");
                                 }
-                            }
+                            },
+                            ProximityKeyType::EncKey => match device_data.information.as_mut() {
+                                Some(DeviceInformation::AirPods(info)) => {
+                                    info.le_keys.enc_key = hex::encode(key_data);
+                                }
+                                _ => {
+                                    error!(
+                                        "Device information is not AirPods for adding LE encryption key."
+                                    );
+                                }
+                            },
                         }
+                    }
                 }
                 let json = serde_json::to_string(&state.devices).unwrap();
                 if let Some(parent) = get_devices_path().parent()
-                    && let Err(e) = tokio::fs::create_dir_all(&parent).await {
-                        error!("Failed to create directory for devices: {}", e);
-                        return;
-                    }
+                    && let Err(e) = tokio::fs::create_dir_all(&parent).await
+                {
+                    error!("Failed to create directory for devices: {}", e);
+                    return;
+                }
                 if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
                     error!("Failed to save devices: {}", e);
                 }
-            },
+            }
             opcodes::STEM_PRESS => info!("Received Stem Press packet."),
             opcodes::AUDIO_SOURCE => {
                 if payload.len() < 9 {
@@ -744,12 +816,18 @@ impl AACPManager {
             }
             opcodes::CONNECTED_DEVICES => {
                 if payload.len() < 3 {
-                    error!("Connected Devices packet too short: {}", hex::encode(payload));
+                    error!(
+                        "Connected Devices packet too short: {}",
+                        hex::encode(payload)
+                    );
                     return;
                 }
                 let count = payload[2] as usize;
                 if payload.len() < 3 + count * 8 {
-                    error!("Connected Devices packet length mismatch: {}", hex::encode(payload));
+                    error!(
+                        "Connected Devices packet length mismatch: {}",
+                        hex::encode(payload)
+                    );
                     return;
                 }
                 let mut devices = Vec::with_capacity(count);
@@ -757,17 +835,30 @@ impl AACPManager {
                     let base = 5 + i * 8;
                     let mac = format!(
                         "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-                        payload[base], payload[base + 1], payload[base + 2], payload[base + 3], payload[base + 4], payload[base + 5]
+                        payload[base],
+                        payload[base + 1],
+                        payload[base + 2],
+                        payload[base + 3],
+                        payload[base + 4],
+                        payload[base + 5]
                     );
                     let info1 = payload[base + 6];
                     let info2 = payload[base + 7];
-                    devices.push(ConnectedDevice { mac, info1, info2, r#type: None });
+                    devices.push(ConnectedDevice {
+                        mac,
+                        info1,
+                        info2,
+                        r#type: None,
+                    });
                 }
                 let mut state = self.state.lock().await;
                 state.old_connected_devices = state.connected_devices.clone();
                 state.connected_devices = devices.clone();
                 if let Some(ref tx) = state.event_tx {
-                    let _ = tx.send(AACPEvent::ConnectedDevices(state.old_connected_devices.clone(), devices));
+                    let _ = tx.send(AACPEvent::ConnectedDevices(
+                        state.old_connected_devices.clone(),
+                        devices,
+                    ));
                 }
                 info!("Received Connected Devices: {:?}", state.connected_devices);
             }
@@ -782,7 +873,7 @@ impl AACPManager {
                 }
             }
             opcodes::EQ_DATA => {
-                 debug!("Received EQ Data");
+                debug!("Received EQ Data");
             }
             _ => debug!("Received unknown packet with opcode {:#04x}", opcode),
         }
@@ -805,17 +896,18 @@ impl AACPManager {
 
     pub async fn send_handshake(&self) -> Result<()> {
         let packet = [
-            0x00, 0x00, 0x04, 0x00,
-            0x01, 0x00, 0x02, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00
+            0x00, 0x00, 0x04, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
         ];
         self.send_packet(&packet).await
     }
 
-    pub async fn send_proximity_keys_request(&self, key_types: Vec<ProximityKeyType>) -> Result<()> {
+    pub async fn send_proximity_keys_request(
+        &self,
+        key_types: Vec<ProximityKeyType>,
+    ) -> Result<()> {
         let opcode = [opcodes::PROXIMITY_KEYS_REQ, 0x00];
-        let mut data = Vec::with_capacity( 2);
+        let mut data = Vec::with_capacity(2);
         data.push(key_types.iter().fold(0u8, |acc, kt| acc | (*kt as u8)));
         data.push(0x00);
         let packet = [opcode.as_slice(), data.as_slice()].concat();
@@ -833,8 +925,12 @@ impl AACPManager {
         packet.extend_from_slice(name_bytes);
         self.send_data_packet(&packet).await
     }
-    
-    pub async fn send_control_command(&self, identifier: ControlCommandIdentifiers, value: &[u8]) -> Result<()> {
+
+    pub async fn send_control_command(
+        &self,
+        identifier: ControlCommandIdentifiers,
+        value: &[u8],
+    ) -> Result<()> {
         let opcode = [opcodes::CONTROL_COMMAND, 0x00];
         let mut data = vec![identifier as u8];
         for i in 0..4 {
@@ -844,10 +940,17 @@ impl AACPManager {
         self.send_data_packet(&packet).await
     }
 
-    pub async fn send_media_information_new_device(&self, self_mac_address: &str, target_mac_address: &str) -> Result<()> {
+    pub async fn send_media_information_new_device(
+        &self,
+        self_mac_address: &str,
+        target_mac_address: &str,
+    ) -> Result<()> {
         let opcode = [opcodes::SMART_ROUTING, 0x00];
         let mut buffer = Vec::with_capacity(112);
-        let target_mac_bytes: Vec<u8> = target_mac_address.split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+        let target_mac_bytes: Vec<u8> = target_mac_address
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16).unwrap())
+            .collect();
         buffer.extend_from_slice(&target_mac_bytes.iter().rev().cloned().collect::<Vec<u8>>());
 
         buffer.extend_from_slice(&[0x68, 0x00]);
@@ -879,7 +982,10 @@ impl AACPManager {
     pub async fn send_hijack_request(&self, target_mac_address: &str) -> Result<()> {
         let opcode = [opcodes::SMART_ROUTING, 0x00];
         let mut buffer = Vec::with_capacity(106);
-        let target_mac_bytes: Vec<u8> = target_mac_address.split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+        let target_mac_bytes: Vec<u8> = target_mac_address
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16).unwrap())
+            .collect();
         buffer.extend_from_slice(&target_mac_bytes.iter().rev().cloned().collect::<Vec<u8>>());
         buffer.extend_from_slice(&[0x62, 0x00]);
         buffer.extend_from_slice(&[0x01, 0xE5]);
@@ -907,10 +1013,18 @@ impl AACPManager {
         self.send_data_packet(&packet).await
     }
 
-    pub async fn send_media_information(&self, self_mac_address: &str, target_mac_address: &str, streaming_state: bool) -> Result<()> {
+    pub async fn send_media_information(
+        &self,
+        self_mac_address: &str,
+        target_mac_address: &str,
+        streaming_state: bool,
+    ) -> Result<()> {
         let opcode = [opcodes::SMART_ROUTING, 0x00];
         let mut buffer = Vec::with_capacity(138);
-        let target_mac_bytes: Vec<u8> = target_mac_address.split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+        let target_mac_bytes: Vec<u8> = target_mac_address
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16).unwrap())
+            .collect();
         buffer.extend_from_slice(&target_mac_bytes.iter().rev().cloned().collect::<Vec<u8>>());
         buffer.extend_from_slice(&[0x82, 0x00]);
         buffer.extend_from_slice(&[0x01, 0xE5, 0x4A]);
@@ -943,7 +1057,10 @@ impl AACPManager {
     pub async fn send_smart_routing_show_ui(&self, target_mac_address: &str) -> Result<()> {
         let opcode = [opcodes::SMART_ROUTING, 0x00];
         let mut buffer = Vec::with_capacity(134);
-        let target_mac_bytes: Vec<u8> = target_mac_address.split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+        let target_mac_bytes: Vec<u8> = target_mac_address
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16).unwrap())
+            .collect();
         buffer.extend_from_slice(&target_mac_bytes.iter().rev().cloned().collect::<Vec<u8>>());
         buffer.extend_from_slice(&[0x7E, 0x00]);
         buffer.extend_from_slice(&[0x01, 0xE6, 0x5B]);
@@ -976,7 +1093,10 @@ impl AACPManager {
     pub async fn send_hijack_reversed(&self, target_mac_address: &str) -> Result<()> {
         let opcode = [opcodes::SMART_ROUTING, 0x00];
         let mut buffer = Vec::with_capacity(97);
-        let target_mac_bytes: Vec<u8> = target_mac_address.split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+        let target_mac_bytes: Vec<u8> = target_mac_address
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16).unwrap())
+            .collect();
         buffer.extend_from_slice(&target_mac_bytes.iter().rev().cloned().collect::<Vec<u8>>());
         buffer.extend_from_slice(&[0x59, 0x00]);
         buffer.extend_from_slice(&[0x01, 0xE3]);
@@ -999,10 +1119,17 @@ impl AACPManager {
         self.send_data_packet(&packet).await
     }
 
-    pub async fn send_add_tipi_device(&self, self_mac_address: &str, target_mac_address: &str) -> Result<()> {
+    pub async fn send_add_tipi_device(
+        &self,
+        self_mac_address: &str,
+        target_mac_address: &str,
+    ) -> Result<()> {
         let opcode = [opcodes::SMART_ROUTING, 0x00];
         let mut buffer = Vec::with_capacity(86);
-        let target_mac_bytes: Vec<u8> = target_mac_address.split(':').map(|s| u8::from_str_radix(s, 16).unwrap()).collect();
+        let target_mac_bytes: Vec<u8> = target_mac_address
+            .split(':')
+            .map(|s| u8::from_str_radix(s, 16).unwrap())
+            .collect();
         buffer.extend_from_slice(&target_mac_bytes.iter().rev().cloned().collect::<Vec<u8>>());
         buffer.extend_from_slice(&[0x4E, 0x00]);
         buffer.extend_from_slice(&[0x01, 0xE5]);
@@ -1027,10 +1154,8 @@ impl AACPManager {
     }
 
     pub async fn send_some_packet(&self) -> Result<()> {
-        self.send_data_packet(&[
-            0x29, 0x00,
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-        ]).await
+        self.send_data_packet(&[0x29, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+            .await
     }
 }
 
@@ -1049,7 +1174,9 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
             Err(e) => {
                 error!("Read error: {}", e);
-                debug!("We have probably disconnected, clearing state variables (owns=false, connected_devices=empty, control_command_status_list=empty).");
+                debug!(
+                    "We have probably disconnected, clearing state variables (owns=false, connected_devices=empty, control_command_status_list=empty)."
+                );
                 let mut state = manager.state.lock().await;
                 state.owns = false;
                 state.connected_devices.clear();

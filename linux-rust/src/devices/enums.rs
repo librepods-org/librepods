@@ -1,15 +1,14 @@
-use std::fmt::Display;
-use iced::widget::combo_box;
-use serde::{Deserialize, Serialize};
 use crate::bluetooth::aacp::BatteryInfo;
 use crate::devices::airpods::AirPodsInformation;
 use crate::devices::nothing::NothingInformation;
+use iced::widget::combo_box;
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DeviceType {
     AirPods,
-    Nothing
+    Nothing,
 }
 
 impl Display for DeviceType {
@@ -21,12 +20,11 @@ impl Display for DeviceType {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data")]
 pub enum DeviceInformation {
     AirPods(AirPodsInformation),
-    Nothing(NothingInformation)
+    Nothing(NothingInformation),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +33,6 @@ pub struct DeviceData {
     pub type_: DeviceType,
     pub information: Option<DeviceInformation>,
 }
-
 
 #[derive(Clone, Debug)]
 pub enum DeviceState {
@@ -60,7 +57,7 @@ pub struct AirPodsState {
     pub conversation_awareness_enabled: bool,
     pub personalized_volume_enabled: bool,
     pub allow_off_mode: bool,
-    pub battery: Vec<BatteryInfo>
+    pub battery: Vec<BatteryInfo>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +65,7 @@ pub enum AirPodsNoiseControlMode {
     Off,
     NoiseCancellation,
     Transparency,
-    Adaptive
+    Adaptive,
 }
 
 impl Display for AirPodsNoiseControlMode {
@@ -115,7 +112,7 @@ pub enum NothingAncMode {
     MidNoiseCancellation,
     HighNoiseCancellation,
     AdaptiveNoiseCancellation,
-    Transparency
+    Transparency,
 }
 
 impl Display for NothingAncMode {
