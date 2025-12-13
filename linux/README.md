@@ -87,9 +87,9 @@ A native Linux application to control your AirPods, with support for:
    ./librepods
    ```
 3. (Optional) Install system-wide desktop entry + icon
-   ```
-   sudo make install
    ```bash
+   sudo make install
+   ```
    After this, you can launch LibrePods from your desktop menu or run:
    ```bash
    librepods
