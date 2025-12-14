@@ -7,6 +7,17 @@ on:
 #      - '*'
 
 jobs:
+  linting:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: use DavidAnson/markdownlint-action
+        uses: DavidAnson/markdownlint-cli2-action@v21
+        continue-on-error: true
+        with: 
+          globs: '**/*.md'
+      
   build-linux:
     runs-on: ubuntu-latest
 
