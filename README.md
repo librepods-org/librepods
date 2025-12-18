@@ -1,5 +1,14 @@
 ![LibrePods Banner](./imgs/banner.png)
 
+[![XDA Thread](https://img.shields.io/badge/XDA_Forums-Thread-orange)](https://xdaforums.com/t/app-root-for-now-airpodslikenormal-unlock-apple-exclusive-airpods-features-on-android.4707585/)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/kavishdevar/librepods)](https://github.com/kavishdevar/librepods/releases/latest)
+[![GitHub all releases](https://img.shields.io/github/downloads/kavishdevar/librepods/total)](https://github.com/kavishdevar/librepods/releases)
+[![GitHub stars](https://img.shields.io/github/stars/kavishdevar/librepods)](https://github.com/kavishdevar/librepods/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/kavishdevar/librepods)](https://github.com/kavishdevar/librepods/issues)
+[![GitHub license](https://img.shields.io/github/license/kavishdevar/librepods)](https://github.com/kavishdevar/librepods/blob/main/LICENSE)
+[![GitHub contributors](https://img.shields.io/github/contributors/kavishdevar/librepods)](https://github.com/kavishdevar/librepods/graphs/contributors)
+
+
 ## What is LibrePods?
 
 LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get access to noise control modes, adaptive transparency, ear detection, hearing aid, customized transparency mode, battery status, and more - all the premium features you paid for but Apple locked to their ecosystem.
@@ -13,7 +22,7 @@ LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get a
 | ✅      | AirPods Max           | Fully supported (client shows unsupported features)        |
 | ⚠️      | Other AirPods models  | Basic features (battery status, ear detection) should work |
 
-Most features should work with any AirPods. Currently, I've only got AirPods Pro 2 to test with. But, I believe the protocol remains the same for all other AirPods (based on analysis of the bluetooth stack on macOS).
+Most features should work with any AirPods. Currently, I've only got AirPods Pro 2 to test with.
 
 ## Key Features
 
@@ -31,7 +40,9 @@ Most features should work with any AirPods. Currently, I've only got AirPods Pro
   - All accessibility settings
   - And more!
 
-&ast; Features marked with an asterisk require the VendorID to be change to that of Apple.
+&ast; Features marked with an asterisk require the Bluetooth DID (Device Identification) hook to be enabled.
+
+See the [pinned issue](https://github.com/kavishdevar/librepods/issues/20) for a complete feature list and roadmap.
 
 ## Platform Support
 
@@ -61,7 +72,7 @@ https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 
 #### Root Requirement
 
-If you are using ColorOS/OxygenOS 16, you don't need root except for customizing transparency mode, setting up hearing aid, and use Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customizations will work without root. For everyone else:
+If you are using ColorOS/OxygenOS 16, you don't need root for basic features! You will still not be able to customize transparency mode and setup hearing aid, and use Bluetooth Multipoint. For everyone else:
 
 > [!CAUTION]
 > **You must have a rooted device with Xposed to use LibrePods on Android.** This is due to a [bug in the Android Bluetooth stack](https://issuetracker.google.com/issues/371713238). Please upvote the issue by clicking the '+1' icon on the IssueTracker page. DO NOT leave a +1 comment - use the +1 button in the top right of the page next to the "Hotlists" field.  Leaving +1 comment spam makes it impossible for developers to engage in the necessary technical discussion to implement this fix, and will disincentivize the responsible Google developers from engaging.  I don't know a fix for Android versions <13 either. So, this needs a phone running A13+.
@@ -70,11 +81,9 @@ If you are using ColorOS/OxygenOS 16, you don't need root except for customizing
 
 Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlayfs to replace the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlayfs and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
 
-## Changing VendorID in the DID profile to that of Apple
+## Bluetooth DID (Device Identification) Hook
 
-Turns out, if you change the VendorID in DID Profile to that of Apple, you get access to several special features!
-
-You can do this on Linux by editing the DeviceID in `/etc/bluetooth/main.conf`. Add this line to the config file `DeviceID = bluetooth:004C:0000:0000`. For android you can enable the `act as Apple device` setting in the app's settings.
+Turns out, if you change the manufacturerid to that of Apple, you get access to several special features!
 
 ### Multi-device Connectivity
 
@@ -84,7 +93,9 @@ Upto two devices can be simultaneously connected to AirPods, for audio and contr
 
 Accessibility settings like customizing transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
 
-All hearing aid customizations can be done from Android (linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
+All hearing aid customizations can be done from Android, including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
+
+To enable these features, enable App Settings -> `act as Apple Device`.
 
 #### A few notes
 
