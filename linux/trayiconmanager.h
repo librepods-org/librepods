@@ -13,7 +13,7 @@ class TrayIconManager : public QObject
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
 
 public:
-    explicit TrayIconManager(QObject *parent = nullptr);
+    explicit TrayIconManager(QObject *parent = nullptr, bool noTray = false);
 
     void updateBatteryStatus(const QString &status);
 
@@ -51,6 +51,7 @@ private:
     QAction *caToggleAction;
     QActionGroup *noiseControlGroup;
     bool m_notificationsEnabled = true;
+    bool m_noTray = false;
 
     void setupMenuActions();
 
