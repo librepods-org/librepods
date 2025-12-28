@@ -19,6 +19,7 @@ AirpodsTrayApp::Enums::AirPodsModel getModelName(quint16 modelId)
         {0x0E20, AirPodsModel::AirPodsPro},
         {0x1420, AirPodsModel::AirPodsPro2Lightning},
         {0x2420, AirPodsModel::AirPodsPro2USBC},
+        {0x2720, AirPodsModel::AirPodsPro3},
         {0x3F20, AirPodsModel::AirPodsPro3}
     };
 
