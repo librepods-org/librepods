@@ -30,6 +30,8 @@
 #include "ble/bleutils.h"
 #include "QRCodeImageProvider.hpp"
 #include "systemsleepmonitor.hpp"
+#include "dbusadaptor.hpp"
+#include <QDBusConnection>
 
 using namespace AirpodsTrayApp::Enums;
 
@@ -149,7 +151,31 @@ private:
         bool isEnabled = true; // Ability to disable the feature
     } CrossDevice;
 
-    void initializeDBus() { }
+    void initializeDBus() {
+        // Create D-Bus adaptor for battery info
+        new BatteryDBusAdaptor(m_deviceInfo->getBattery(), m_deviceInfo, this);
+
+        // Register on session bus
+        QDBusConnection sessionBus = QDBusConnection::sessionBus();
+        if (!sessionBus.isConnected()) {
+            LOG_ERROR("Cannot connect to D-Bus session bus");
+            return;
+        }
+
+        // Register service
+        if (!sessionBus.registerService("me.kavishdevar.librepods")) {
+            LOG_ERROR("Cannot register D-Bus service: " << sessionBus.lastError().message());
+            return;
+        }
+
+        // Register object
+        if (!sessionBus.registerObject("/battery", this)) {
+            LOG_ERROR("Cannot register D-Bus object: " << sessionBus.lastError().message());
+            return;
+        }
+
+        LOG_INFO("D-Bus service registered: me.kavishdevar.librepods at /battery");
+    }
 
     bool isAirPodsDevice(const QBluetoothDeviceInfo &device)
     {
