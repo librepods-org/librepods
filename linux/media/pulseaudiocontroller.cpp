@@ -147,7 +147,7 @@ QString PulseAudioController::getMacAddressBySinkName(const QString &sinkName)
     };
 
     pa_threaded_mainloop_lock(m_mainloop);
-    pa_operation *op = pa_context_get_sink_info_by_name(m_context, sinkName.toLocal8Bit(), callback, &data);
+    pa_operation *op = pa_context_get_sink_info_by_name(m_context, sinkName.toUtf8().constData(), callback, &data);
     if (op)
     {
         waitForOperation(op);
