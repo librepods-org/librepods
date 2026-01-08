@@ -49,13 +49,12 @@ void MediaController::handleEarDetection(EarDetection *earDetection)
     shouldResume = primaryInEar || secondaryInEar;
   }
 
-  if (shouldPause && isActiveOutputDeviceAirPods())
+  // Pause if conditions are met (removed isActiveOutputDeviceAirPods check as it
+  // fails on some systems where PulseAudio can't detect the Bluetooth card)
+  if (shouldPause)
   {
-    if (getCurrentMediaState() == Playing)
-    {
-      LOG_DEBUG("Pausing playback for ear detection");
-      pause();
-    }
+    LOG_INFO("Ear detection triggered pause");
+    pause();
   }
 
   // Then handle device profile switching
@@ -65,8 +64,9 @@ void MediaController::handleEarDetection(EarDetection *earDetection)
     activateA2dpProfile();
 
     // Resume if conditions are met and we previously paused
-    if (shouldResume && !pausedByAppServices.isEmpty() && isActiveOutputDeviceAirPods())
+    if (shouldResume && !pausedByAppServices.isEmpty())
     {
+      LOG_INFO("Ear detection triggered resume");
       play();
     }
   }
@@ -307,6 +307,24 @@ void MediaController::play()
     return;
   }
 
+  // If we paused via playerctl fallback, resume via playerctl
+  if (pausedByAppServices.contains("playerctl"))
+  {
+    LOG_INFO("Resuming media via playerctl");
+    int result = QProcess::execute("playerctl", QStringList() << "play");
+    if (result == 0)
+    {
+      LOG_INFO("Resumed media via playerctl");
+      pausedByAppServices.clear();
+    }
+    else
+    {
+      LOG_WARN("playerctl play returned: " << result);
+    }
+    return;
+  }
+
+  // Try to resume via DBus
   QDBusConnection bus = QDBusConnection::sessionBus();
   int resumedCount = 0;
 
@@ -400,7 +418,18 @@ void MediaController::pause()
   }
   else
   {
-    LOG_INFO("No playing media players found to pause");
+    // Fallback to playerctl if DBus didn't find any playing media
+    LOG_INFO("No playing media found via DBus, trying playerctl fallback");
+    int result = QProcess::execute("playerctl", QStringList() << "pause");
+    if (result == 0)
+    {
+      LOG_INFO("Paused media via playerctl fallback");
+      pausedByAppServices << "playerctl";
+    }
+    else
+    {
+      LOG_DEBUG("playerctl fallback returned: " << result);
+    }
   }
 }
 
