@@ -1023,9 +1023,6 @@ int main(int argc, char *argv[]) {
     }
 
     QLocalServer::removeServer("app_server");
-    QFile stale("/tmp/app_server");
-    if (stale.exists())
-        stale.remove();
 
     app.setDesktopFileName("me.kavishdevar.librepods");
     app.setQuitOnLastWindowClosed(false);
@@ -1114,9 +1111,6 @@ int main(int argc, char *argv[]) {
         }
 
         QLocalServer::removeServer("app_server");
-        QFile stale("/tmp/app_server");
-        if (stale.exists())
-            stale.remove();
     });
     return app.exec();
 }
