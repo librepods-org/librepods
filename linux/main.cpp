@@ -1010,25 +1010,23 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    QLocalServer::removeServer("app_server");
-
-    QFile stale("/tmp/app_server");
-    if (stale.exists())
-        stale.remove();
-
     QLocalSocket socket_check;
     socket_check.connectToServer("app_server");
 
     if (socket_check.waitForConnected(300)) {
         LOG_INFO("Another instance already running! Reopening window...");
-
         socket_check.write("reopen");
         socket_check.flush();
         socket_check.waitForBytesWritten(200);
         socket_check.disconnectFromServer();
-
         return 0;
     }
+
+    QLocalServer::removeServer("app_server");
+    QFile stale("/tmp/app_server");
+    if (stale.exists())
+        stale.remove();
+
     app.setDesktopFileName("me.kavishdevar.librepods");
     app.setQuitOnLastWindowClosed(false);
 
