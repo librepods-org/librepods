@@ -67,9 +67,9 @@ Choose the platform you want to contribute to:
 #### Android Development
 
 **Requirements:**
-- Android Studio Ladybug (2024.2.1+)
+- Android Studio Narwhal (2025.1.x) or later
 - JDK 17+
-- Android SDK: API 33 (min) and API 36 (target)
+- Android SDK: API 35 (min) and API 36 (target)
 - Root access with Xposed Framework (LSPosed recommended)
 
 **Note**: Root is required due to an [Android Bluetooth stack limitation](https://issuetracker.google.com/issues/371713238). Exception: ColorOS/OxygenOS 16 users.
@@ -265,7 +265,7 @@ docs: update development setup guide
 
 ### External Links
 
-- [AAP Protocol (Third-party)](https://github.com/tyalie/AAP-Protocol-Defintion)
+- [AAP Protocol (Third-party)](https://github.com/tyalie/AAP-Protocol-Definition)
 - [Android Bluetooth Bug](https://issuetracker.google.com/issues/371713238) - Please upvote!
 
 ### Community
