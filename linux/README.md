@@ -25,7 +25,7 @@ A native Linux application to control your AirPods, with support for:
    # For Debian
    sudo apt-get install qt6-base-dev qt6-declarative-dev qt6-connectivity-dev qt6-multimedia-dev \
         qml6-module-qtquick-controls qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
-        qml6-module-qtquick-window qml6-module-qtquick-layouts
+        qml6-module-qtquick-window qml6-module-qtquick-layouts qt6-tools-dev
 
     # For Fedora
     sudo dnf install qt6-qtbase-devel qt6-qtconnectivity-devel \
