@@ -902,8 +902,16 @@ impl MediaController {
 
         info!("Deactivating A2DP profile for AirPods by setting to off");
 
+        // Use catch_unwind to prevent panics in libpulse-binding from crashing the app
         let success =
-            tokio::task::spawn_blocking(move || set_card_profile_sync(device_index, "off"))
+            tokio::task::spawn_blocking(move || {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    set_card_profile_sync(device_index, "off")
+                })).unwrap_or_else(|e| {
+                    warn!("Panic in set_card_profile_sync: {:?}", e);
+                    false
+                })
+            })
                 .await
                 .unwrap_or(false);
 
