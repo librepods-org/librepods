@@ -40,7 +40,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 class RadareOffsetFinder(context: Context) {
     companion object {
         private const val TAG = "RadareOffsetFinder"
-        private const val RADARE2_URL = "https://hc-cdn.hel1.your-objectstorage.com/s/v3/c9898243c42c0d3d1387de9a37d57ce9df77f9c9_radare2-5.9.9-android-aarch64.tar.gz"
+        private const val RADARE2_URL = "https://github.com/devnoname120/radare2/releases/download/5.9.8-android-aln/radare2-5.9.9-android-aarch64-aln.tar.gz"
         private const val HOOK_OFFSET_PROP = "persist.librepods.hook_offset"
         private const val CFG_REQ_OFFSET_PROP = "persist.librepods.cfg_req_offset"
         private const val CSM_CONFIG_OFFSET_PROP = "persist.librepods.csm_config_offset"
