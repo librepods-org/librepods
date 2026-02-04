@@ -34,7 +34,17 @@ impl AirPodsDevice {
 
         if let Some(handle) = &tray_handle {
             handle
-                .update(|tray: &mut MyTray| tray.connected = true)
+                .update(|tray: &mut MyTray| {
+                    tray.connected = true;
+                    tray.battery_headphone = None;
+                    tray.battery_headphone_status = None;
+                    tray.battery_l = None;
+                    tray.battery_l_status = None;
+                    tray.battery_r = None;
+                    tray.battery_r_status = None;
+                    tray.battery_c = None;
+                    tray.battery_c_status = None;
+                })
                 .await;
         }
 
