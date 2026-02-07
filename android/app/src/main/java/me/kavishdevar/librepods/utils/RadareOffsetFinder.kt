@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import me.kavishdevar.librepods.services.ServiceManager
+import android.os.Build
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -59,6 +60,12 @@ class RadareOffsetFinder(context: Context) {
             "/system/lib64/libbluetooth_qti.so",
             "/system_ext/lib64/libbluetooth_qti.so"
         )
+
+        fun isOxygenOSOrColorOS16OrAbove(): Boolean {
+            val manufacturer = Build.MANUFACTURER.lowercase()
+            if (manufacturer != "oneplus" && manufacturer != "oppo" && manufacturer != "realme") return false
+            return Build.VERSION.SDK_INT >= 36
+        }
 
         fun findBluetoothLibraryPath(): String? {
             for (path in LIBRARY_PATHS) {
@@ -115,6 +122,10 @@ class RadareOffsetFinder(context: Context) {
         }
 
         fun isSdpOffsetAvailable(): Boolean {
+            if (isOxygenOSOrColorOS16OrAbove()) {
+                Log.d(TAG, "OxygenOS/ColorOS 16+ detected, L2CAP works without SDP hook.")
+                return true
+            }
             val sharedPreferences = ServiceManager.getService()?.applicationContext?.getSharedPreferences("settings", Context.MODE_PRIVATE) // ik not good practice- too lazy
             if (sharedPreferences?.getBoolean("skip_setup", false) == true) {
                 Log.d(TAG, "Setup skipped, returning true for SDP offset.")
@@ -160,6 +171,10 @@ class RadareOffsetFinder(context: Context) {
 
 
     fun isHookOffsetAvailable(): Boolean {
+        if (isOxygenOSOrColorOS16OrAbove()) {
+            Log.d(TAG, "OxygenOS/ColorOS 16+ detected, L2CAP works without hook.")
+            return true
+        }
         Log.d(TAG, "Setup Skipped? " + ServiceManager.getService()?.applicationContext?.getSharedPreferences("settings", Context.MODE_PRIVATE)?.getBoolean("skip_setup", false).toString())
         if (ServiceManager.getService()?.applicationContext?.getSharedPreferences("settings", Context.MODE_PRIVATE)?.getBoolean("skip_setup", false) == true) {
             Log.d(TAG, "Setup skipped, returning true.")

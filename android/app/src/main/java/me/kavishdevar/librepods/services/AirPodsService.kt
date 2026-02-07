@@ -1587,6 +1587,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     fun setBatteryMetadata() {
+        if (::sharedPreferences.isInitialized && sharedPreferences.getBoolean("skip_setup", false)) return
         device?.let { it ->
             SystemApisUtils.setMetadata(
                 it,
@@ -2190,6 +2191,20 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             disconnectedBecauseReversed = false
             otherDeviceTookOver = false
             takeOver("music", manualTakeOverAfterReversed = true)
+        }
+
+        if (!isConnectedLocally && ::sharedPreferences.isInitialized) {
+            val savedMac = sharedPreferences.getString("mac_address", "")
+            if (!savedMac.isNullOrEmpty()) {
+                Log.d(TAG, "Service restarted, attempting L2CAP reconnect to $savedMac")
+                val bluetoothManager = getSystemService(BluetoothManager::class.java)
+                val bluetoothDevice = bluetoothManager?.adapter?.getRemoteDevice(savedMac)
+                if (bluetoothDevice != null) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        connectToSocket(bluetoothDevice)
+                    }
+                }
+            }
         }
 
         return START_STICKY

@@ -165,14 +165,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         try {
-            unbindService(serviceConnection)
-            Log.d("MainActivity", "Unbound service")
+            if (::serviceConnection.isInitialized) {
+                unbindService(serviceConnection)
+                Log.d("MainActivity", "Unbound service")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unbinding service: $e")
         }
         try {
-            unregisterReceiver(connectionStatusReceiver)
-            Log.d("MainActivity", "Unregistered receiver")
+            if (::connectionStatusReceiver.isInitialized) {
+                unregisterReceiver(connectionStatusReceiver)
+                Log.d("MainActivity", "Unregistered receiver")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unregistering receiver: $e")
         }
@@ -182,14 +186,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         try {
-            unbindService(serviceConnection)
-            Log.d("MainActivity", "Unbound service")
+            if (::serviceConnection.isInitialized) {
+                unbindService(serviceConnection)
+                Log.d("MainActivity", "Unbound service")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unbinding service: $e")
         }
         try {
-            unregisterReceiver(connectionStatusReceiver)
-            Log.d("MainActivity", "Unregistered receiver")
+            if (::connectionStatusReceiver.isInitialized) {
+                unregisterReceiver(connectionStatusReceiver)
+                Log.d("MainActivity", "Unregistered receiver")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unregistering receiver: $e")
         }
@@ -457,7 +465,9 @@ fun Main() {
             }
         }
 
-        context.bindService(Intent(context, AirPodsService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
+        val serviceIntent = Intent(context, AirPodsService::class.java)
+        context.startForegroundService(serviceIntent)
+        context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
 
         if (airPodsService.value?.isConnectedLocally == true) {
             isConnected.value = true
