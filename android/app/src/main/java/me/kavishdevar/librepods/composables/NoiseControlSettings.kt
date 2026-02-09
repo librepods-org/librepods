@@ -52,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -170,14 +171,21 @@ fun NoiseControlSettings(
         }
     }
 
-    val noiseControlIntentFilter = IntentFilter().apply {
-        addAction(AirPodsNotifications.ANC_DATA)
-        addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        context.registerReceiver(noiseControlReceiver, noiseControlIntentFilter, Context.RECEIVER_EXPORTED)
-    } else {
-        context.registerReceiver(noiseControlReceiver, noiseControlIntentFilter)
+    DisposableEffect(Unit) {
+        val noiseControlIntentFilter = IntentFilter().apply {
+            addAction(AirPodsNotifications.ANC_DATA)
+            addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(noiseControlReceiver, noiseControlIntentFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(noiseControlReceiver, noiseControlIntentFilter)
+        }
+        onDispose {
+            try {
+                context.unregisterReceiver(noiseControlReceiver)
+            } catch (_: IllegalArgumentException) { }
+        }
     }
     Box(
         modifier = Modifier

@@ -200,9 +200,9 @@ class AACPManager {
     }
 
     var controlCommandStatusList: MutableList<ControlCommandStatus> =
-        mutableListOf<ControlCommandStatus>()
+        java.util.concurrent.CopyOnWriteArrayList<ControlCommandStatus>()
     var controlCommandListeners: MutableMap<ControlCommandIdentifiers, MutableList<ControlCommandListener>> =
-        mutableMapOf()
+        java.util.concurrent.ConcurrentHashMap<ControlCommandIdentifiers, MutableList<ControlCommandListener>>()
 
     var owns: Boolean = false
         private set
@@ -290,7 +290,7 @@ class AACPManager {
         identifier: ControlCommandIdentifiers,
         callback: ControlCommandListener
     ) {
-        controlCommandListeners.getOrPut(identifier) { mutableListOf() }.add(callback)
+        controlCommandListeners.getOrPut(identifier) { java.util.concurrent.CopyOnWriteArrayList() }.add(callback)
     }
 
     fun unregisterControlCommandListener(

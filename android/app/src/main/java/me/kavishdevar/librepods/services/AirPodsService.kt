@@ -2550,8 +2550,12 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
                                 } else if (bytesRead == -1) {
                                     Log.d("AirPods Service", "Socket closed (bytesRead = -1)")
-                                    sendBroadcast(Intent(AirPodsNotifications.AIRPODS_DISCONNECTED))
+                                    isConnectedLocally = false
+                                    isConnecting.set(false)
+                                    socket.close()
                                     aacpManager.disconnected()
+                                    updateNotificationContent(false)
+                                    sendBroadcast(Intent(AirPodsNotifications.AIRPODS_DISCONNECTED))
                                     return@launch
                                 }
                             }
