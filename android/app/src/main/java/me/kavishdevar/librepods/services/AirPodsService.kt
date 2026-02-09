@@ -2175,6 +2175,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                             context?.sendBroadcast(intent)
                         }
                     }
+                } else if (action == "android.bluetooth.a2dp.profile.action.PLAYING_STATE_CHANGED") {
+                    val savedMac = context?.getSharedPreferences("settings", MODE_PRIVATE)
+                        ?.getString("mac_address", "")
+                    if (!savedMac.isNullOrEmpty() && bluetoothDevice?.address == savedMac) {
+                        val state = intent.getIntExtra("android.bluetooth.profile.extra.STATE", -1)
+                        if (state == 10) { // BluetoothA2dp.STATE_PLAYING
+                            Log.d(TAG, "A2DP playing on AirPods, re-triggering connection")
+                            val connectionIntent = Intent(AirPodsNotifications.AIRPODS_CONNECTION_DETECTED)
+                            connectionIntent.putExtra("name", name)
+                            connectionIntent.putExtra("device", bluetoothDevice)
+                            context?.sendBroadcast(connectionIntent)
+                        }
+                    }
                 }
             }
         }
