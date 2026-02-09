@@ -1854,8 +1854,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
             val updatedNotification = updatedNotificationBuilder.build()
 
-            notificationManager.notify(2, updatedNotification)
-            notificationManager.cancel(1)
+            notificationManager.notify(1, updatedNotification)
         } else if (!connected) {
             updatedNotification = NotificationCompat.Builder(this, "background_service_status")
                 .setSmallIcon(R.drawable.airpods)
@@ -1868,7 +1867,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 .build()
 
             notificationManager.notify(1, updatedNotification)
-            notificationManager.cancel(2)
         } else if (!config.bleOnlyMode && !socket.isConnected && isConnectedLocally) {
             showSocketConnectionFailureNotification("Socket created, but not connected. Is the Bluetooth process hooked?")
         }
