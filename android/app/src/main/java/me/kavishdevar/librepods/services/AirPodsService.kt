@@ -2427,7 +2427,14 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         Log.d(TAG, "<LogCollector:Start> Connecting to socket")
         HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;")
         val uuid: ParcelUuid = ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a")
-        if (!isConnectedLocally) {
+        val socketActuallyAlive = isConnectedLocally && this::socket.isInitialized &&
+            try { socket.inputStream.available(); true } catch (_: Exception) { false }
+        if (!socketActuallyAlive) {
+            if (isConnectedLocally) {
+                Log.d(TAG, "isConnectedLocally was true but socket is dead, resetting")
+                isConnectedLocally = false
+                if (this::socket.isInitialized) try { socket.close() } catch (_: Exception) { }
+            }
             socket = try {
                 createBluetoothSocket(device, uuid)
             } catch (e: Exception) {
