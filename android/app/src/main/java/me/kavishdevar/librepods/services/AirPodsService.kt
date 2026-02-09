@@ -1460,6 +1460,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     var isConnectedLocally = false
+    private val isConnecting = java.util.concurrent.atomic.AtomicBoolean(false)
     var device: BluetoothDevice? = null
 
     private lateinit var earReceiver: BroadcastReceiver
@@ -2406,6 +2407,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
     fun connectToSocket(device: BluetoothDevice, manual: Boolean = false) {
+        if (!isConnecting.compareAndSet(false, true)) {
+            Log.d(TAG, "Already connecting to socket, skipping duplicate attempt")
+            return
+        }
         Log.d(TAG, "<LogCollector:Start> Connecting to socket")
         HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;")
         val uuid: ParcelUuid = ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a")
@@ -2415,6 +2420,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create BluetoothSocket: ${e.message}")
                 showSocketConnectionFailureNotification("Failed to create Bluetooth socket: ${e.localizedMessage}")
+                isConnecting.set(false)
                 return
             }
 
@@ -2466,6 +2472,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                             } else {
                                 showSocketConnectionFailureNotification("Couldn't connect to socket: ${e.localizedMessage}")
                             }
+                            isConnecting.set(false)
                             return@withTimeout
 //                            throw e // lol how did i not catch this before... gonna comment this line instead of removing to preserve history
                         }
@@ -2480,8 +2487,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     } else {
                         showSocketConnectionFailureNotification("Couldn't connect to socket: Timeout")
                     }
+                    isConnecting.set(false)
                     return
                 }
+                isConnecting.set(false)
                 this@AirPodsService.device = device
                 socket.let {
                     aacpManager.sendPacket(aacpManager.createHandshakePacket())
@@ -2562,10 +2571,12 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 Log.d(TAG, "Failed to connect to socket: ${e.message}")
                 showSocketConnectionFailureNotification("Failed to establish connection: ${e.localizedMessage}")
                 isConnectedLocally = false
+                isConnecting.set(false)
                 this@AirPodsService.device = device
                 updateNotificationContent(false)
             }
         } else {
+            isConnecting.set(false)
             Log.d(TAG, "Already connected locally, skipping socket connection (isConnectedLocally = $isConnectedLocally, socket.isConnected = ${this::socket.isInitialized && socket.isConnected})")
         }
     }
