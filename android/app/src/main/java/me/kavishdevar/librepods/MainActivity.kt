@@ -364,6 +364,15 @@ fun Main() {
                                 isConnected = isConnected.value,
                                 isRemotelyConnected = isRemotelyConnected.value
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                     composable("debug") {
