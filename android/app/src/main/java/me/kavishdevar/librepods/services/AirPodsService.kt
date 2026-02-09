@@ -1050,17 +1050,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 }
             }
             override fun onAudioSourceReceived(audioSource: ByteArray) {
-                Log.d("AirPodsParser", "Audio source changed mac: ${aacpManager.audioSource?.mac}, type: ${aacpManager.audioSource?.type?.name}")
-                if (aacpManager.audioSource?.type != AACPManager.Companion.AudioSourceType.NONE && aacpManager.audioSource?.mac != localMac) {
-                    Log.d("AirPodsParser", "Audio source is another device, better to give up aacp control")
+                Log.d("AirPodsParser", "Audio source changed mac: ${aacpManager.audioSource?.mac}, type: ${aacpManager.audioSource?.type?.name}, localMac: $localMac")
+                if (aacpManager.audioSource?.type != AACPManager.Companion.AudioSourceType.NONE && localMac.isNotEmpty() && aacpManager.audioSource?.mac != localMac) {
+                    Log.d("AirPodsParser", "Audio source is another device, giving up AACP control")
                     aacpManager.sendControlCommand(
                         AACPManager.Companion.ControlCommandIdentifiers.OWNS_CONNECTION.value,
                         byteArrayOf(0x00)
                     )
-                    // this also means that the other device has start playing the audio, and if that's true, we can again start listening for audio config changes
-//                    Log.d(TAG, "Another device started playing audio, listening for audio config changes again")
-//                    MediaController.pausedForOtherDevice = false
-// future me: what the heck is this? this just means it will not be taking over again if audio source doesn't change???
+                } else if (localMac.isNotEmpty() && aacpManager.audioSource?.mac == localMac) {
+                    Log.d("AirPodsParser", "Audio source is local device, reclaiming AACP control")
+                    aacpManager.sendControlCommand(
+                        AACPManager.Companion.ControlCommandIdentifiers.OWNS_CONNECTION.value,
+                        byteArrayOf(0x01)
+                    )
                 }
             }
 
