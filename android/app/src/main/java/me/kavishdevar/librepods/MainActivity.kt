@@ -311,7 +311,11 @@ fun Main() {
         canDrawOverlays = Settings.canDrawOverlays(context)
     }
 
-    if (permissionState.allPermissionsGranted && (canDrawOverlays || overlaySkipped.value)) {
+    val bluetoothPermissionsGranted = permissionState.permissions.filter {
+        it.permission.contains("BLUETOOTH") || it.permission.contains("LOCATION")
+    }.all { it.status.isGranted }
+
+    if (bluetoothPermissionsGranted && (canDrawOverlays || overlaySkipped.value)) {
         val context = LocalContext.current
 
         val navController = rememberNavController()
@@ -505,7 +509,9 @@ fun PermissionsScreen(
 
     val scrollState = rememberScrollState()
 
-    val basicPermissionsGranted = permissionState.permissions.all { it.status.isGranted }
+    val basicPermissionsGranted = permissionState.permissions.filter {
+        it.permission.contains("BLUETOOTH") || it.permission.contains("LOCATION")
+    }.all { it.status.isGranted }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
