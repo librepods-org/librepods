@@ -165,14 +165,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         try {
-            if (::serviceConnection.isInitialized) {
-                unbindService(serviceConnection)
-                Log.d("MainActivity", "Unbound service")
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error while unbinding service: $e")
-        }
-        try {
             if (::connectionStatusReceiver.isInitialized) {
                 unregisterReceiver(connectionStatusReceiver)
                 Log.d("MainActivity", "Unregistered receiver")
