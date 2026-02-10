@@ -73,6 +73,25 @@ If you are using ColorOS/OxygenOS 16, you don't need root except for customizing
 
 Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlayfs to replace the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlayfs and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
 
+#### Setup for OxygenOS/ColorOS 16 (Non-rooted)
+
+For multi-device audio switching to work properly on non-rooted OxygenOS 16, you need to inject your phone's Bluetooth MAC address into the app's settings. This is a one-time setup:
+
+1. **Get your phone's Bluetooth MAC address:**
+   - Go to Settings → About → Device Details → Bluetooth Address
+   - Or use: `adb shell settings get secure bluetooth_address` (requires running once with a recently-root device or use the Settings method)
+
+2. **Inject the MAC address via adb:**
+   ```bash
+   adb shell "run-as me.kavishdevar.librepods sed -i 's|<string name=\"self_mac_address\"></string>|<string name=\"self_mac_address\">XX:XX:XX:XX:XX:XX</string>|' shared_prefs/settings.xml"
+   ```
+   Replace `XX:XX:XX:XX:XX:XX` with your actual Bluetooth MAC address (e.g., `AC:C0:48:67:E6:EA`)
+
+3. **Restart the app** for the changes to take effect
+
+> [!NOTE]
+> This is needed because non-rooted apps on SDK 36+ cannot access the system's `bluetooth_address` setting. Without this, audio source switching between devices won't work correctly, and the app will lose ANC/transparency control when you switch to another device.
+
 ## Changing VendorID in the DID profile to that of Apple
 
 Turns out, if you change the VendorID in DID Profile to that of Apple, you get access to several special features!
