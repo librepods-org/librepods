@@ -75,11 +75,13 @@ Until then, you must xposed. I used to provide a non-xposed method too, where th
 
 #### Setup for OxygenOS/ColorOS 16 (Non-rooted)
 
-For multi-device audio switching to work properly on non-rooted OxygenOS 16, you need to inject your phone's Bluetooth MAC address into the app's settings. This is a one-time setup:
+For multi-device audio switching to work properly on non-rooted OxygenOS 16, you need to inject your phone's Bluetooth MAC address into the app's settings. This is a one-time setup.
+
+> [!IMPORTANT]
+> The `run-as` command only works with **debug builds** (e.g., the nightly APK from CI). If you installed a release build, reinstall with the debug APK first.
 
 1. **Get your phone's Bluetooth MAC address:**
    - Go to Settings → About → Device Details → Bluetooth Address
-   - Or use: `adb shell settings get secure bluetooth_address` (requires running once with a recently-root device or use the Settings method)
 
 2. **Inject the MAC address via adb:**
    ```bash
