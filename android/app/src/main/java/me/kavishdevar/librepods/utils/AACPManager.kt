@@ -372,13 +372,13 @@ class AACPManager {
             TAG,
             "Parsing Proximity Keys Response: ${data.joinToString(" ") { "%02X".format(it) }}"
         )
-        if (data.size < 4) {
+        if (data.size < 7) {
             throw IllegalArgumentException("Data array too short to parse Proximity Keys Response")
         }
         if (data[4] != Opcodes.PROXIMITY_KEYS_RSP) {
             throw IllegalArgumentException("Data array does not start with PROXIMITY_KEYS_RSP opcode")
         }
-        val keyCount = data[6].toInt()
+        val keyCount = data[6].toInt() and 0xFF
         val keys = mutableMapOf<ProximityKeyType, ByteArray>()
         var offset = 7
         for (i in 0 until keyCount) {
@@ -420,6 +420,13 @@ class AACPManager {
 
     @OptIn(ExperimentalStdlibApi::class)
     fun receivePacket(packet: ByteArray) {
+        if (packet.size < 6) {
+            Log.w(
+                TAG,
+                "Received packet too short: ${packet.joinToString(" ") { "%02X".format(it) }}"
+            )
+            return
+        }
         if (!packet.toHexString().startsWith("04000400")) {
             Log.w(
                 TAG,
@@ -428,13 +435,6 @@ class AACPManager {
                         "%02X".format(it)
                     }
                 }"
-            )
-            return
-        }
-        if (packet.size < 6) {
-            Log.w(
-                TAG,
-                "Received packet too short: ${packet.joinToString(" ") { "%02X".format(it) }}"
             )
             return
         }
@@ -531,12 +531,27 @@ class AACPManager {
             }
 
             Opcodes.CONNECTED_DEVICES -> {
-                oldConnectedDevices = connectedDevices
-                connectedDevices = parseConnectedDevicesResponse(packet)
-                callback?.onConnectedDevicesReceived(connectedDevices)
+                try {
+                    oldConnectedDevices = connectedDevices
+                    connectedDevices = parseConnectedDevicesResponse(packet)
+                    callback?.onConnectedDevicesReceived(connectedDevices)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing connected devices response: ${e.message}")
+                }
             }
 
             Opcodes.SMART_ROUTING_RESP -> {
+                if (packet.size < 12) {
+                    Log.w(
+                        TAG,
+                        "Received SMART_ROUTING_RESP packet too short: ${
+                            packet.joinToString(" ") {
+                                "%02X".format(it)
+                            }
+                        }"
+                    )
+                    return
+                }
                 val packetString = packet.decodeToString()
                 val sender = packet.sliceArray(6..11).reversedArray().joinToString(":") { "%02X".format(it) }
 
@@ -599,8 +614,12 @@ class AACPManager {
 
             Opcodes.INFORMATION -> {
                 Log.e(TAG, "Parsing Information Packet")
-                val information = parseInformationPacket(packet)
-                callback?.onDeviceInformationReceived(information)
+                try {
+                    val information = parseInformationPacket(packet)
+                    callback?.onDeviceInformationReceived(information)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing information packet: ${e.message}")
+                }
             }
             else -> {
                 Log.d(TAG, "Unknown opcode received: ${opcode.toHexString()}")
@@ -1075,6 +1094,9 @@ class AACPManager {
                 if (data[0] != Opcodes.CONTROL_COMMAND) {
                     throw IllegalArgumentException("Data array does not start with CONTROL_COMMAND opcode")
                 }
+                if (data.size < 7) {
+                    throw IllegalArgumentException("Data array too short to parse ControlCommand payload")
+                }
                 val identifier = data[2]
 
                 val value = ByteArray(4)
@@ -1109,7 +1131,7 @@ class AACPManager {
         try {
             Log.d(TAG, "Sending packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
 
-            if (packet[4] == Opcodes.CONTROL_COMMAND) {
+            if (packet.size > 4 && packet[4] == Opcodes.CONTROL_COMMAND) {
                 val controlCommand = ControlCommand.fromByteArray(packet)
                 Log.d(
                     TAG,
@@ -1170,7 +1192,7 @@ class AACPManager {
 
     fun parseAudioSourceResponse(data: ByteArray): Pair<String, AudioSourceType> {
         Log.d(TAG, "Parsing Audio Source Response: ${data.joinToString(" ") { "%02X".format(it) }}")
-        if (data.size < 9) {
+        if (data.size < 13) {
             throw IllegalArgumentException("Data array too short to parse Audio Source Response")
         }
         if (data[4] != Opcodes.AUDIO_SOURCE) {
@@ -1189,7 +1211,7 @@ class AACPManager {
             TAG,
             "Parsing Connected Devices Response: ${data.joinToString(" ") { "%02X".format(it) }}"
         )
-        if (data.size < 8) {
+        if (data.size < 9) {
             throw IllegalArgumentException("Data array too short to parse Connected Devices Response")
         }
         if (data[4] != Opcodes.CONNECTED_DEVICES) {
@@ -1256,7 +1278,9 @@ class AACPManager {
             strings.add(str)
         }
 
-        strings.removeAt(0) // I'm too lazy to adjust, just removing the first empty string
+        if (strings.isNotEmpty()) {
+            strings.removeAt(0) // I'm too lazy to adjust, just removing the first empty string
+        }
 
         return AirPodsInformation(
             name = strings.getOrNull(0) ?: "",
