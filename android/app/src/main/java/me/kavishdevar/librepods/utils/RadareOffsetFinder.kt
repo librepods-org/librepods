@@ -46,7 +46,7 @@ class RadareOffsetFinder(context: Context) {
         private const val CSM_CONFIG_OFFSET_PROP = "persist.librepods.csm_config_offset"
         private const val PEER_INFO_REQ_OFFSET_PROP = "persist.librepods.peer_info_req_offset"
         private const val SDP_OFFSET_PROP = "persist.librepods.sdp_offset"
-        private const val EXTRACT_DIR = "/data/local/tmp/aln_unzip"
+        private const val EXTRACT_DIR = "sdcard/radare_data"
 
         private const val RADARE2_BIN_PATH = "$EXTRACT_DIR/org.radare.radare2installer/radare2/bin"
         private const val RADARE2_LIB_PATH = "$EXTRACT_DIR/org.radare.radare2installer/radare2/lib"
