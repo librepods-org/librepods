@@ -46,11 +46,11 @@ class RadareOffsetFinder(context: Context) {
         private const val CSM_CONFIG_OFFSET_PROP = "persist.librepods.csm_config_offset"
         private const val PEER_INFO_REQ_OFFSET_PROP = "persist.librepods.peer_info_req_offset"
         private const val SDP_OFFSET_PROP = "persist.librepods.sdp_offset"
-        private const val EXTRACT_DIR = "/"
+        private const val EXTRACT_DIR = "/data/local/tmp/aln_unzip"
 
-        private const val RADARE2_BIN_PATH = "$EXTRACT_DIR/data/local/tmp/aln_unzip/org.radare.radare2installer/radare2/bin"
-        private const val RADARE2_LIB_PATH = "$EXTRACT_DIR/data/local/tmp/aln_unzip/org.radare.radare2installer/radare2/lib"
-        private const val BUSYBOX_PATH = "$EXTRACT_DIR/data/local/tmp/aln_unzip/busybox"
+        private const val RADARE2_BIN_PATH = "$EXTRACT_DIR/org.radare.radare2installer/radare2/bin"
+        private const val RADARE2_LIB_PATH = "$EXTRACT_DIR/org.radare.radare2installer/radare2/lib"
+        private const val BUSYBOX_PATH = "$EXTRACT_DIR/busybox"
 
         private val LIBRARY_PATHS = listOf(
             "/apex/com.android.bt/lib64/libbluetooth_jni.so",
@@ -293,9 +293,9 @@ class RadareOffsetFinder(context: Context) {
             }
 
             Log.d(TAG, "Removing existing extract directory")
-            Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -rf $EXTRACT_DIR/data/local/tmp/aln_unzip")).waitFor()
+            Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -rf $EXTRACT_DIR")).waitFor()
 
-            Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $EXTRACT_DIR/data/local/tmp/aln_unzip")).waitFor()
+            Runtime.getRuntime().exec(arrayOf("su", "-c", "mkdir -p $EXTRACT_DIR")).waitFor()
 
             Log.d(TAG, "Extracting ${radare2TarballFile.absolutePath} to $EXTRACT_DIR")
 
@@ -332,7 +332,7 @@ class RadareOffsetFinder(context: Context) {
     private suspend fun checkIfAlreadyExtracted(): Boolean = withContext(Dispatchers.IO) {
         try {
             val checkDirProcess = Runtime.getRuntime().exec(
-                arrayOf("su", "-c", "[ -d $EXTRACT_DIR/data/local/tmp/aln_unzip ] && echo 'exists'")
+                arrayOf("su", "-c", "[ -d $EXTRACT_DIR ] && echo 'exists'")
             )
             val dirExists = BufferedReader(InputStreamReader(checkDirProcess.inputStream)).readLine() == "exists"
             checkDirProcess.waitFor()
@@ -357,7 +357,7 @@ class RadareOffsetFinder(context: Context) {
             }
 
             val findProcess = Runtime.getRuntime().exec(
-                arrayOf("su", "-c", "find $EXTRACT_DIR/data/local/tmp/aln_unzip -type f | sort")
+                arrayOf("su", "-c", "find $EXTRACT_DIR -type f | sort")
             )
             val extractedFiles = BufferedReader(InputStreamReader(findProcess.inputStream)).readLines()
                 .filter { it.isNotEmpty() }
@@ -382,7 +382,7 @@ class RadareOffsetFinder(context: Context) {
 
                 if (!fileExists) {
                     Log.d(TAG, "File $filePathInExtractDir from tarball missing in extract directory")
-                    Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -rf $EXTRACT_DIR/data/local/tmp/aln_unzip")).waitFor()
+                    Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -rf $EXTRACT_DIR")).waitFor()
                     return@withContext false
                 }
             }
@@ -699,7 +699,7 @@ class RadareOffsetFinder(context: Context) {
 
     private fun cleanupExtractedFiles() {
         try {
-            Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -rf $EXTRACT_DIR/data/local/tmp/aln_unzip")).waitFor()
+            Runtime.getRuntime().exec(arrayOf("su", "-c", "rm -rf $EXTRACT_DIR")).waitFor()
             Log.d(TAG, "Cleaned up extracted files at $EXTRACT_DIR/data/local/tmp/aln_unzip")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to cleanup extracted files", e)
