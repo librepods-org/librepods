@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QLineEdit,
     QGridLayout,
+    QFileDialog,
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
 
@@ -91,7 +92,7 @@ HEARING_ASSIST_HEADER = bytes.fromhex("52 2A 00 02 02 64 00")
 HEARING_ASSIST_TRAILER = bytes.fromhex("00 00 00 3F")  # float 0.5
 HEARING_ASSIST_FREQS = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000]
 EXPECTED_BLUETOOTH_DID = "bluetooth:004C:0000:0000"
-SCRIPT_REVISION = "2026-02-20-r1"
+SCRIPT_REVISION = "2026-02-28-r3"
 
 class ATTProtocolError(RuntimeError):
     pass
@@ -618,6 +619,133 @@ def _interpolate_series(freqs: List[int], values: Dict[int, Optional[float]]) ->
     return result
 
 
+def _as_float_or_none(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if not s:
+            return None
+        s = s.replace("dbhl", "").replace("db", "").replace("hz", "").strip()
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _as_bool_or_none(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("1", "true", "yes", "y", "on"):
+            return True
+        if s in ("0", "false", "no", "n", "off"):
+            return False
+    return None
+
+
+def _parse_freq_key(value: Any) -> Optional[int]:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lower().replace("hz", "").replace(" ", "")
+        if s.isdigit():
+            return int(s)
+    return None
+
+
+def _normalize_ear_audiogram(raw: Any, side_name: str) -> Tuple[List[float], List[int]]:
+    # Accept either a dict keyed by frequency, or a direct 8-value list in
+    # HEARING_ASSIST_FREQS order (250..8000).
+    if isinstance(raw, list):
+        if len(raw) < len(HEARING_ASSIST_FREQS):
+            raise ValueError(f"{side_name} list must contain at least {len(HEARING_ASSIST_FREQS)} values")
+        out: List[float] = []
+        for i in range(len(HEARING_ASSIST_FREQS)):
+            out.append(float(_as_float_or_none(raw[i]) or 0.0))
+        return out, list(HEARING_ASSIST_FREQS)
+
+    if not isinstance(raw, dict):
+        raise ValueError(f"{side_name} must be an object or array")
+
+    freq_values: Dict[int, Optional[float]] = {}
+    parsed_freqs: List[int] = []
+    for key, value in raw.items():
+        freq = _parse_freq_key(key)
+        if freq is None:
+            continue
+        parsed_freqs.append(freq)
+        freq_values[freq] = _as_float_or_none(value)
+
+    series = _interpolate_series(
+        HEARING_ASSIST_FREQS,
+        {f: freq_values.get(f) for f in HEARING_ASSIST_FREQS},
+    )
+    return series, sorted(set(parsed_freqs))
+
+
+def _to_unit_slider_percent(value: Any) -> Optional[int]:
+    v = _as_float_or_none(value)
+    if v is None:
+        return None
+    # Accept either 0..1 or 0..100.
+    if v > 1.0:
+        v = v / 100.0
+    return int(round(max(0.0, min(1.0, v)) * 100.0))
+
+
+def _to_bipolar_slider_percent(value: Any) -> Optional[int]:
+    v = _as_float_or_none(value)
+    if v is None:
+        return None
+    # Accept either -1..1 or -100..100.
+    if abs(v) <= 1.0:
+        v = v * 100.0
+    return int(round(max(-100.0, min(100.0, v))))
+
+
+def parse_audiogram_json_file(path: Path) -> Dict[str, Any]:
+    data = json.loads(path.read_text())
+    if not isinstance(data, dict):
+        raise ValueError("JSON root must be an object")
+
+    left_raw = data.get("left", data.get("left_eq"))
+    right_raw = data.get("right", data.get("right_eq"))
+    if left_raw is None or right_raw is None:
+        raise ValueError("JSON must include both 'left' and 'right' audiogram entries")
+
+    left_eq, left_freqs = _normalize_ear_audiogram(left_raw, "left")
+    right_eq, right_freqs = _normalize_ear_audiogram(right_raw, "right")
+
+    adjustments = data.get("adjustments") if isinstance(data.get("adjustments"), dict) else {}
+    if adjustments is None:
+        adjustments = {}
+
+    def pick(name: str) -> Any:
+        if name in adjustments:
+            return adjustments[name]
+        return data.get(name)
+
+    return {
+        "left_eq": left_eq,
+        "right_eq": right_eq,
+        "left_freqs": left_freqs,
+        "right_freqs": right_freqs,
+        "amp": _to_unit_slider_percent(pick("amplification")),
+        "balance": _to_bipolar_slider_percent(pick("balance")),
+        "tone": _to_bipolar_slider_percent(pick("tone")),
+        "anr": _to_unit_slider_percent(pick("ambient_noise_reduction")),
+        "own_voice": _to_unit_slider_percent(pick("own_voice_amplification")),
+        "conv": _as_bool_or_none(pick("conversation_boost")),
+    }
+
+
 def build_hearing_assist_payload_from_audiogram(
     left: Dict[int, Optional[float]],
     right: Dict[int, Optional[float]],
@@ -877,12 +1005,14 @@ class HearingAidApp(QWidget):
         btn_row = QHBoxLayout()
         self.apply_button = QPushButton("Apply")
         self.apply_commit_button = QPushButton("Apply / Commit")
+        self.load_json_button = QPushButton("Load Audiogram JSON")
         self.preset_80_button = QPushButton("Preset 80/100")
         self.read_raw_button = QPushButton("Read Raw Blob")
         self.refresh_button = QPushButton("Refresh / Read")
         self.reset_button = QPushButton("Reset")
         btn_row.addWidget(self.apply_button)
         btn_row.addWidget(self.apply_commit_button)
+        btn_row.addWidget(self.load_json_button)
         btn_row.addWidget(self.preset_80_button)
         btn_row.addWidget(self.read_raw_button)
         btn_row.addWidget(self.refresh_button)
@@ -893,8 +1023,9 @@ class HearingAidApp(QWidget):
         self.debug_overwrite_checkbox.setChecked(False)
         layout.addWidget(self.debug_overwrite_checkbox)
 
-        self.commit_preset_checkbox = QCheckBox("Commit preset 80/100")
-        self.commit_preset_checkbox.setChecked(True)
+        # Keep this OFF by default so Apply/Commit uses the real values from the UI.
+        self.commit_preset_checkbox = QCheckBox("Force preset 80/100 on Apply / Commit (debug)")
+        self.commit_preset_checkbox.setChecked(False)
         layout.addWidget(self.commit_preset_checkbox)
 
         self.setLayout(layout)
@@ -912,6 +1043,7 @@ class HearingAidApp(QWidget):
 
         self.apply_button.clicked.connect(self.send_settings)
         self.apply_commit_button.clicked.connect(self.apply_commit_sequence)
+        self.load_json_button.clicked.connect(self.load_audiogram_json)
         self.preset_80_button.clicked.connect(self.apply_preset_80)
         self.read_raw_button.clicked.connect(self.read_raw_blob)
         self.refresh_button.clicked.connect(self.refresh_from_device)
@@ -1109,6 +1241,7 @@ class HearingAidApp(QWidget):
                 try:
                     settings = self._collect_settings()
                     if self.commit_preset_checkbox.isChecked():
+                        logging.warning("Debug preset override is enabled; replacing UI values with 80/100.")
                         settings.left_eq = [80.0] * 8
                         settings.right_eq = [80.0] * 8
                         settings.left_amplification = 1.0
@@ -1221,6 +1354,73 @@ class HearingAidApp(QWidget):
                 logging.error("Read raw blob failed: %s", e)
 
         Thread(target=worker, daemon=True).start()
+
+    def load_audiogram_json(self) -> None:
+        start_dir = Path.home() / "Downloads"
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Audiogram JSON",
+            str(start_dir),
+            "JSON Files (*.json);;All Files (*)",
+        )
+        if not file_path:
+            return
+        try:
+            self.load_audiogram_json_from_path(Path(file_path))
+        except Exception as e:
+            logging.error("Failed to load audiogram JSON: %s", e)
+
+    def load_audiogram_json_from_path(self, path: Path) -> None:
+        parsed = parse_audiogram_json_file(path.expanduser())
+
+        self.debounce_timer.stop()
+        self._updating_ui = True
+        widgets = [
+            self.amp_slider,
+            self.balance_slider,
+            self.tone_slider,
+            self.anr_slider,
+            self.own_voice_slider,
+            self.conv_checkbox,
+        ] + self.left_eq_inputs + self.right_eq_inputs
+
+        for w in widgets:
+            w.blockSignals(True)
+
+        try:
+            for i in range(8):
+                lv = float(parsed["left_eq"][i])
+                rv = float(parsed["right_eq"][i])
+                self.left_eq_inputs[i].setText(f"{lv:.2f}".rstrip("0").rstrip("."))
+                self.right_eq_inputs[i].setText(f"{rv:.2f}".rstrip("0").rstrip("."))
+
+            if parsed.get("amp") is not None:
+                self.amp_slider.setValue(int(parsed["amp"]))
+            if parsed.get("balance") is not None:
+                self.balance_slider.setValue(int(parsed["balance"]))
+            if parsed.get("tone") is not None:
+                self.tone_slider.setValue(int(parsed["tone"]))
+            if parsed.get("anr") is not None:
+                self.anr_slider.setValue(int(parsed["anr"]))
+            if parsed.get("own_voice") is not None:
+                self.own_voice_slider.setValue(int(parsed["own_voice"]))
+            if parsed.get("conv") is not None:
+                self.conv_checkbox.setChecked(bool(parsed["conv"]))
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+            self._updating_ui = False
+
+        left_freqs = parsed.get("left_freqs", [])
+        right_freqs = parsed.get("right_freqs", [])
+        ignored = sorted({f for f in (left_freqs + right_freqs) if f in (125, 750)})
+        logging.info("Loaded audiogram JSON into UI: %s", path)
+        if ignored:
+            logging.info(
+                "Input includes %s Hz; AirPods hearing payload ignores those frequencies.",
+                ",".join(str(x) for x in ignored),
+            )
+        logging.info("Review values in UI, then click Apply / Commit.")
 
     def reset_settings(self) -> None:
         self.amp_slider.setValue(0)
@@ -1370,11 +1570,12 @@ def _validate_mac(mac: str) -> bool:
     return bool(re.match(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", mac))
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or not _validate_mac(sys.argv[1]):
-        logging.error("Usage: python hearing-aid-adjustments_persist_local_v2.py <MAC_ADDRESS>")
+    if len(sys.argv) not in (2, 3) or not _validate_mac(sys.argv[1]):
+        logging.error("Usage: python hearing-aid-adjustments.py <MAC_ADDRESS> [AUDIOGRAM_JSON_PATH]")
         sys.exit(1)
 
     mac = sys.argv[1]
+    audiogram_json_path = Path(sys.argv[2]).expanduser() if len(sys.argv) == 3 else None
     logging.info("Starting app")
     _log_script_revision()
     _log_did_spoof_status()
@@ -1401,5 +1602,10 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, quit_app)
 
     window = HearingAidApp(mac)
+    if audiogram_json_path is not None:
+        try:
+            window.load_audiogram_json_from_path(audiogram_json_path)
+        except Exception as e:
+            logging.error("Failed to auto-load audiogram JSON '%s': %s", audiogram_json_path, e)
     window.show()
     sys.exit(app.exec_())
