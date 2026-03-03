@@ -59,10 +59,10 @@ fn main() -> iced::Result {
 
     let log_level = if args.debug { "debug" } else { "info" };
     let wayland_display = env::var("WAYLAND_DISPLAY").is_ok();
+    if wayland_display && env::var("WGPU_BACKEND").is_err() {
+        unsafe { env::set_var("WGPU_BACKEND", "gl") };
+    }
     if env::var("RUST_LOG").is_err() {
-        if wayland_display {
-            unsafe { env::set_var("WGPU_BACKEND", "gl") };
-        }
         unsafe {
             env::set_var(
                 "RUST_LOG",
