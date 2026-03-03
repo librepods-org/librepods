@@ -80,6 +80,17 @@ impl AirPodsDevice {
             error!("Failed to request proximity keys: {}", e);
         }
 
+        // Enable stem press detection (double and triple tap)
+        // Bitmask: single=0x01, double=0x02, triple=0x04, long=0x08
+        // We want double and triple: 0x02 | 0x04 = 0x06
+        info!("Enabling stem press detection for double and triple tap");
+        if let Err(e) = aacp_manager
+            .send_control_command(ControlCommandIdentifiers::StemConfig, &[0x06])
+            .await
+        {
+            error!("Failed to enable stem press detection: {}", e);
+        }
+
         let session = bluer::Session::new()
             .await
             .expect("Failed to get bluer session");
@@ -324,6 +335,27 @@ impl AirPodsDevice {
                         let controller = mc_clone.lock().await;
                         controller.pause_all_media().await;
                         controller.deactivate_a2dp_profile().await;
+                    }
+                    AACPEvent::StemPress(press_type, bud_type) => {
+                        use crate::bluetooth::aacp::StemPressType;
+                        info!(
+                            "Received Stem Press: {:?} on {:?}",
+                            press_type, bud_type
+                        );
+                        let controller = mc_clone.lock().await;
+                        match press_type {
+                            StemPressType::DoublePress => {
+                                info!("Double press detected, skipping to next track");
+                                controller.next_track().await;
+                            }
+                            StemPressType::TriplePress => {
+                                info!("Triple press detected, going to previous track");
+                                controller.previous_track().await;
+                            }
+                            _ => {
+                                debug!("Unhandled stem press type: {:?}", press_type);
+                            }
+                        }
                     }
                     _ => {
                         debug!("Received unhandled AACP event: {:?}", event);

@@ -594,6 +594,140 @@ impl MediaController {
         }
     }
 
+    pub async fn next_track(&self) {
+        debug!("Skipping to next track");
+        info!("Skipping to next track");
+
+        tokio::task::spawn_blocking(|| {
+            let conn = Connection::new_session().unwrap();
+            let proxy = conn.with_proxy(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                Duration::from_secs(5),
+            );
+            let (names,): (Vec<String>,) = proxy
+                .method_call("org.freedesktop.DBus", "ListNames", ())
+                .unwrap();
+
+            // Find playing services
+            let mut playing_service = None;
+            let mut fallback_service = None;
+
+            for service in names {
+                if !service.starts_with("org.mpris.MediaPlayer2.") {
+                    continue;
+                }
+                if Self::is_kdeconnect_service(&service) {
+                    debug!("Skipping kdeconnect service: {}", service);
+                    continue;
+                }
+
+                let proxy =
+                    conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
+                
+                // Check if this player is currently playing
+                if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus") {
+                    debug!("Service {} has status: {}", service, playback_status);
+                    if playback_status == "Playing" && playing_service.is_none() {
+                        playing_service = Some(service.clone());
+                    }
+                }
+                
+                if fallback_service.is_none() {
+                    fallback_service = Some(service);
+                }
+            }
+
+            // Prefer playing service, fallback to first available
+            if let Some(service) = playing_service.or(fallback_service) {
+                debug!("Sending Next command to service: {}", service);
+                let proxy =
+                    conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
+                if proxy
+                    .method_call::<(), _, &str, &str>(
+                        "org.mpris.MediaPlayer2.Player",
+                        "Next",
+                        (),
+                    )
+                    .is_ok()
+                {
+                    info!("Skipped to next track on: {}", service);
+                } else {
+                    debug!("Failed to skip track on service: {}", service);
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    pub async fn previous_track(&self) {
+        debug!("Going to previous track");
+        info!("Going to previous track");
+
+        tokio::task::spawn_blocking(|| {
+            let conn = Connection::new_session().unwrap();
+            let proxy = conn.with_proxy(
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                Duration::from_secs(5),
+            );
+            let (names,): (Vec<String>,) = proxy
+                .method_call("org.freedesktop.DBus", "ListNames", ())
+                .unwrap();
+
+            // Find playing services
+            let mut playing_service = None;
+            let mut fallback_service = None;
+
+            for service in names {
+                if !service.starts_with("org.mpris.MediaPlayer2.") {
+                    continue;
+                }
+                if Self::is_kdeconnect_service(&service) {
+                    debug!("Skipping kdeconnect service: {}", service);
+                    continue;
+                }
+
+                let proxy =
+                    conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
+                
+                // Check if this player is currently playing
+                if let Ok(playback_status) = proxy.get::<String>("org.mpris.MediaPlayer2.Player", "PlaybackStatus") {
+                    debug!("Service {} has status: {}", service, playback_status);
+                    if playback_status == "Playing" && playing_service.is_none() {
+                        playing_service = Some(service.clone());
+                    }
+                }
+                
+                if fallback_service.is_none() {
+                    fallback_service = Some(service);
+                }
+            }
+
+            // Prefer playing service, fallback to first available
+            if let Some(service) = playing_service.or(fallback_service) {
+                debug!("Sending Previous command to service: {}", service);
+                let proxy =
+                    conn.with_proxy(&service, "/org/mpris/MediaPlayer2", Duration::from_secs(5));
+                if proxy
+                    .method_call::<(), _, &str, &str>(
+                        "org.mpris.MediaPlayer2.Player",
+                        "Previous",
+                        (),
+                    )
+                    .is_ok()
+                {
+                    info!("Went to previous track on: {}", service);
+                } else {
+                    debug!("Failed to go to previous track on service: {}", service);
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+
     async fn is_a2dp_profile_available(&self) -> bool {
         debug!("Entering is_a2dp_profile_available");
         let state = self.state.lock().await;

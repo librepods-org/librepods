@@ -19,7 +19,7 @@ use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use dbus::message::MatchRule;
 use devices::airpods::AirPodsDevice;
 use ksni::TrayMethods;
-use log::info;
+use log::{info, warn};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -80,14 +80,24 @@ fn main() -> iced::Result {
 
     let device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>> =
         Arc::new(RwLock::new(HashMap::new()));
-    let device_managers_clone = device_managers.clone();
-    std::thread::spawn(|| {
+    
+    if args.no_tray {
+        // Run headless without UI
+        info!("Running in headless mode (no GUI)");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async_main(ui_tx, device_managers_clone))
-            .unwrap();
-    });
+        rt.block_on(async_main(ui_tx, device_managers)).unwrap();
+        Ok(())
+    } else {
+        // Run with UI
+        let device_managers_clone = device_managers.clone();
+        std::thread::spawn(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async_main(ui_tx, device_managers_clone))
+                .unwrap();
+        });
 
-    ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+        ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+    }
 }
 
 async fn async_main(
@@ -170,11 +180,11 @@ async fn async_main(
                 .or_insert(dev_managers)
                 .set_aacp(airpods_device.aacp_manager);
             drop(managers);
-            ui_tx
-                .send(BluetoothUIMessage::DeviceConnected(
-                    device.address().to_string(),
-                ))
-                .unwrap();
+            if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceConnected(
+                device.address().to_string(),
+            )) {
+                warn!("Failed to send DeviceConnected UI message: {:?}", e);
+            }
         }
         Err(_) => {
             info!("No connected AirPods found.");
@@ -205,9 +215,9 @@ async fn async_main(
                             .entry(addr_str.clone())
                             .or_insert(dev_managers)
                             .set_att(dev.att_manager);
-                        ui_tx_clone
-                            .send(BluetoothUIMessage::DeviceConnected(addr_str))
-                            .unwrap();
+                        if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str)) {
+                            warn!("Failed to send DeviceConnected UI message: {:?}", e);
+                        }
                     }
                     drop(managers)
                 });
@@ -280,9 +290,9 @@ async fn async_main(
                         .or_insert(dev_managers)
                         .set_att(dev.att_manager);
                     drop(managers);
-                    ui_tx_clone
-                        .send(BluetoothUIMessage::DeviceConnected(addr_str.clone()))
-                        .unwrap();
+                    if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())) {
+                        warn!("Failed to send DeviceConnected UI message: {:?}", e);
+                    }
                 });
             }
             return true;
@@ -308,9 +318,9 @@ async fn async_main(
                 .or_insert(dev_managers)
                 .set_aacp(airpods_device.aacp_manager);
             drop(managers);
-            ui_tx_clone
-                .send(BluetoothUIMessage::DeviceConnected(addr_str.clone()))
-                .unwrap();
+            if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())) {
+                warn!("Failed to send DeviceConnected UI message: {:?}", e);
+            }
         });
         true
     })?;
