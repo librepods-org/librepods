@@ -8,6 +8,7 @@ use ksni::Handle;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
 
@@ -24,6 +25,7 @@ impl AirPodsDevice {
         mac_address: Address,
         tray_handle: Option<Handle<MyTray>>,
         ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
+        stem_control: Arc<AtomicBool>,
     ) -> Self {
         info!("Creating new AirPodsDevice for {}", mac_address);
         let mut aacp_manager = AACPManager::new();
@@ -80,15 +82,18 @@ impl AirPodsDevice {
             error!("Failed to request proximity keys: {}", e);
         }
 
-        // Enable stem press detection (double and triple tap)
-        // Bitmask: single=0x01, double=0x02, triple=0x04, long=0x08
-        // We want double and triple: 0x02 | 0x04 = 0x06
-        info!("Enabling stem press detection for double and triple tap");
-        if let Err(e) = aacp_manager
-            .send_control_command(ControlCommandIdentifiers::StemConfig, &[0x06])
-            .await
-        {
-            error!("Failed to enable stem press detection: {}", e);
+        if stem_control.load(Ordering::Relaxed) {
+            // Enable stem press detection (double and triple tap)
+            // StemConfig bitmask for the control command: single=0x01, double=0x02, triple=0x04, long=0x08
+            // We want double and triple: 0x02 | 0x04 = 0x06
+            // Note: these bitmask values differ from the StemPressType event enum values (0x05–0x08)
+            info!("Enabling stem press detection for double and triple tap");
+            if let Err(e) = aacp_manager
+                .send_control_command(ControlCommandIdentifiers::StemConfig, &[0x06])
+                .await
+            {
+                error!("Failed to enable stem press detection: {}", e);
+            }
         }
 
         let session = bluer::Session::new()
@@ -217,6 +222,7 @@ impl AirPodsDevice {
         let local_mac_events = local_mac.clone();
         let ui_tx_clone = ui_tx.clone();
         let command_tx_clone = command_tx.clone();
+        let stem_control_clone = stem_control.clone();
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
                 let event_clone = event.clone();
@@ -342,19 +348,23 @@ impl AirPodsDevice {
                             "Received Stem Press: {:?} on {:?}",
                             press_type, bud_type
                         );
-                        let controller = mc_clone.lock().await;
-                        match press_type {
-                            StemPressType::DoublePress => {
-                                info!("Double press detected, skipping to next track");
-                                controller.next_track().await;
+                        if stem_control_clone.load(Ordering::Relaxed) {
+                            let controller = mc_clone.lock().await;
+                            match press_type {
+                                StemPressType::DoublePress => {
+                                    info!("Double press detected, skipping to next track");
+                                    controller.next_track().await;
+                                }
+                                StemPressType::TriplePress => {
+                                    info!("Triple press detected, going to previous track");
+                                    controller.previous_track().await;
+                                }
+                                _ => {
+                                    debug!("Unhandled stem press type: {:?}", press_type);
+                                }
                             }
-                            StemPressType::TriplePress => {
-                                info!("Triple press detected, going to previous track");
-                                controller.previous_track().await;
-                            }
-                            _ => {
-                                debug!("Unhandled stem press type: {:?}", press_type);
-                            }
+                        } else {
+                            debug!("Stem control disabled, ignoring stem press event");
                         }
                     }
                     _ => {

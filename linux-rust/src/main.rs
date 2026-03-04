@@ -10,7 +10,7 @@ use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
-use crate::utils::get_devices_path;
+use crate::utils::{get_app_settings_path, get_devices_path};
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -22,6 +22,7 @@ use ksni::TrayMethods;
 use log::{info, warn};
 use std::collections::HashMap;
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::unbounded_channel;
@@ -44,6 +45,11 @@ struct Args {
     le_debug: bool,
     #[arg(long, short = 'v', help = "Show application version and exit")]
     version: bool,
+    #[arg(
+        long,
+        help = "Disable stem press track control (use this if your environment already handles AirPods AVRCP commands natively)"
+    )]
+    no_stem_control: bool,
 }
 
 fn main() -> iced::Result {
@@ -80,29 +86,42 @@ fn main() -> iced::Result {
 
     let device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>> =
         Arc::new(RwLock::new(HashMap::new()));
-    
+
+    // Load stem_control initial value from settings JSON, then apply CLI override.
+    let app_settings_path = get_app_settings_path();
+    let saved_stem_control = std::fs::read_to_string(&app_settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("stem_control").and_then(|b| b.as_bool()))
+        .unwrap_or(true);
+    // CLI --no-stem-control overrides the saved setting.
+    let stem_control_initial = if args.no_stem_control { false } else { saved_stem_control };
+    let stem_control: Arc<AtomicBool> = Arc::new(AtomicBool::new(stem_control_initial));
+
     if args.no_tray {
         // Run headless without UI
         info!("Running in headless mode (no GUI)");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async_main(ui_tx, device_managers)).unwrap();
+        rt.block_on(async_main(ui_tx, device_managers, stem_control)).unwrap();
         Ok(())
     } else {
         // Run with UI
         let device_managers_clone = device_managers.clone();
+        let stem_control_clone = stem_control.clone();
         std::thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async_main(ui_tx, device_managers_clone))
+            rt.block_on(async_main(ui_tx, device_managers_clone, stem_control_clone))
                 .unwrap();
         });
 
-        ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+        ui::window::start_ui(ui_rx, args.start_minimized, device_managers, stem_control)
     }
 }
 
 async fn async_main(
     ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    stem_control: Arc<AtomicBool>,
 ) -> bluer::Result<()> {
     let args = Args::parse();
 
@@ -170,7 +189,7 @@ async fn async_main(
                 .unwrap_or_else(|| "Unknown".to_string());
             info!("Found connected AirPods: {}, initializing.", name);
             let airpods_device =
-                AirPodsDevice::new(device.address(), tray_handle.clone(), ui_tx.clone()).await;
+                AirPodsDevice::new(device.address(), tray_handle.clone(), ui_tx.clone(), stem_control.clone()).await;
 
             let mut managers = device_managers.write().await;
             // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
@@ -308,8 +327,9 @@ async fn async_main(
         let handle_clone = tray_handle.clone();
         let ui_tx_clone = ui_tx.clone();
         let device_managers = device_managers.clone();
+        let stem_control_arc = stem_control.clone();
         tokio::spawn(async move {
-            let airpods_device = AirPodsDevice::new(addr, handle_clone, ui_tx_clone.clone()).await;
+            let airpods_device = AirPodsDevice::new(addr, handle_clone, ui_tx_clone.clone(), stem_control_arc.clone()).await;
             let mut managers = device_managers.write().await;
             // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
             let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());

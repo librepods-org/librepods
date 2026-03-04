@@ -25,6 +25,7 @@ use iced::{
 };
 use log::{debug, error};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
@@ -33,13 +34,14 @@ pub fn start_ui(
     ui_rx: UnboundedReceiver<BluetoothUIMessage>,
     start_minimized: bool,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    stem_control: Arc<AtomicBool>,
 ) -> iced::Result {
     daemon(App::title, App::update, App::view)
         .subscription(App::subscription)
         .theme(App::theme)
         .font(include_bytes!("../../assets/font/sf_pro.otf").as_slice())
         .default_font(Font::with_name("SF Pro Text"))
-        .run_with(move || App::new(ui_rx, start_minimized, device_managers))
+        .run_with(move || App::new(ui_rx, start_minimized, device_managers, stem_control))
 }
 
 pub struct App {
@@ -57,6 +59,7 @@ pub struct App {
     device_type_state: combo_box::State<DeviceType>,
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
+    stem_control: Arc<AtomicBool>,
 }
 
 pub struct BluetoothState {
@@ -88,6 +91,7 @@ pub enum Message {
     CancelAddDevice,
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
+    StemControlChanged(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -108,6 +112,7 @@ impl App {
         ui_rx: UnboundedReceiver<BluetoothUIMessage>,
         start_minimized: bool,
         device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+        stem_control: Arc<AtomicBool>,
     ) -> (Self, Task<Message>) {
         let (mut panes, first_pane) = pane_grid::State::new(Pane::Sidebar);
         let split = panes.split(pane_grid::Axis::Vertical, first_pane, Pane::Content);
@@ -191,6 +196,7 @@ impl App {
                 selected_device_type: None,
                 device_managers,
                 tray_text_mode,
+                stem_control,
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -223,7 +229,11 @@ impl App {
             Message::ThemeSelected(theme) => {
                 self.selected_theme = theme;
                 let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({"theme": self.selected_theme, "tray_text_mode": self.tray_text_mode});
+                let settings = serde_json::json!({
+                    "theme": self.selected_theme,
+                    "tray_text_mode": self.tray_text_mode,
+                    "stem_control": self.stem_control.load(Ordering::Relaxed),
+                });
                 debug!(
                     "Writing settings to {}: {}",
                     app_settings_path.to_str().unwrap(),
@@ -588,7 +598,27 @@ impl App {
             Message::TrayTextModeChanged(is_enabled) => {
                 self.tray_text_mode = is_enabled;
                 let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({"theme": self.selected_theme, "tray_text_mode": self.tray_text_mode});
+                let settings = serde_json::json!({
+                    "theme": self.selected_theme,
+                    "tray_text_mode": self.tray_text_mode,
+                    "stem_control": self.stem_control.load(Ordering::Relaxed),
+                });
+                debug!(
+                    "Writing settings to {}: {}",
+                    app_settings_path.to_str().unwrap(),
+                    settings
+                );
+                std::fs::write(app_settings_path, settings.to_string()).ok();
+                Task::none()
+            }
+            Message::StemControlChanged(is_enabled) => {
+                self.stem_control.store(is_enabled, Ordering::Relaxed);
+                let app_settings_path = get_app_settings_path();
+                let settings = serde_json::json!({
+                    "theme": self.selected_theme,
+                    "tray_text_mode": self.tray_text_mode,
+                    "stem_control": self.stem_control.load(Ordering::Relaxed),
+                });
                 debug!(
                     "Writing settings to {}: {}",
                     app_settings_path.to_str().unwrap(),
@@ -994,11 +1024,74 @@ impl App {
                                 ]
                                 .spacing(12);
 
+                            let stem_control_value = self.stem_control.load(Ordering::Relaxed);
+                            let stem_control_toggle = container(
+                                row![
+                                    column![
+                                        text("Stem press track control").size(16),
+                                        text("Double press = next track, triple press = previous track. Disable if your environment handles AirPods AVRCP commands natively.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(stem_control_value)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::StemControlChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
+                            let controls_settings_col = column![
+                                container(
+                                    text("Controls").size(20).style(
+                                        |theme: &Theme| {
+                                            let mut style = text::Style::default();
+                                            style.color = Some(theme.palette().primary);
+                                            style
+                                        }
+                                    )
+                                )
+                                .padding(Padding{
+                                    top: 0.0,
+                                    bottom: 0.0,
+                                    left: 18.0,
+                                    right: 18.0,
+                                }),
+                                stem_control_toggle
+                            ]
+                            .spacing(12);
+
                             container(
                                 column![
                                     appearance_settings_col,
                                     Space::with_height(Length::from(20)),
-                                    tray_text_mode_toggle
+                                    tray_text_mode_toggle,
+                                    Space::with_height(Length::from(20)),
+                                    controls_settings_col,
                                 ]
                             )
                                 .padding(20)
