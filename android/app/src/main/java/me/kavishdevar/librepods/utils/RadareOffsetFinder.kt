@@ -300,7 +300,7 @@ class RadareOffsetFinder(context: Context) {
             Log.d(TAG, "Extracting ${radare2TarballFile.absolutePath} to $EXTRACT_DIR")
 
             val process = Runtime.getRuntime().exec(
-                arrayOf("su", "-c", "tar xvf ${radare2TarballFile.absolutePath} -C $EXTRACT_DIR")
+                arrayOf("su", "-c", "tar xvf ${radare2TarballFile.absolutePath} --no-same-owner -m -p -C $EXTRACT_DIR")
             )
 
             val reader = BufferedReader(InputStreamReader(process.inputStream))
