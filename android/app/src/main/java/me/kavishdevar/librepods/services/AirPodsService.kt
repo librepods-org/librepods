@@ -29,6 +29,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.appwidget.AppWidgetManager
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothManager
@@ -2353,8 +2354,12 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     private fun createBluetoothSocket(device: BluetoothDevice, uuid: ParcelUuid): BluetoothSocket {
-        val type = 3 // L2CAP
+        val type = BluetoothSocket.TYPE_L2CAP
+        val adapter = HiddenApiBypass.getInstanceFields(device.javaClass)
+            .firstOrNull { it.name == "mAdapter" }
+            ?.run { isAccessible = true; get(device) as BluetoothAdapter }
         val constructorSpecs = listOf(
+            arrayOf(adapter, device, type, true, true, 0x1001, uuid),
             arrayOf(device, type, true, true, 0x1001, uuid),
             arrayOf(device, type, 1, true, true, 0x1001, uuid),
             arrayOf(type, 1, true, true, device, 0x1001, uuid),
@@ -2392,7 +2397,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
     fun connectToSocket(device: BluetoothDevice, manual: Boolean = false) {
         Log.d(TAG, "<LogCollector:Start> Connecting to socket")
-        HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;")
+        HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;", "Landroid/bluetooth/BluetoothDevice;")
         val uuid: ParcelUuid = ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a")
         if (!isConnectedLocally) {
             socket = try {

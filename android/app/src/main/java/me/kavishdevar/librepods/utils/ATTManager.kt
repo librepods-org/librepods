@@ -24,6 +24,7 @@
 package me.kavishdevar.librepods.utils
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.os.ParcelUuid
@@ -69,7 +70,7 @@ class ATTManager(private val device: BluetoothDevice) {
 
     @SuppressLint("MissingPermission")
     fun connect() {
-        HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;")
+        HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;", "Landroid/bluetooth/BluetoothDevice;")
         val uuid = ParcelUuid.fromString("00000000-0000-0000-0000-000000000000")
 
         socket = createBluetoothSocket(device, uuid)
@@ -196,8 +197,12 @@ class ATTManager(private val device: BluetoothDevice) {
     }
 
     private fun createBluetoothSocket(device: BluetoothDevice, uuid: ParcelUuid): BluetoothSocket {
-        val type = 3 // L2CAP
+        val type = BluetoothSocket.TYPE_L2CAP
+        val adapter = HiddenApiBypass.getInstanceFields(device.javaClass)
+            .firstOrNull { it.name == "mAdapter" }
+            ?.run { isAccessible = true; get(device) as BluetoothAdapter }
         val constructorSpecs = listOf(
+            arrayOf(adapter, device, type, true, true, 31, uuid),
             arrayOf(device, type, true, true, 31, uuid),
             arrayOf(device, type, 1, true, true, 31, uuid),
             arrayOf(type, 1, true, true, device, 31, uuid),
