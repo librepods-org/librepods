@@ -38,6 +38,12 @@ Most features should work with any AirPods. Currently, I've only got AirPods Pro
 
 ## Platform Support
 
+
+
+
+
+asdgasd
+
 ### Linux
 for the old version see the [Linux README](./linux/README.md). (doesn't have many features, maintainer didn't have time to work on it)
 
