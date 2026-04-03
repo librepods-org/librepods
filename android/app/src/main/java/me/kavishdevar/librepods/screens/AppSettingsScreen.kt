@@ -18,6 +18,7 @@
 
 package me.kavishdevar.librepods.screens
 
+//import me.kavishdevar.librepods.utils.RadareOffsetFinder
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -77,14 +78,12 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.composables.NavigationButton
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledSlider
 import me.kavishdevar.librepods.composables.StyledToggle
 import me.kavishdevar.librepods.utils.AACPManager
-//import me.kavishdevar.librepods.utils.RadareOffsetFinder
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.roundToInt
@@ -302,18 +301,18 @@ fun AppSettingsScreen(navController: NavController) {
                 description = stringResource(R.string.camera_control_app_description)
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            StyledToggle(
-                title = stringResource(R.string.quick_settings_tile),
-                label = stringResource(R.string.open_dialog_for_controlling),
-                description = stringResource(R.string.open_dialog_for_controlling_description),
-                checkedState = openDialogForControlling,
-                onCheckedChange = {
-                    openDialogForControlling.value = it
-                    sharedPreferences.edit { putString("qs_click_behavior", if (it) "dialog" else "activity") }
-                },
-            )
+//            Spacer(modifier = Modifier.height(16.dp))
+//
+//            StyledToggle(
+//                title = stringResource(R.string.quick_settings_tile),
+//                label = stringResource(R.string.open_dialog_for_controlling),
+//                description = stringResource(R.string.open_dialog_for_controlling_description),
+//                checkedState = openDialogForControlling,
+//                onCheckedChange = {
+//                    openDialogForControlling.value = it
+//                    sharedPreferences.edit { putString("qs_click_behavior", if (it) "dialog" else "cycle") }
+//                },
+//            )
 
             Spacer(modifier = Modifier.height(16.dp))
 

@@ -98,7 +98,7 @@ class AirPodsQSService : TileService() {
         Log.d("AirPodsQSService", "onStartListening")
 
         val service = ServiceManager.getService()
-        isAirPodsConnected = service?.isConnectedLocally == true
+        isAirPodsConnected = service?.isConnected() == true
         currentAncMode = service?.getANC() ?: (NoiseControlMode.OFF.ordinal + 1)
 
         if (currentAncMode == NoiseControlMode.OFF.ordinal + 1 && !isOffModeEnabled()) {
@@ -151,7 +151,7 @@ class AirPodsQSService : TileService() {
             return
         }
 
-        val clickBehavior = sharedPreferences.getString("qs_click_behavior", "dialog") ?: "dialog"
+        val clickBehavior = "cycle" // sharedPreferences.getString("qs_click_behavior", "dialog") ?: "dialog"
 
         if (clickBehavior == "dialog") {
             launchDialogActivity()
