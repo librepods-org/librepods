@@ -76,7 +76,7 @@ https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 
 ### Root Requirement
 
-If you are using ColorOS/OxygenOS 16, Android 16 QPR3, Anroid 17 Beta 3 or higher, you don't need root except for customizing transparency mode, setting up hearing aid, and use Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customizations will work without root.
+If you are using ColorOS/OxygenOS 16, Android 16 QPR3, Android 17 Beta 3 or higher, you don't need root except for customizing transparency mode, setting up hearing aid, and use Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customizations will work without root.
 
 For everyone else:
 **You must have a rooted device with Xposed to use LibrePods on Android.** 
