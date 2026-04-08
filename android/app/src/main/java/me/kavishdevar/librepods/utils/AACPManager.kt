@@ -43,7 +43,7 @@ class AACPManager {
             const val EAR_DETECTION: Byte = 0x06
             const val CONVERSATION_AWARENESS: Byte = 0x4B
             const val INFORMATION: Byte = 0x1D
-            const val RENAME: Byte = 0x1E
+            const val RENAME: Byte = 0x1A
             const val HEADTRACKING: Byte = 0x17
             const val PROXIMITY_KEYS_REQ: Byte = 0x30
             const val PROXIMITY_KEYS_RSP: Byte = 0x31
@@ -773,9 +773,10 @@ class AACPManager {
         val packet = ByteArray(5 + size)
         packet[0] = Opcodes.RENAME
         packet[1] = 0x00
-        packet[2] = size.toByte()
-        packet[3] = 0x00
-        System.arraycopy(nameBytes, 0, packet, 4, size)
+        packet[2] = 0x01
+        packet[3] = size.toByte()
+        packet[4] = 0x00
+        System.arraycopy(nameBytes, 0, packet, 5, size)
 
         return packet
     }
