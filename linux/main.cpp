@@ -15,6 +15,7 @@
 #include <QTranslator>
 #include <QLibraryInfo>
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 
 #include "airpods_packets.h"
@@ -31,13 +32,146 @@
 #include "QRCodeImageProvider.hpp"
 #include "systemsleepmonitor.hpp"
 
+#include <sys/socket.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cerrno>
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/l2cap.h>
+
 using namespace AirpodsTrayApp::Enums;
 
 Q_LOGGING_CATEGORY(librepods, "librepods")
 
+// Raw L2CAP socket wrapper that connects directly by PSM, bypassing BlueZ DBus SDP lookup
+class L2CAPSocket : public QObject {
+    Q_OBJECT
+public:
+    explicit L2CAPSocket(QObject *parent = nullptr) : QObject(parent) {}
+    ~L2CAPSocket() { doClose(); }
+
+    bool isOpen() const { return m_fd >= 0; }
+    QBluetoothAddress peerAddress() const { return m_peerAddress; }
+    QString errorString() const { return m_errorString; }
+
+    void connectToService(const QBluetoothAddress &address, quint16 psm) {
+        doClose();
+        m_peerAddress = address;
+
+        m_fd = ::socket(AF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
+        if (m_fd < 0) {
+            m_errorString = QString::fromUtf8(strerror(errno));
+            QTimer::singleShot(0, this, [this]() { emit errorOccurred(); });
+            return;
+        }
+
+        int flags = fcntl(m_fd, F_GETFL, 0);
+        fcntl(m_fd, F_SETFL, flags | O_NONBLOCK);
+
+        struct sockaddr_l2 addr = {};
+        addr.l2_family = AF_BLUETOOTH;
+        addr.l2_psm = htobs(psm);
+
+        const QString macStr = address.toString();
+        const QStringList parts = macStr.split(QLatin1Char(':'));
+        if (parts.size() == 6) {
+            for (int i = 0; i < 6; i++)
+                addr.l2_bdaddr.b[i] = static_cast<uint8_t>(parts[5 - i].toUInt(nullptr, 16));
+        }
+
+        const int ret = ::connect(m_fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr));
+        if (ret == 0) {
+            setupReadNotifier();
+            emit connected();
+        } else if (errno == EINPROGRESS) {
+            m_writeNotifier = new QSocketNotifier(m_fd, QSocketNotifier::Write, this);
+            connect(m_writeNotifier, &QSocketNotifier::activated, this, &L2CAPSocket::onWriteReady);
+        } else {
+            m_errorString = QString::fromUtf8(strerror(errno));
+            doClose();
+            QTimer::singleShot(0, this, [this]() { emit errorOccurred(); });
+        }
+    }
+
+    qint64 write(const QByteArray &data) {
+        if (m_fd < 0) return -1;
+        return static_cast<qint64>(::write(m_fd, data.constData(), static_cast<size_t>(data.size())));
+    }
+
+    QByteArray readAll() {
+        if (m_fd < 0) return {};
+        QByteArray result;
+        char buf[4096];
+        ssize_t n;
+        while ((n = ::recv(m_fd, buf, sizeof(buf), MSG_DONTWAIT)) > 0)
+            result.append(buf, static_cast<int>(n));
+        return result;
+    }
+
+    void close() { doClose(); }
+
+signals:
+    void connected();
+    void disconnected();
+    void readyRead();
+    void errorOccurred();
+
+private slots:
+    void onWriteReady() {
+        delete m_writeNotifier;
+        m_writeNotifier = nullptr;
+
+        int err = 0;
+        socklen_t errLen = sizeof(err);
+        getsockopt(m_fd, SOL_SOCKET, SO_ERROR, &err, &errLen);
+
+        if (err != 0) {
+            m_errorString = QString::fromUtf8(strerror(err));
+            doClose();
+            emit errorOccurred();
+            return;
+        }
+
+        setupReadNotifier();
+        emit connected();
+    }
+
+    void onReadReady() {
+        char buf[1];
+        const ssize_t n = ::recv(m_fd, buf, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            doClose();
+            emit disconnected();
+            return;
+        }
+        emit readyRead();
+    }
+
+private:
+    void setupReadNotifier() {
+        m_readNotifier = new QSocketNotifier(m_fd, QSocketNotifier::Read, this);
+        connect(m_readNotifier, &QSocketNotifier::activated, this, &L2CAPSocket::onReadReady);
+    }
+
+    void doClose() {
+        delete m_readNotifier;
+        m_readNotifier = nullptr;
+        delete m_writeNotifier;
+        m_writeNotifier = nullptr;
+        if (m_fd >= 0) { ::close(m_fd); m_fd = -1; }
+    }
+
+    int m_fd = -1;
+    QSocketNotifier *m_readNotifier = nullptr;
+    QSocketNotifier *m_writeNotifier = nullptr;
+    QBluetoothAddress m_peerAddress;
+    QString m_errorString;
+};
+
 class AirPodsTrayApp : public QObject {
     Q_OBJECT
-    Q_PROPERTY(bool airpodsConnected READ areAirpodsConnected NOTIFY airPodsStatusChanged)
+    Q_PROPERTY(bool airpodsConnected READ isAirpodsAvailable NOTIFY airPodsStatusChanged)
+    Q_PROPERTY(bool airpodsCommandReady READ airpodsCommandReady NOTIFY airPodsCommandReadyChanged)
     Q_PROPERTY(int earDetectionBehavior READ earDetectionBehavior WRITE setEarDetectionBehavior NOTIFY earDetectionBehaviorChanged)
     Q_PROPERTY(bool crossDeviceEnabled READ crossDeviceEnabled WRITE setCrossDeviceEnabled NOTIFY crossDeviceEnabledChanged)
     Q_PROPERTY(AutoStartManager *autoStartManager READ autoStartManager CONSTANT)
@@ -46,7 +180,10 @@ class AirPodsTrayApp : public QObject {
     Q_PROPERTY(bool hideOnStart READ hideOnStart CONSTANT)
     Q_PROPERTY(DeviceInfo *deviceInfo READ deviceInfo CONSTANT)
     Q_PROPERTY(QString phoneMacStatus READ phoneMacStatus NOTIFY phoneMacStatusChanged)
+    Q_PROPERTY(bool phoneConnected READ isPhoneConnected NOTIFY phoneConnectionChanged)
     Q_PROPERTY(bool hearingAidEnabled READ hearingAidEnabled WRITE setHearingAidEnabled NOTIFY hearingAidEnabledChanged)
+    Q_PROPERTY(QString hearingAidSetupStatus READ hearingAidSetupStatus NOTIFY hearingAidSetupStatusChanged)
+    Q_PROPERTY(QString headTrackingStatus READ headTrackingStatus NOTIFY headTrackingStatusChanged)
 
 public:
     AirPodsTrayApp(bool debugMode, bool hideOnStart, QQmlApplicationEngine *parent = nullptr)
@@ -67,10 +204,17 @@ public:
         connect(trayManager, &TrayIconManager::noiseControlChanged, this, &AirPodsTrayApp::setNoiseControlMode);
         connect(trayManager, &TrayIconManager::conversationalAwarenessToggled, this, &AirPodsTrayApp::setConversationalAwareness);
         connect(m_deviceInfo, &DeviceInfo::batteryStatusChanged, trayManager, &TrayIconManager::updateBatteryStatus);
+        connect(m_deviceInfo, &DeviceInfo::bluetoothAddressChanged, this, [this]() { updateHearingAidSetupStatus(); });
+        connect(m_deviceInfo, &DeviceInfo::bluetoothAddressChanged, this, [this]() { updateHeadTrackingStatus(); });
         connect(m_deviceInfo, &DeviceInfo::noiseControlModeChanged, trayManager, &TrayIconManager::updateNoiseControlState);
         connect(m_deviceInfo, &DeviceInfo::conversationalAwarenessChanged, trayManager, &TrayIconManager::updateConversationalAwareness);
+        connect(this, &AirPodsTrayApp::airPodsCommandReadyChanged, this, [this]() {
+            trayManager->setAirPodsControlsEnabled(airpodsCommandReady());
+        });
         connect(trayManager, &TrayIconManager::notificationsEnabledChanged, this, &AirPodsTrayApp::saveNotificationsEnabled);
         connect(trayManager, &TrayIconManager::notificationsEnabledChanged, this, &AirPodsTrayApp::notificationsEnabledChanged);
+        connect(this, &AirPodsTrayApp::airPodsStatusChanged, this, [this]() { updateHearingAidSetupStatus(); });
+        connect(this, &AirPodsTrayApp::airPodsStatusChanged, this, [this]() { updateHeadTrackingStatus(); });
 
         // Initialize MediaController and connect signals
         mediaController = new MediaController(this);
@@ -109,6 +253,7 @@ public:
                     mediaController->setConnectedDeviceMacAddress(formattedAddress);
                     mediaController->activateA2dpProfile();
                     LOG_INFO("A2DP profile activation attempted for AirPods found on startup");
+                    emit airPodsStatusChanged();
                 });
                 return;
             }
@@ -116,6 +261,9 @@ public:
 
         initializeDBus();
         initializeBluetooth();
+        updateHearingAidSetupStatus();
+        updateHeadTrackingStatus();
+        trayManager->setAirPodsControlsEnabled(airpodsCommandReady());
     }
 
     ~AirPodsTrayApp() {
@@ -126,7 +274,15 @@ public:
         delete phoneSocket;
     }
 
-    bool areAirpodsConnected() const { return socket && socket->isOpen() && socket->state() == QBluetoothSocket::SocketState::ConnectedState; }
+    bool areAirpodsConnected() const { return socket && socket->isOpen(); }
+    bool isAirpodsAudioConnected() const
+    {
+        return mediaController &&
+               !m_deviceInfo->bluetoothAddress().isEmpty() &&
+               mediaController->isActiveOutputDeviceAirPods();
+    }
+    bool isAirpodsAvailable() const { return areAirpodsConnected() || isAirpodsAudioConnected(); }
+    bool airpodsCommandReady() const { return areAirpodsConnected() && m_airPodsCommandReady; }
     int earDetectionBehavior() const { return mediaController->getEarDetectionBehavior(); }
     bool crossDeviceEnabled() const { return CrossDevice.isEnabled; }
     AutoStartManager *autoStartManager() const { return m_autoStartManager; }
@@ -136,9 +292,242 @@ public:
     bool hideOnStart() const { return m_hideOnStart; }
     DeviceInfo *deviceInfo() const { return m_deviceInfo; }
     QString phoneMacStatus() const { return m_phoneMacStatus; }
+    bool isPhoneConnected() const { return phoneSocket && phoneSocket->isOpen(); }
     bool hearingAidEnabled() const { return m_deviceInfo->hearingAidEnabled(); }
+    QString hearingAidSetupStatus() const { return m_hearingAidSetupStatus; }
+    QString headTrackingStatus() const { return m_headTrackingStatus; }
 
 private:
+    struct TerminalLauncher
+    {
+        QString executable;
+        QStringList argumentsPrefix;
+    };
+
+    QString findHeadTrackingScript() const
+    {
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QStringList candidates = {
+            QDir(appDir).filePath(QStringLiteral("head-tracking/gestures.py")),
+            QDir(appDir).filePath(QStringLiteral("../head-tracking/gestures.py")),
+            QDir(appDir).filePath(QStringLiteral("../share/librepods/head-tracking/gestures.py")),
+            QStringLiteral("/usr/share/librepods/head-tracking/gestures.py"),
+            QStringLiteral("/usr/local/share/librepods/head-tracking/gestures.py")
+        };
+
+        for (const QString &candidate : candidates)
+        {
+            const QString normalizedPath = QDir::cleanPath(candidate);
+            if (QFileInfo::exists(normalizedPath))
+            {
+                return normalizedPath;
+            }
+        }
+
+        return QString();
+    }
+
+    QString findHearingAidAdjustmentsScript() const
+    {
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QStringList candidates = {
+            QDir(appDir).filePath(QStringLiteral("hearing-aid-adjustments.py")),
+            QDir(appDir).filePath(QStringLiteral("../hearing-aid-adjustments.py")),
+            QDir(appDir).filePath(QStringLiteral("../share/librepods/hearing-aid-adjustments.py")),
+            QStringLiteral("/usr/share/librepods/hearing-aid-adjustments.py"),
+            QStringLiteral("/usr/local/share/librepods/hearing-aid-adjustments.py")
+        };
+
+        for (const QString &candidate : candidates)
+        {
+            const QString normalizedPath = QDir::cleanPath(candidate);
+            if (QFileInfo::exists(normalizedPath))
+            {
+                return normalizedPath;
+            }
+        }
+
+        return QString();
+    }
+
+    QString normalizedPhoneMac() const
+    {
+        const QString rawMac = QString::fromUtf8(qgetenv("PHONE_MAC_ADDRESS")).trimmed();
+        if (rawMac.isEmpty())
+        {
+            return QString();
+        }
+
+        QString cleanedMac = rawMac;
+        cleanedMac.remove(QRegularExpression(QStringLiteral("[^0-9A-Fa-f]")));
+        if (cleanedMac.size() != 12)
+        {
+            return QString();
+        }
+
+        QStringList octets;
+        octets.reserve(6);
+        for (int index = 0; index < cleanedMac.size(); index += 2)
+        {
+            octets << cleanedMac.mid(index, 2).toUpper();
+        }
+
+        const QString normalizedMac = octets.join(QLatin1Char(':'));
+        const QBluetoothAddress address(normalizedMac);
+        if (address.isNull() || normalizedMac == QStringLiteral("00:00:00:00:00:00"))
+        {
+            return QString();
+        }
+
+        return normalizedMac;
+    }
+
+    void setAirPodsCommandReady(bool ready)
+    {
+        if (m_airPodsCommandReady == ready)
+        {
+            return;
+        }
+
+        m_airPodsCommandReady = ready;
+        emit airPodsCommandReadyChanged();
+    }
+
+    QString findPythonInterpreter() const
+    {
+        const QStringList interpreters = {QStringLiteral("python3"), QStringLiteral("python")};
+        for (const QString &interpreter : interpreters)
+        {
+            const QString executable = QStandardPaths::findExecutable(interpreter);
+            if (!executable.isEmpty())
+            {
+                return executable;
+            }
+        }
+
+        return QString();
+    }
+
+    QList<TerminalLauncher> availableTerminalLaunchers() const
+    {
+        return {
+            {QStringLiteral("x-terminal-emulator"), {QStringLiteral("-e")}},
+            {QStringLiteral("kgx"), {QStringLiteral("--")}},
+            {QStringLiteral("gnome-terminal"), {QStringLiteral("--")}},
+            {QStringLiteral("konsole"), {QStringLiteral("-e")}},
+            {QStringLiteral("xfce4-terminal"), {QStringLiteral("-e")}},
+            {QStringLiteral("mate-terminal"), {QStringLiteral("-e")}},
+            {QStringLiteral("kitty"), {QStringLiteral("-e")}},
+            {QStringLiteral("alacritty"), {QStringLiteral("-e")}},
+            {QStringLiteral("wezterm"), {QStringLiteral("start"), QStringLiteral("--always-new-process"), QStringLiteral("--")}},
+            {QStringLiteral("xterm"), {QStringLiteral("-e")}}
+        };
+    }
+
+    void setHeadTrackingStatus(const QString &status)
+    {
+        if (m_headTrackingStatus != status)
+        {
+            m_headTrackingStatus = status;
+            emit headTrackingStatusChanged();
+        }
+    }
+
+    void setHearingAidSetupStatus(const QString &status)
+    {
+        if (m_hearingAidSetupStatus != status)
+        {
+            m_hearingAidSetupStatus = status;
+            emit hearingAidSetupStatusChanged();
+        }
+    }
+
+    void updateHearingAidSetupStatus()
+    {
+        if (findHearingAidAdjustmentsScript().isEmpty())
+        {
+            setHearingAidSetupStatus(QStringLiteral("Advanced adjustments script not found"));
+            return;
+        }
+
+        if (!areAirpodsConnected() || m_deviceInfo->bluetoothAddress().isEmpty())
+        {
+            setHearingAidSetupStatus(QStringLiteral("Connect your AirPods to open advanced adjustments"));
+            return;
+        }
+
+        setHearingAidSetupStatus(QStringLiteral("Ready to adjust hearing aid/transparency for %1").arg(m_deviceInfo->bluetoothAddress()));
+    }
+
+    void updateHeadTrackingStatus()
+    {
+        if (findHeadTrackingScript().isEmpty())
+        {
+            setHeadTrackingStatus(QStringLiteral("Head tracking scripts not found"));
+            return;
+        }
+
+        if (!areAirpodsConnected() || m_deviceInfo->bluetoothAddress().isEmpty())
+        {
+            setHeadTrackingStatus(QStringLiteral("Connect your AirPods to test head gestures"));
+            return;
+        }
+
+        setHeadTrackingStatus(QStringLiteral("Ready to open head gesture detector for %1").arg(m_deviceInfo->bluetoothAddress()));
+    }
+
+    void updatePhoneMacStatusFromConfiguration()
+    {
+        const QString configuredMac = QString::fromUtf8(qgetenv("PHONE_MAC_ADDRESS")).trimmed();
+        const QString validMac = normalizedPhoneMac();
+
+        if (!CrossDevice.isEnabled)
+        {
+            if (validMac.isEmpty())
+            {
+                updatePhoneMacStatus(configuredMac.isEmpty()
+                                         ? QStringLiteral("Cross-device disabled. Set a phone MAC to enable it.")
+                                         : QStringLiteral("Cross-device disabled. Fix the phone MAC before enabling it."));
+                return;
+            }
+
+            updatePhoneMacStatus(QStringLiteral("Cross-device disabled. Ready to connect to %1 when enabled.").arg(validMac));
+            return;
+        }
+
+        if (validMac.isEmpty())
+        {
+            updatePhoneMacStatus(configuredMac.isEmpty()
+                                     ? QStringLiteral("Cross-device needs a valid phone MAC before it can connect.")
+                                     : QStringLiteral("Cross-device skipped: invalid phone MAC `%1`.").arg(configuredMac));
+            return;
+        }
+
+        updatePhoneMacStatus(QStringLiteral("Cross-device configured for %1").arg(validMac));
+    }
+
+    bool startInTerminal(const QString &program, const QStringList &arguments, const QString &workingDirectory) const
+    {
+        for (const TerminalLauncher &launcher : availableTerminalLaunchers())
+        {
+            const QString terminalPath = QStandardPaths::findExecutable(launcher.executable);
+            if (terminalPath.isEmpty())
+            {
+                continue;
+            }
+
+            QStringList terminalArguments = launcher.argumentsPrefix;
+            terminalArguments << program;
+            terminalArguments << arguments;
+            if (QProcess::startDetached(terminalPath, terminalArguments, workingDirectory))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool debugMode;
     bool isConnectedLocally = false;
 
@@ -208,12 +597,20 @@ public slots:
 
     void setConversationalAwareness(bool enabled)
     {
+        if (m_deviceInfo->conversationalAwareness() == enabled)
+        {
+            LOG_INFO("Conversational awareness is already " << (enabled ? "enabled" : "disabled"));
+            return;
+        }
+
         LOG_INFO("Setting conversational awareness to: " << (enabled ? "enabled" : "disabled"));
         QByteArray packet = enabled ? AirPodsPackets::ConversationalAwareness::ENABLED
                                     : AirPodsPackets::ConversationalAwareness::DISABLED;
 
-        writePacketToSocket(packet, "Conversational awareness packet written: ");
-        m_deviceInfo->setConversationalAwareness(enabled);
+        if (writePacketToSocket(packet, "Conversational awareness packet written: "))
+        {
+            m_deviceInfo->setConversationalAwareness(enabled);
+        }
     }
 
     void setOneBudANCMode(bool enabled)
@@ -236,6 +633,97 @@ public slots:
         {
             LOG_ERROR("Failed to send One Bud ANC mode command: socket not open");
         }
+    }
+
+    void setAllowOffOption(bool enabled)
+    {
+        QByteArray packet = enabled ? AirPodsPackets::AllowOffOption::ENABLED
+                                    : AirPodsPackets::AllowOffOption::DISABLED;
+        if (writePacketToSocket(packet, "Allow Off Option packet written: "))
+            m_deviceInfo->setAllowOffOption(enabled);
+    }
+
+    void setVolumeSwipeEnabled(bool enabled)
+    {
+        QByteArray packet = enabled ? AirPodsPackets::VolumeSwipe::ENABLED
+                                    : AirPodsPackets::VolumeSwipe::DISABLED;
+        if (writePacketToSocket(packet, "Volume Swipe packet written: "))
+            m_deviceInfo->setVolumeSwipeEnabled(enabled);
+    }
+
+    void setVolumeSwipeInterval(int interval)
+    {
+        interval = qBound(0, interval, 100);
+        QByteArray packet = AirPodsPackets::VolumeSwipe::getIntervalPacket(static_cast<quint8>(interval));
+        if (writePacketToSocket(packet, "Volume Swipe interval packet written: "))
+            m_deviceInfo->setVolumeSwipeInterval(interval);
+    }
+
+    void setAdaptiveVolumeEnabled(bool enabled)
+    {
+        QByteArray packet = enabled ? AirPodsPackets::AdaptiveVolume::ENABLED
+                                    : AirPodsPackets::AdaptiveVolume::DISABLED;
+        if (writePacketToSocket(packet, "Adaptive Volume packet written: "))
+            m_deviceInfo->setAdaptiveVolumeEnabled(enabled);
+    }
+
+    void setCaseChargingSoundsEnabled(bool enabled)
+    {
+        QByteArray packet = AirPodsPackets::CaseChargingSounds::getPacket(enabled);
+        if (writePacketToSocket(packet, "Case Charging Sounds packet written: "))
+            m_deviceInfo->setCaseChargingSoundsEnabled(enabled);
+    }
+
+    void setStemLongPressModes(int modes)
+    {
+        // Clamp to valid range; require at least 2 bits set
+        quint8 m = static_cast<quint8>(modes & 0x0F);
+        if (__builtin_popcount(m) < 2) return;
+        QByteArray packet = AirPodsPackets::StemLongPress::getPacket(m);
+        if (writePacketToSocket(packet, "Stem Long Press packet written: ")) {
+            m_deviceInfo->setStemLongPressModes(m);
+            m_settings->setValue("stemLongPressModes", m);
+        }
+    }
+
+    void setCustomizeTransparencyEnabled(bool enabled)
+    {
+        m_deviceInfo->setCustomizeTransparencyEnabled(enabled);
+        sendCustomizeTransparency();
+    }
+
+    // Called from QML with per-bud float arrays
+    Q_INVOKABLE void applyCustomizeTransparency(
+        bool enabled,
+        QList<qreal> leftEq, qreal leftAmp, qreal leftTone, bool leftConv, qreal leftAnr,
+        QList<qreal> rightEq, qreal rightAmp, qreal rightTone, bool rightConv, qreal rightAnr)
+    {
+        using namespace AirPodsPackets::CustomizeTransparency;
+        BudSettings left, right;
+        for (int i = 0; i < 8 && i < leftEq.size(); i++)  left.eq[i]  = static_cast<float>(leftEq[i]);
+        for (int i = 0; i < 8 && i < rightEq.size(); i++) right.eq[i] = static_cast<float>(rightEq[i]);
+        left.amplification     = static_cast<float>(leftAmp);
+        left.tone              = static_cast<float>(leftTone);
+        left.conversationBoost = leftConv ? 1.0f : 0.0f;
+        left.ambientNoise      = static_cast<float>(leftAnr);
+        right.amplification     = static_cast<float>(rightAmp);
+        right.tone              = static_cast<float>(rightTone);
+        right.conversationBoost = rightConv ? 1.0f : 0.0f;
+        right.ambientNoise      = static_cast<float>(rightAnr);
+
+        m_transpLeft  = left;
+        m_transpRight = right;
+        m_deviceInfo->setCustomizeTransparencyEnabled(enabled);
+        sendCustomizeTransparency();
+    }
+
+    Q_INVOKABLE void applyHeadphoneAccommodation(bool phoneEnabled, bool mediaEnabled, QList<int> eq8)
+    {
+        m_deviceInfo->setHeadphoneAccomPhoneEnabled(phoneEnabled);
+        m_deviceInfo->setHeadphoneAccomMediaEnabled(mediaEnabled);
+        m_headphoneEq = eq8;
+        QByteArray packet = AirPodsPackets::HeadphoneAccommodation::getPacket(phoneEnabled, mediaEnabled, eq8);
+        writePacketToSocket(packet, "Headphone Accommodation packet written: ");
     }
 
     void setRetryAttempts(int attempts)
@@ -322,49 +810,101 @@ public slots:
             return;
         }
 
+        if (enabled && normalizedPhoneMac().isEmpty())
+        {
+            LOG_WARN("Cross-device not enabled because no valid phone MAC is configured");
+            updatePhoneMacStatusFromConfiguration();
+            return;
+        }
+
         CrossDevice.isEnabled = enabled;
         saveCrossDeviceEnabled();
+        updatePhoneMacStatusFromConfiguration();
+
+        if (!enabled && phoneSocket)
+        {
+            phoneSocket->close();
+            phoneSocket->deleteLater();
+            phoneSocket = nullptr;
+            updatePhoneConnectionState();
+        }
+
         connectToPhone();
         emit crossDeviceEnabledChanged(enabled);
     }
 
     void setPhoneMac(const QString &mac)
     {
-        if (mac.isEmpty()) {
+        const QString trimmedMac = mac.trimmed();
+        if (trimmedMac.isEmpty()) {
             LOG_WARN("Empty MAC provided, ignoring");
-            m_phoneMacStatus = QStringLiteral("No MAC provided (ignoring)");
-            emit phoneMacStatusChanged();
+            qputenv("PHONE_MAC_ADDRESS", QByteArray());
+            if (parent) {
+                parent->rootContext()->setContextProperty("PHONE_MAC_ADDRESS", QString());
+            }
+
+            if (phoneSocket) {
+                phoneSocket->close();
+                phoneSocket->deleteLater();
+                phoneSocket = nullptr;
+                updatePhoneConnectionState();
+            }
+
+            if (CrossDevice.isEnabled)
+            {
+                CrossDevice.isEnabled = false;
+                saveCrossDeviceEnabled();
+                emit crossDeviceEnabledChanged(false);
+            }
+
+            updatePhoneMacStatusFromConfiguration();
             return;
         }
 
-        // Basic MAC address validation (accepts formats like AA:BB:CC:DD:EE:FF, AABBCCDDEEFF, AA-BB-CC-DD-EE-FF)
-        QRegularExpression re("^([0-9A-Fa-f]{2}([-:]?)){5}[0-9A-Fa-f]{2}$");
-        if (!re.match(mac).hasMatch()) {
-            LOG_ERROR("Invalid MAC address format: " << mac);
-            m_phoneMacStatus = QStringLiteral("Invalid MAC: ") + mac;
-            emit phoneMacStatusChanged();
+        QString cleanedMac = trimmedMac;
+        cleanedMac.remove(QRegularExpression(QStringLiteral("[^0-9A-Fa-f]")));
+        if (cleanedMac.size() != 12) {
+            LOG_ERROR("Invalid MAC address format: " << trimmedMac);
+            updatePhoneMacStatus(QStringLiteral("Invalid MAC: %1").arg(trimmedMac));
             return;
         }
 
-        // Set environment variable for the running process
-        qputenv("PHONE_MAC_ADDRESS", mac.toUtf8());
-        LOG_INFO("PHONE_MAC_ADDRESS environment variable set to: " << mac);
+        QStringList octets;
+        octets.reserve(6);
+        for (int index = 0; index < cleanedMac.size(); index += 2)
+        {
+            octets << cleanedMac.mid(index, 2).toUpper();
+        }
+        const QString normalizedMac = octets.join(QLatin1Char(':'));
+        if (QBluetoothAddress(normalizedMac).isNull() || normalizedMac == QStringLiteral("00:00:00:00:00:00"))
+        {
+            LOG_ERROR("Invalid MAC address value: " << trimmedMac);
+            updatePhoneMacStatus(QStringLiteral("Invalid MAC: %1").arg(trimmedMac));
+            return;
+        }
 
-        m_phoneMacStatus = QStringLiteral("Updated MAC: ") + mac;
-        emit phoneMacStatusChanged();
+        qputenv("PHONE_MAC_ADDRESS", normalizedMac.toUtf8());
+        LOG_INFO("PHONE_MAC_ADDRESS environment variable set to: " << normalizedMac);
 
         // Update QML context property so UI placeholders reflect the new value
         if (parent) {
-            parent->rootContext()->setContextProperty("PHONE_MAC_ADDRESS", mac);
+            parent->rootContext()->setContextProperty("PHONE_MAC_ADDRESS", normalizedMac);
         }
 
+        updatePhoneMacStatusFromConfiguration();
+
         // If a phone socket exists, restart connection using the new MAC
-        if (phoneSocket && phoneSocket->isOpen()) {
+        if (phoneSocket) {
             phoneSocket->close();
             phoneSocket->deleteLater();
             phoneSocket = nullptr;
+            updatePhoneConnectionState();
         }
-        connectToPhone();
+
+        if (CrossDevice.isEnabled)
+        {
+            connectToPhone();
+        }
     }
 
     void updatePhoneMacStatus(const QString &status)
@@ -373,21 +913,136 @@ public slots:
         emit phoneMacStatusChanged();
     }
 
+    void updatePhoneConnectionState()
+    {
+        emit phoneConnectionChanged();
+    }
+
+    void openHearingAidAdjustments()
+    {
+        if (!areAirpodsConnected() || m_deviceInfo->bluetoothAddress().isEmpty())
+        {
+            setHearingAidSetupStatus(QStringLiteral("Connect your AirPods to open advanced adjustments"));
+            return;
+        }
+
+        const QString scriptPath = findHearingAidAdjustmentsScript();
+        if (scriptPath.isEmpty())
+        {
+            setHearingAidSetupStatus(QStringLiteral("Advanced adjustments script not found"));
+            return;
+        }
+
+        const QFileInfo scriptInfo(scriptPath);
+        const QStringList interpreters = {QStringLiteral("python3"), QStringLiteral("python")};
+        for (const QString &interpreter : interpreters)
+        {
+            if (QProcess::startDetached(interpreter, QStringList() << scriptInfo.filePath() << m_deviceInfo->bluetoothAddress(), scriptInfo.absolutePath()))
+            {
+                setHearingAidSetupStatus(QStringLiteral("Opened advanced adjustments for %1").arg(m_deviceInfo->bluetoothAddress()));
+                return;
+            }
+        }
+
+        setHearingAidSetupStatus(QStringLiteral("Failed to launch advanced adjustments. Check Python and PyQt5."));
+    }
+
+    void openHeadTrackingGestures()
+    {
+        if (!areAirpodsConnected() || m_deviceInfo->bluetoothAddress().isEmpty())
+        {
+            setHeadTrackingStatus(QStringLiteral("Connect your AirPods to test head gestures"));
+            return;
+        }
+
+        const QString scriptPath = findHeadTrackingScript();
+        if (scriptPath.isEmpty())
+        {
+            setHeadTrackingStatus(QStringLiteral("Head tracking scripts not found"));
+            return;
+        }
+
+        const QString interpreter = findPythonInterpreter();
+        if (interpreter.isEmpty())
+        {
+            setHeadTrackingStatus(QStringLiteral("Python not found. Install python3 to run head gesture detection."));
+            return;
+        }
+
+        const QFileInfo scriptInfo(scriptPath);
+        const QStringList arguments = {scriptInfo.filePath(), m_deviceInfo->bluetoothAddress()};
+        if (startInTerminal(interpreter, arguments, scriptInfo.absolutePath()))
+        {
+            setHeadTrackingStatus(QStringLiteral("Opened head gesture detector for %1").arg(m_deviceInfo->bluetoothAddress()));
+            return;
+        }
+
+        setHeadTrackingStatus(QStringLiteral("No supported terminal emulator found. Run `%1 %2 %3` manually.")
+                                  .arg(QFileInfo(interpreter).fileName(), scriptInfo.filePath(), m_deviceInfo->bluetoothAddress()));
+    }
+
+    void reconnectPhoneRelay()
+    {
+        if (!CrossDevice.isEnabled)
+        {
+            updatePhoneMacStatusFromConfiguration();
+            return;
+        }
+
+        const QString validPhoneMac = normalizedPhoneMac();
+        if (validPhoneMac.isEmpty())
+        {
+            updatePhoneMacStatusFromConfiguration();
+            return;
+        }
+
+        if (phoneSocket)
+        {
+            phoneSocket->close();
+            phoneSocket->deleteLater();
+            phoneSocket = nullptr;
+            updatePhoneConnectionState();
+        }
+
+        updatePhoneMacStatus(QStringLiteral("Retrying cross-device relay to %1...").arg(validPhoneMac));
+        connectToPhone();
+    }
+
     void setHearingAidEnabled(bool enabled)
     {
+        if (m_deviceInfo->hearingAidEnabled() == enabled)
+        {
+            LOG_INFO("Hearing aid is already " << (enabled ? "enabled" : "disabled"));
+            return;
+        }
+
         LOG_INFO("Setting hearing aid to: " << (enabled ? "enabled" : "disabled"));
         QByteArray packet = enabled ? AirPodsPackets::HearingAid::ENABLED
                                     : AirPodsPackets::HearingAid::DISABLED;
 
-        writePacketToSocket(packet, "Hearing aid packet written: ");
-        m_deviceInfo->setHearingAidEnabled(enabled);
+        if (writePacketToSocket(packet, "Hearing aid packet written: "))
+        {
+            m_deviceInfo->setHearingAidEnabled(enabled);
+        }
     }
 
-    bool writePacketToSocket(const QByteArray &packet, const QString &logMessage)
+    bool writePacketToSocket(const QByteArray &packet, const QString &logMessage, bool requireReady = true)
     {
         if (socket && socket->isOpen())
         {
-            socket->write(packet);
+            if (requireReady && !m_airPodsCommandReady)
+            {
+                LOG_WARN("AirPods socket connected but commands are not ready yet");
+                return false;
+            }
+
+            const qint64 bytesWritten = socket->write(packet);
+            if (bytesWritten != packet.size())
+            {
+                LOG_ERROR("Failed to queue full packet to socket. Expected " << packet.size() << " bytes, wrote " << bytesWritten);
+                return false;
+            }
+
             LOG_DEBUG(logMessage << packet.toHex());
             return true;
         }
@@ -480,7 +1135,7 @@ private slots:
 
     void sendHandshake() {
         LOG_INFO("Connected to device, sending initial packets");
-        writePacketToSocket(AirPodsPackets::Connection::HANDSHAKE, "Handshake packet written: ");
+        writePacketToSocket(AirPodsPackets::Connection::HANDSHAKE, "Handshake packet written: ", false);
     }
 
     void bluezDeviceConnected(const QString &address, const QString &name)
@@ -499,6 +1154,7 @@ private slots:
                 mediaController->setConnectedDeviceMacAddress(formattedAddress);
                 mediaController->activateA2dpProfile();
                 LOG_INFO("A2DP profile activation attempted for newly connected device");
+                emit airPodsStatusChanged();
             }
         });
     }
@@ -506,6 +1162,7 @@ private slots:
     void onDeviceDisconnected(const QBluetoothAddress &address)
     {
         LOG_INFO("Device disconnected: " << address.toString());
+        setAirPodsCommandReady(false);
         if (socket)
         {
             LOG_WARN("Socket is still open, closing it");
@@ -532,8 +1189,24 @@ private slots:
 
     void bluezDeviceDisconnected(const QString &address, const QString &name)
     {
+        Q_UNUSED(name);
         if (address == m_deviceInfo->bluetoothAddress())
         {
+            if (isAirpodsAudioConnected())
+            {
+                if (areAirpodsConnected())
+                {
+                    LOG_WARN("Ignoring BlueZ disconnect because AirPods are still the active audio output and the command channel is still connected: " << address);
+                }
+                else
+                {
+                    LOG_WARN("AirPods are still the active audio output, but the command channel is no longer connected. Keeping UI connected and disabling command controls: " << address);
+                    setAirPodsCommandReady(false);
+                }
+                emit airPodsStatusChanged();
+                return;
+            }
+
             onDeviceDisconnected(QBluetoothAddress(address));
         } else {
             LOG_WARN("Disconnected device does not match connected device: " << address << " != " << m_deviceInfo->bluetoothAddress());
@@ -607,8 +1280,8 @@ private slots:
         }
 
         LOG_INFO("Connecting to device: " << device.name());
+        setAirPodsCommandReady(false);
 
-        // Clean up any existing socket
         if (socket)
         {
             socket->close();
@@ -616,24 +1289,31 @@ private slots:
             socket = nullptr;
         }
 
-        QBluetoothSocket *localSocket = new QBluetoothSocket(QBluetoothServiceInfo::L2capProtocol);
+        L2CAPSocket *localSocket = new L2CAPSocket(this);
         socket = localSocket;
 
-        // Connection handler
-        auto handleConnection = [this, localSocket]()
+        connect(localSocket, &L2CAPSocket::connected, this, [this, localSocket]()
         {
-            connect(localSocket, &QBluetoothSocket::readyRead, this, [this, localSocket]()
-                    {
-            QByteArray data = localSocket->readAll();
-            QMetaObject::invokeMethod(this, "parseData", Qt::QueuedConnection, Q_ARG(QByteArray, data));
-            QMetaObject::invokeMethod(this, "relayPacketToPhone", Qt::QueuedConnection, Q_ARG(QByteArray, data)); });
+            connect(localSocket, &L2CAPSocket::readyRead, this, [this, localSocket]()
+            {
+                QByteArray data = localSocket->readAll();
+                QMetaObject::invokeMethod(this, "parseData", Qt::QueuedConnection, Q_ARG(QByteArray, data));
+                QMetaObject::invokeMethod(this, "relayPacketToPhone", Qt::QueuedConnection, Q_ARG(QByteArray, data));
+            });
+            emit airPodsStatusChanged();
             sendHandshake();
-        };
+        });
 
-        // Error handler with retry
-        auto handleError = [this, device, localSocket](QBluetoothSocket::SocketError error)
+        connect(localSocket, &L2CAPSocket::disconnected, this, [this]()
         {
-            LOG_ERROR("Socket error: " << error << ", " << localSocket->errorString());
+            setAirPodsCommandReady(false);
+            emit airPodsStatusChanged();
+        });
+
+        connect(localSocket, &L2CAPSocket::errorOccurred, this, [this, device, localSocket]()
+        {
+            setAirPodsCommandReady(false);
+            LOG_ERROR("Socket error: " << localSocket->errorString());
 
             static int retryCount = 0;
             if (retryCount < m_retryAttempts)
@@ -641,21 +1321,17 @@ private slots:
                 retryCount++;
                 LOG_INFO("Retrying connection (attempt " << retryCount << ")");
                 QTimer::singleShot(1500, this, [this, device]()
-                                   { connectToDevice(device); });
+                    { connectToDevice(device); });
             }
             else
             {
-                LOG_ERROR("Failed to connect after 3 attempts");
+                LOG_ERROR("Failed to connect after " << m_retryAttempts << " attempts");
                 retryCount = 0;
             }
-        };
+        });
 
-        connect(localSocket, &QBluetoothSocket::connected, this, handleConnection);
-        connect(localSocket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::errorOccurred),
-                this, handleError);
-
-        localSocket->connectToService(device.address(), QBluetoothUuid("74ec2172-0bad-4d01-8f77-997b2be0722a"));
         m_deviceInfo->setBluetoothAddress(device.address().toString());
+        localSocket->connectToService(device.address(), quint16(0x1001));
         notifyAndroidDevice();
     }
 
@@ -663,18 +1339,25 @@ private slots:
     {
         LOG_DEBUG("Received: " << data.toHex());
 
+        if (!data.isEmpty())
+        {
+            setAirPodsCommandReady(true);
+        }
+
         if (data.startsWith(AirPodsPackets::Parse::HANDSHAKE_ACK))
         {
-            writePacketToSocket(AirPodsPackets::Connection::SET_SPECIFIC_FEATURES, "Set specific features packet written: ");
+            writePacketToSocket(AirPodsPackets::Connection::SET_SPECIFIC_FEATURES, "Set specific features packet written: ", false);
         }
         else if (data.startsWith(AirPodsPackets::Parse::FEATURES_ACK))
         {
-            writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
+            writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ", false);
 
             QTimer::singleShot(2000, this, [this]() {
                 if (m_deviceInfo->batteryStatus().isEmpty()) {
-                    writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
+                    writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ", false);
                 }
+                // Restore stem long press config on every connection (AirPods forget it)
+                sendStemLongPressConfig();
             });
         }
         // Magic Cloud Keys Response
@@ -753,6 +1436,34 @@ private slots:
                 LOG_INFO("One Bud ANC mode received: " << m_deviceInfo->oneBudANCMode());
             }
         }
+        else if (data.startsWith(AirPodsPackets::AllowOffOption::HEADER)) {
+            if (auto value = AirPodsPackets::AllowOffOption::parseState(data))
+            {
+                m_deviceInfo->setAllowOffOption(value.value());
+                LOG_INFO("Allow Off Option received: " << value.value());
+            }
+        }
+        else if (data.startsWith(AirPodsPackets::VolumeSwipe::HEADER)) {
+            if (auto value = AirPodsPackets::VolumeSwipe::parseState(data))
+            {
+                m_deviceInfo->setVolumeSwipeEnabled(value.value());
+                LOG_INFO("Volume Swipe received: " << value.value());
+            }
+        }
+        else if (data.startsWith(AirPodsPackets::AdaptiveVolume::HEADER)) {
+            if (auto value = AirPodsPackets::AdaptiveVolume::parseState(data))
+            {
+                m_deviceInfo->setAdaptiveVolumeEnabled(value.value());
+                LOG_INFO("Adaptive Volume received: " << value.value());
+            }
+        }
+        else if (data.startsWith(AirPodsPackets::StemLongPress::HEADER)) {
+            if (auto modes = AirPodsPackets::StemLongPress::parseModes(data))
+            {
+                m_deviceInfo->setStemLongPressModes(modes.value());
+                LOG_INFO("Stem Long Press modes received: " << modes.value());
+            }
+        }
         else
         {
             LOG_DEBUG("Unrecognized packet format: " << data.toHex());
@@ -761,6 +1472,7 @@ private slots:
 
     void connectToPhone() {
         if (!CrossDevice.isEnabled) {
+            updatePhoneMacStatusFromConfiguration();
             return;
         }
 
@@ -768,16 +1480,28 @@ private slots:
             LOG_INFO("Already connected to the phone");
             return;
         }
-        QBluetoothAddress phoneAddress("00:00:00:00:00:00"); // Default address, will be overwritten if PHONE_MAC_ADDRESS is set
-        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
 
-        if (!env.value("PHONE_MAC_ADDRESS").isEmpty())
+        const QString validPhoneMac = normalizedPhoneMac();
+        if (validPhoneMac.isEmpty())
         {
-            phoneAddress = QBluetoothAddress(env.value("PHONE_MAC_ADDRESS"));
+            LOG_WARN("Skipping cross-device connection because no valid phone MAC is configured");
+            updatePhoneMacStatusFromConfiguration();
+            return;
         }
+
+        if (phoneSocket)
+        {
+            phoneSocket->close();
+            phoneSocket->deleteLater();
+            phoneSocket = nullptr;
+        }
+
+        QBluetoothAddress phoneAddress(validPhoneMac);
         phoneSocket = new QBluetoothSocket(QBluetoothServiceInfo::L2capProtocol);
         connect(phoneSocket, &QBluetoothSocket::connected, this, [this]() {
             LOG_INFO("Connected to phone");
+            updatePhoneMacStatus(QStringLiteral("Connected to phone for cross-device relay"));
+            updatePhoneConnectionState();
             if (!lastBatteryStatus.isEmpty()) {
                 phoneSocket->write(lastBatteryStatus);
                 LOG_DEBUG("Sent last battery status to phone: " << lastBatteryStatus.toHex());
@@ -790,9 +1514,17 @@ private slots:
 
         connect(phoneSocket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::errorOccurred), this, [this](QBluetoothSocket::SocketError error) {
             LOG_ERROR("Phone socket error: " << error << ", " << phoneSocket->errorString());
+            updatePhoneMacStatus(QStringLiteral("Cross-device connection failed: %1").arg(phoneSocket->errorString()));
+            updatePhoneConnectionState();
+        });
+
+        connect(phoneSocket, &QBluetoothSocket::disconnected, this, [this]() {
+            updatePhoneMacStatusFromConfiguration();
+            updatePhoneConnectionState();
         });
 
         phoneSocket->connectToService(phoneAddress, QBluetoothUuid("1abbb9a4-10e4-4000-a75c-8953c5471342"));
+        updatePhoneMacStatus(QStringLiteral("Connecting to phone %1 for cross-device relay...").arg(validPhoneMac));
     }
 
     void relayPacketToPhone(const QByteArray &packet)
@@ -815,11 +1547,10 @@ private slots:
         if (packet.startsWith(AirPodsPackets::Phone::NOTIFICATION))
         {
             QByteArray airpodsPacket = packet.mid(4);
-            if (socket && socket->isOpen()) {
-                socket->write(airpodsPacket);
+            if (writePacketToSocket(airpodsPacket, "Relayed packet to AirPods: ")) {
                 LOG_DEBUG("Relayed packet to AirPods: " << airpodsPacket.toHex());
             } else {
-                LOG_ERROR("Socket is not open, cannot relay packet to AirPods");
+                LOG_ERROR("Socket is not ready, cannot relay packet to AirPods");
             }
         }
         else if (packet.startsWith(AirPodsPackets::Phone::CONNECTED))
@@ -859,11 +1590,10 @@ private slots:
         }
         else
         {
-            if (socket && socket->isOpen()) {
-                socket->write(packet);
+            if (writePacketToSocket(packet, "Relayed packet to AirPods: ")) {
                 LOG_DEBUG("Relayed packet to AirPods: " << packet.toHex());
             } else {
-                LOG_ERROR("Socket is not open, cannot relay packet to AirPods");
+                LOG_ERROR("Socket is not ready, cannot relay packet to AirPods");
             }
         }
     }
@@ -949,7 +1679,46 @@ public:
     }
 
     void loadMainModule() {
+        if (!parent)
+        {
+            return;
+        }
+
+        const auto showExistingWindow = [this]() -> bool
+        {
+            if (parent->rootObjects().isEmpty())
+            {
+                return false;
+            }
+
+            if (auto *window = qobject_cast<QQuickWindow *>(parent->rootObjects().first()))
+            {
+                window->setVisible(true);
+                window->show();
+                window->raise();
+                window->requestActivate();
+                return true;
+            }
+
+            QObject *rootObject = parent->rootObjects().first();
+            if (rootObject)
+            {
+                rootObject->setProperty("visible", true);
+                QMetaObject::invokeMethod(rootObject, "raise");
+                QMetaObject::invokeMethod(rootObject, "requestActivate");
+                return true;
+            }
+
+            return false;
+        };
+
+        if (showExistingWindow())
+        {
+            return;
+        }
+
         parent->load(QUrl(QStringLiteral("qrc:/linux/Main.qml")));
+        showExistingWindow();
     }
 
 signals:
@@ -962,16 +1731,38 @@ signals:
     void modelChanged();
     void primaryChanged();
     void airPodsStatusChanged();
+    void airPodsCommandReadyChanged();
     void earDetectionBehaviorChanged(int behavior);
     void crossDeviceEnabledChanged(bool enabled);
     void notificationsEnabledChanged(bool enabled);
     void retryAttemptsChanged(int attempts);
     void oneBudANCModeChanged(bool enabled);
     void phoneMacStatusChanged();
+    void phoneConnectionChanged();
     void hearingAidEnabledChanged(bool enabled);
+    void hearingAidSetupStatusChanged();
+    void headTrackingStatusChanged();
 
 private:
-    QBluetoothSocket *socket = nullptr;
+    void sendCustomizeTransparency()
+    {
+        using namespace AirPodsPackets::CustomizeTransparency;
+        QByteArray packet = getPacket(m_deviceInfo->customizeTransparencyEnabled(), m_transpLeft, m_transpRight);
+        writePacketToSocket(packet, "Customize Transparency packet written: ");
+    }
+
+    void sendStemLongPressConfig()
+    {
+        int modes = m_settings->value("stemLongPressModes", 0x06).toInt();
+        m_deviceInfo->setStemLongPressModes(modes);
+        if (__builtin_popcount(static_cast<quint8>(modes)) >= 2) {
+            QByteArray packet = AirPodsPackets::StemLongPress::getPacket(static_cast<quint8>(modes));
+            writePacketToSocket(packet, "Stem Long Press config restored: ", false);
+        }
+    }
+
+    // Data members
+    L2CAPSocket *socket = nullptr;
     QBluetoothSocket *phoneSocket = nullptr;
     QByteArray lastBatteryStatus;
     QByteArray lastEarDetectionStatus;
@@ -985,7 +1776,13 @@ private:
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
+    bool m_airPodsCommandReady = false;
     QString m_phoneMacStatus;
+    QString m_hearingAidSetupStatus;
+    QString m_headTrackingStatus;
+    AirPodsPackets::CustomizeTransparency::BudSettings m_transpLeft;
+    AirPodsPackets::CustomizeTransparency::BudSettings m_transpRight;
+    QList<int> m_headphoneEq = QList<int>(8, 0);
 };
 
 int main(int argc, char *argv[]) {
@@ -997,14 +1794,18 @@ int main(int argc, char *argv[]) {
 
     // Try to load translation from various locations
     QStringList translationPaths = {
+        QCoreApplication::applicationDirPath(),
         QCoreApplication::applicationDirPath() + "/translations",
         QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/librepods/translations",
         "/usr/share/librepods/translations",
         "/usr/local/share/librepods/translations"
     };
 
+    // Try full locale (e.g. es_AR), then language-only fallback (e.g. es)
+    const QString langCode = locale.left(2);
     for (const QString &path : translationPaths) {
-        if (translator->load("librepods_" + locale, path)) {
+        if (translator->load("librepods_" + locale, path) ||
+            (langCode != locale && translator->load("librepods_" + langCode, path))) {
             app.installTranslator(translator);
             break;
         }
@@ -1053,8 +1854,6 @@ int main(int argc, char *argv[]) {
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
         QString phoneMacEnv = env.value("PHONE_MAC_ADDRESS", "");
         engine.rootContext()->setContextProperty("PHONE_MAC_ADDRESS", phoneMacEnv);
-        // Initialize the visible status in the GUI
-        trayApp->updatePhoneMacStatus(phoneMacEnv.isEmpty() ? QStringLiteral("No phone MAC set") : phoneMacEnv);
     }
 
     engine.addImageProvider("qrcode", new QRCodeImageProvider());

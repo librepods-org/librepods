@@ -1,5 +1,6 @@
 #include <QObject>
 #include <QSystemTrayIcon>
+#include <QList>
 
 #include "enums.h"
 
@@ -20,6 +21,8 @@ public:
     void updateNoiseControlState(AirpodsTrayApp::Enums::NoiseControlMode);
 
     void updateConversationalAwareness(bool enabled);
+
+    void setAirPodsControlsEnabled(bool enabled);
 
     void showNotification(const QString &title, const QString &message);
 
@@ -50,6 +53,7 @@ private:
     QMenu *trayMenu;
     QAction *caToggleAction;
     QActionGroup *noiseControlGroup;
+    QList<QAction *> m_airPodsControlActions;
     bool m_notificationsEnabled = true;
 
     void setupMenuActions();
