@@ -32,9 +32,9 @@ namespace AirpodsTrayApp
             AirPodsPro2USBC,
             AirPodsMaxLightning,
             AirPodsMaxUSBC,
-            AirPods4,
-            AirPods4ANC,
             AirPodsMax2,
+            AirPods4,
+            AirPods4ANC
         };
         Q_ENUM_NS(AirPodsModel)
 
