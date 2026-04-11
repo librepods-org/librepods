@@ -160,10 +160,10 @@ librepods-ctl noise:transparency
 
 ## Hearing Aid
 
-To use hearing aid features, you need to have an audiogram. To enable/disable hearing aid, you can use the toggle in the main app. But, to adjust the settings and set the audiogram, you need to use a different script which is located in this folder as `hearing_aid.py`. You can run it with:
+To use hearing aid features, you need to have an audiogram. To enable/disable hearing aid, you can use the toggle in the main app. The Linux UI also exposes a button to launch the advanced adjustments tool for the currently connected AirPods. Under the hood it uses the separate script in this folder, `hearing-aid-adjustments.py`, which you can also run manually with:
 
 ```bash
-python3 hearing_aid.py
+python3 hearing-aid-adjustments.py <MAC_ADDRESS>
 ```
 
 The script will load the current settings from the AirPods and allow you to adjust them. You can set the audiogram by providing the values for 8 frequencies (250Hz, 500Hz, 1kHz, 2kHz, 3kHz, 4kHz, 6kHz, 8kHz) for both left and right ears. There are also options to adjust amplification, balance, tone, ambient noise reduction, own voice amplification, and conversation boost.
@@ -189,3 +189,34 @@ It is possible that the AirPods disconnect after a short period of time and play
 ### Why a separate script?
 
 Because I discovered that QBluetooth doesn't support connecting to a socket with its PSM, only a UUID can be used. I could add a dependency on BlueZ, but then having two bluetooth interfaces seems unnecessary. So, I decided to use a separate script for hearing aid features. In the future, QBluetooth will be replaced with BlueZ native calls, and then everything will be in one application.
+
+## Head Tracking / Gestures
+
+Linux now exposes the existing head gesture detector from the `head-tracking/` folder through the Settings UI. When AirPods are connected, use `Open Head Gesture Detector` to launch the Python script in a terminal for the current Bluetooth MAC address.
+
+You can also run it manually:
+
+```bash
+python3 head-tracking/gestures.py <MAC_ADDRESS>
+```
+
+Requirements:
+
+- Python 3
+- A terminal emulator available in `PATH`
+- The Python bluetooth dependency used by the head-tracking scripts (`pybluez` from `head-tracking/requirements.txt`)
+
+## Multi-Device / Handoff
+
+Linux already includes a Bluetooth relay to the Android app using the phone MAC address and the cross-device UUID `1abbb9a4-10e4-4000-a75c-8953c5471342`. The Settings UI now makes that flow safer to validate:
+
+- The phone MAC can be configured even before AirPods are connected.
+- The UI shows whether the phone relay is currently connected.
+- You can manually retry the phone relay connection.
+- You can fetch Magic Cloud Keys from connected AirPods and only open the QR export once both keys are available.
+
+Current limitations:
+
+- Linux still depends on the Android app implementing the server side of the relay protocol.
+- Linux can request Magic Cloud Keys and export them as QR, but it does not import them back from a QR or push them to Android automatically.
+- The existing handoff protocol is still packet relay plus disconnect requests; this phase does not redesign the transport.
