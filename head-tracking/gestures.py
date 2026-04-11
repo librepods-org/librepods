@@ -1,3 +1,4 @@
+import argparse
 import logging
 import statistics
 import time
@@ -347,6 +348,10 @@ class GestureDetector:
         log.info(f"{Colors.GREEN}Gesture detection complete.{Colors.RESET}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Detect AirPods head gestures")
+    parser.add_argument("mac_address", nargs="?", help="Bluetooth MAC address of the AirPods")
+    args = parser.parse_args()
+
     print(f"{Colors.BG_BLACK}{Colors.CYAN}╔════════════════════════════════════════╗{Colors.RESET}")
     print(f"{Colors.BG_BLACK}{Colors.CYAN}║     AirPods Head Gesture Detector      ║{Colors.RESET}")
     print(f"{Colors.BG_BLACK}{Colors.CYAN}╚════════════════════════════════════════╝{Colors.RESET}")
@@ -355,4 +360,6 @@ if __name__ == "__main__":
     print(f"{Colors.RED}• NO: {Colors.WHITE}shaking head left and right{Colors.RESET}\n")
     
     detector: GestureDetector = GestureDetector()
+    if args.mac_address:
+        detector.bt_addr = args.mac_address
     detector.start_detection()
