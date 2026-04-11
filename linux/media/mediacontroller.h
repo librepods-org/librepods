@@ -33,7 +33,7 @@ public:
 
   void handleEarDetection(EarDetection*);
   void followMediaChanges();
-  bool isActiveOutputDeviceAirPods();
+  bool isActiveOutputDeviceAirPods() const;
   void handleConversationalAwareness(const QByteArray &data);
   void activateA2dpProfile();
   void removeAudioOutputDevice();
