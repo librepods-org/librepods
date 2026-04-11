@@ -51,6 +51,7 @@ namespace AirpodsTrayApp
                 {"A2083", AirPodsModel::AirPodsPro},
                 {"A2096", AirPodsModel::AirPodsMaxLightning},
                 {"A3184", AirPodsModel::AirPodsMaxUSBC},
+                {"A3454", AirPodsModel::AirPodsMax2},
                 {"A2565", AirPodsModel::AirPods3},
                 {"A2564", AirPodsModel::AirPods3},
                 {"A3047", AirPodsModel::AirPodsPro2USBC},
@@ -64,9 +65,7 @@ namespace AirpodsTrayApp
                 {"A3054", AirPodsModel::AirPods4},
                 {"A3056", AirPodsModel::AirPods4ANC},
                 {"A3055", AirPodsModel::AirPods4ANC},
-                {"A3057", AirPodsModel::AirPods4ANC},
-                {"A3454", AirPodsModel::AirPodsMax2},
-            };
+                {"A3057", AirPodsModel::AirPods4ANC}};
 
             return modelNumberMap.value(modelNumber, AirPodsModel::Unknown);
         }

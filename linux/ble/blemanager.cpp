@@ -16,10 +16,10 @@ AirpodsTrayApp::Enums::AirPodsModel getModelName(quint16 modelId)
         {0x1B20, AirPodsModel::AirPods4ANC},
         {0x0A20, AirPodsModel::AirPodsMaxLightning},
         {0x1F20, AirPodsModel::AirPodsMaxUSBC},
+        {0x2D20, AirPodsModel::AirPodsMax2},
         {0x0E20, AirPodsModel::AirPodsPro},
         {0x1420, AirPodsModel::AirPodsPro2Lightning},
-        {0x2420, AirPodsModel::AirPodsPro2USBC},
-        {0x2D20, AirPodsModel::AirPodsMax2},
+        {0x2420, AirPodsModel::AirPodsPro2USBC}
     };
 
     return modelMap.value(modelId, AirPodsModel::Unknown);
