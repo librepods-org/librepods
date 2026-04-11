@@ -21,7 +21,7 @@ AirpodsTrayApp::Enums::AirPodsModel getModelName(quint16 modelId)
         {0x2420, AirPodsModel::AirPodsPro2USBC},
         {0x2D20, AirPodsModel::AirPodsMax2},
     };
-    
+
     return modelMap.value(modelId, AirPodsModel::Unknown);
 }
 
