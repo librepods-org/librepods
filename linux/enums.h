@@ -33,7 +33,8 @@ namespace AirpodsTrayApp
             AirPodsMaxLightning,
             AirPodsMaxUSBC,
             AirPods4,
-            AirPods4ANC
+            AirPods4ANC,
+            AirPodsMax2,
         };
         Q_ENUM_NS(AirPodsModel)
 
@@ -63,7 +64,9 @@ namespace AirpodsTrayApp
                 {"A3054", AirPodsModel::AirPods4},
                 {"A3056", AirPodsModel::AirPods4ANC},
                 {"A3055", AirPodsModel::AirPods4ANC},
-                {"A3057", AirPodsModel::AirPods4ANC}};
+                {"A3057", AirPodsModel::AirPods4ANC},
+                {"A3454", AirPodsModel::AirPodsMax2},
+            };
 
             return modelNumberMap.value(modelNumber, AirPodsModel::Unknown);
         }
@@ -85,6 +88,7 @@ namespace AirpodsTrayApp
                     return {"podpro.png", "podpro_case.png"};
                 case AirPodsModel::AirPodsMaxLightning:
                 case AirPodsModel::AirPodsMaxUSBC:
+                case AirPodsModel::AirPodsMax2:
                     return {"podmax.png", "max_case.png"};
                 default:
                     return {"pod.png", "pod_case.png"}; // Default icon for unknown models
@@ -97,6 +101,7 @@ namespace AirpodsTrayApp
             switch (model) {
                 case AirPodsModel::AirPodsMaxLightning:
                 case AirPodsModel::AirPodsMaxUSBC:
+                case AirPodsModel::AirPodsMax2:
                     return true;
                 default:
                     return false;
