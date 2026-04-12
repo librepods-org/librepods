@@ -64,10 +64,16 @@ class PopupWindow(
     @Suppress("DEPRECATION")
     private val mParams: WindowManager.LayoutParams = WindowManager.LayoutParams().apply {
         height = WindowManager.LayoutParams.WRAP_CONTENT
-        width = WindowManager.LayoutParams.MATCH_PARENT
+        val displayMetrics = context.resources.displayMetrics
+        val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
+        width = if (screenWidthDp >= 600) {
+            (400 * displayMetrics.density).toInt()
+        } else {
+            WindowManager.LayoutParams.MATCH_PARENT
+        }
         type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         format = PixelFormat.TRANSLUCENT
-        gravity = Gravity.BOTTOM
+        gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         dimAmount = 0.3f
         flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_FULLSCREEN or
@@ -84,7 +90,6 @@ class PopupWindow(
         mParams.x = 0
         mParams.y = 0
 
-        mParams.gravity = Gravity.BOTTOM
         mView.setOnClickListener {
             close()
         }
