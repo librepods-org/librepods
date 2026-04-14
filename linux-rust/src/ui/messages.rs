@@ -3,6 +3,7 @@ use crate::bluetooth::aacp::AACPEvent;
 #[derive(Debug, Clone)]
 pub enum BluetoothUIMessage {
     OpenWindow,
+    TrayUnavailable(String),
     DeviceConnected(String),               // mac
     DeviceDisconnected(String),            // mac
     AACPUIEvent(String, AACPEvent),        // mac, event

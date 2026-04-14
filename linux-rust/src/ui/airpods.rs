@@ -1,11 +1,10 @@
 use crate::bluetooth::aacp::{AACPManager, ControlCommandIdentifiers};
 use iced::Alignment::End;
 use iced::border::Radius;
-use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
-    Space, button, column, combo_box, container, row, rule, text, text_input, toggler,
+    Space, button, column, container, pick_list, row, rule, text, text_input, toggler,
 };
 use iced::{Background, Border, Center, Color, Length, Padding, Theme};
 use log::error;
@@ -103,63 +102,59 @@ pub fn airpods_view<'a>(
             {
                 let state_clone = state.clone();
                 let mac = mac.clone();
-                // this combo_box doesn't go really well with the design, but I am not writing my own dropdown menu for this
-                combo_box(
-                    &state.noise_control_state,
-                    "Select Listening Mode",
-                    Some(&state.noise_control_mode.clone()),
-                    {
+                let listening_mode_options = if state.allow_off_mode {
+                    vec![
+                        crate::devices::enums::AirPodsNoiseControlMode::Off,
+                        crate::devices::enums::AirPodsNoiseControlMode::NoiseCancellation,
+                        crate::devices::enums::AirPodsNoiseControlMode::Transparency,
+                        crate::devices::enums::AirPodsNoiseControlMode::Adaptive,
+                    ]
+                } else {
+                    vec![
+                        crate::devices::enums::AirPodsNoiseControlMode::NoiseCancellation,
+                        crate::devices::enums::AirPodsNoiseControlMode::Transparency,
+                        crate::devices::enums::AirPodsNoiseControlMode::Adaptive,
+                    ]
+                };
+                let selected_mode = listening_mode_options
+                    .iter()
+                    .find(|mode| **mode == state.noise_control_mode)
+                    .cloned();
+                container(pick_list(listening_mode_options, selected_mode, {
+                    let aacp_manager = aacp_manager.clone();
+                    move |selected_mode| {
                         let aacp_manager = aacp_manager.clone();
-                        move |selected_mode| {
-                            let aacp_manager = aacp_manager.clone();
-                            let selected_mode_c = selected_mode.clone();
-                            run_async_in_thread(async move {
-                                aacp_manager
-                                    .send_control_command(
-                                        ControlCommandIdentifiers::ListeningMode,
-                                        &[selected_mode_c.to_byte()],
-                                    )
-                                    .await
-                                    .expect("Failed to send Noise Control Mode command");
-                            });
-                            let mut state = state_clone.clone();
-                            state.noise_control_mode = selected_mode.clone();
-                            Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
-                        }
-                    },
-                )
+                        let selected_mode_c = selected_mode.clone();
+                        run_async_in_thread(async move {
+                            aacp_manager
+                                .send_control_command(
+                                    ControlCommandIdentifiers::ListeningMode,
+                                    &[selected_mode_c.to_byte()],
+                                )
+                                .await
+                                .expect("Failed to send Noise Control Mode command");
+                        });
+                        let mut state = state_clone.clone();
+                        state.noise_control_mode = selected_mode.clone();
+                        Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                    }
+                }))
                 .width(Length::from(200))
-                .input_style(|theme: &Theme, _status| text_input::Style {
-                    background: Background::Color(theme.palette().primary.scale_alpha(0.2)),
-                    border: Border {
+                .style(|theme: &Theme| {
+                    let mut style = container::Style::default();
+                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.2)));
+                    style.border = Border {
                         width: 1.0,
                         color: theme.palette().text.scale_alpha(0.3),
                         radius: Radius::from(4.0),
-                    },
-                    icon: Default::default(),
-                    placeholder: theme.palette().text,
-                    value: theme.palette().text,
-                    selection: Default::default(),
+                    };
+                    style
                 })
                 .padding(Padding {
                     top: 5.0,
                     bottom: 5.0,
                     left: 10.0,
                     right: 10.0,
-                })
-                .menu_style(|theme: &Theme| menu::Style {
-                    background: Background::Color(theme.palette().background),
-                    border: Border {
-                        width: 1.0,
-                        color: theme.palette().text,
-                        radius: Radius::from(4.0),
-                    },
-                    text_color: theme.palette().text,
-                    selected_text_color: theme.palette().text,
-                    selected_background: Background::Color(
-                        theme.palette().primary.scale_alpha(0.3),
-                    ),
-                    shadow: Default::default()
                 })
             }
         ]

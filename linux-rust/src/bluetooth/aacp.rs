@@ -287,6 +287,44 @@ pub struct BatteryInfo {
     pub status: BatteryStatus,
 }
 
+fn is_valid_battery_level(level: u8) -> bool {
+    level <= 100
+}
+
+fn merge_battery_info(previous: &[BatteryInfo], incoming: Vec<BatteryInfo>) -> Vec<BatteryInfo> {
+    let mut merged = previous.to_vec();
+
+    for mut update in incoming {
+        if (!is_valid_battery_level(update.level)
+            || (update.status == BatteryStatus::Disconnected && update.level == 0))
+            && let Some(previous_level) = previous
+                .iter()
+                .find(|battery| {
+                    battery.component == update.component
+                        && is_valid_battery_level(battery.level)
+                        && (battery.level > 0 || battery.status != BatteryStatus::Disconnected)
+                })
+                .map(|battery| battery.level)
+        {
+            update.level = previous_level;
+        } else if !is_valid_battery_level(update.level) {
+            update.level = 0;
+            update.status = BatteryStatus::Disconnected;
+        }
+
+        if let Some(existing) = merged
+            .iter_mut()
+            .find(|battery| battery.component == update.component)
+        {
+            *existing = update;
+        } else {
+            merged.push(update);
+        }
+    }
+
+    merged
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectedDevice {
     pub mac: String,
@@ -551,9 +589,10 @@ impl AACPManager {
                     });
                 }
                 let mut state = self.state.lock().await;
-                state.battery_info = batteries.clone();
+                let merged_batteries = merge_battery_info(&state.battery_info, batteries);
+                state.battery_info = merged_batteries.clone();
                 if let Some(ref tx) = state.event_tx {
-                    let _ = tx.send(AACPEvent::BatteryInfo(batteries));
+                    let _ = tx.send(AACPEvent::BatteryInfo(merged_batteries));
                 }
                 info!("Received Battery Info: {:?}", state.battery_info);
             }
@@ -1240,4 +1279,74 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
         debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
     }
     info!("Send thread finished.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BatteryComponent, BatteryInfo, BatteryStatus, merge_battery_info};
+
+    #[test]
+    fn preserves_last_known_level_for_disconnected_components() {
+        let previous = vec![BatteryInfo {
+            component: BatteryComponent::Case,
+            level: 86,
+            status: BatteryStatus::NotCharging,
+        }];
+
+        let merged = merge_battery_info(
+            &previous,
+            vec![BatteryInfo {
+                component: BatteryComponent::Case,
+                level: 255,
+                status: BatteryStatus::Disconnected,
+            }],
+        );
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].level, 86);
+        assert_eq!(merged[0].status, BatteryStatus::Disconnected);
+    }
+
+    #[test]
+    fn keeps_previous_components_when_update_is_partial() {
+        let previous = vec![
+            BatteryInfo {
+                component: BatteryComponent::Left,
+                level: 78,
+                status: BatteryStatus::NotCharging,
+            },
+            BatteryInfo {
+                component: BatteryComponent::Case,
+                level: 86,
+                status: BatteryStatus::NotCharging,
+            },
+        ];
+
+        let merged = merge_battery_info(
+            &previous,
+            vec![BatteryInfo {
+                component: BatteryComponent::Left,
+                level: 75,
+                status: BatteryStatus::NotCharging,
+            }],
+        );
+
+        assert_eq!(merged.len(), 2);
+        assert_eq!(
+            merged
+                .iter()
+                .find(|battery| battery.component == BatteryComponent::Left)
+                .unwrap()
+                .level,
+            75
+        );
+        assert_eq!(
+            merged
+                .iter()
+                .find(|battery| battery.component == BatteryComponent::Case)
+                .unwrap()
+                .level,
+            86
+        );
+    }
 }

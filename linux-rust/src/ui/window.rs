@@ -61,6 +61,7 @@ pub fn start_ui(
 
 pub struct App {
     window: Option<window::Id>,
+    startup_warning: Option<String>,
     panes: pane_grid::State<Pane>,
     selected_tab: Tab,
     theme_state: combo_box::State<MyTheme>,
@@ -174,6 +175,7 @@ impl App {
         (
             Self {
                 window,
+                startup_warning: None,
                 panes,
                 selected_tab: Tab::Device("none".to_string()),
                 theme_state: combo_box::State::new(vec![
@@ -279,6 +281,22 @@ impl App {
                             Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
                         }
                     }
+                    BluetoothUIMessage::TrayUnavailable(message) => {
+                        let ui_rx = Arc::clone(&self.ui_rx);
+                        let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
+                        self.startup_warning = Some(message);
+
+                        if let Some(window_id) = self.window {
+                            Task::batch(vec![window::gain_focus(window_id), wait_task])
+                        } else {
+                            let mut settings = window::Settings::default();
+                            settings.min_size = Some(Size::new(400.0, 300.0));
+                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+                            let (new_window_task, open_task) = window::open(settings);
+                            self.window = Some(new_window_task);
+                            Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
+                        }
+                    }
                     BluetoothUIMessage::DeviceConnected(mac) => {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
@@ -343,27 +361,14 @@ impl App {
                                     battery: state.battery_info.clone(),
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
                                         if status.identifier == ControlCommandIdentifiers::ListeningMode {
-                                            status.value.first().map(AirPodsNoiseControlMode::from_byte)
+                                            status
+                                                .value
+                                                .first()
+                                                .and_then(|value| AirPodsNoiseControlMode::from_byte(*value))
                                         } else {
                                             None
                                         }
                                     }).unwrap_or(AirPodsNoiseControlMode::Transparency),
-                                    noise_control_state: combo_box::State::new(
-                                        {
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive
-                                            ];
-                                            if state.control_command_status_list.iter().any(|status| {
-                                                status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                                matches!(status.value.as_slice(), [0x01])
-                                            }) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        }
-                                    ),
                                     conversation_awareness_enabled: state.control_command_status_list.iter().any(|status| {
                                         status.identifier == ControlCommandIdentifiers::ConversationDetectConfig &&
                                         matches!(status.value.as_slice(), [0x01])
@@ -414,15 +419,18 @@ impl App {
                         match event {
                             AACPEvent::ControlCommand(status) => match status.identifier {
                                 ControlCommandIdentifiers::ListeningMode => {
-                                    let mode = status
+                                    if let Some(mode) = status
                                         .value
                                         .first()
-                                        .map(AirPodsNoiseControlMode::from_byte)
-                                        .unwrap_or(AirPodsNoiseControlMode::Transparency);
-                                    if let Some(DeviceState::AirPods(state)) =
-                                        self.device_states.get_mut(&mac)
+                                        .and_then(|value| AirPodsNoiseControlMode::from_byte(*value))
                                     {
-                                        state.noise_control_mode = mode;
+                                        if let Some(DeviceState::AirPods(state)) =
+                                            self.device_states.get_mut(&mac)
+                                        {
+                                            state.noise_control_mode = mode;
+                                        }
+                                    } else {
+                                        error!("Unknown Listening Mode value: {:?}", status.value);
                                     }
                                 }
                                 ControlCommandIdentifiers::ConversationDetectConfig => {
@@ -477,17 +485,6 @@ impl App {
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.allow_off_mode = is_enabled;
-                                        state.noise_control_state = combo_box::State::new({
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive,
-                                            ];
-                                            if is_enabled {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        });
                                     }
                                 }
                                 _ => {
@@ -577,36 +574,7 @@ impl App {
                 Task::none()
             }
             Message::StateChanged(mac, state) => {
-                self.device_states.insert(mac.clone(), state);
-                // if airpods, update the noise control state combo box based on allow off mode
-                let type_ = {
-                    let devices_json =
-                        std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-                            error!("Failed to read devices file: {}", e);
-                            "{}".to_string()
-                        });
-                    let devices_list: HashMap<String, DeviceData> =
-                        serde_json::from_str(&devices_json).unwrap_or_else(|e| {
-                            error!("Deserialization failed: {}", e);
-                            HashMap::new()
-                        });
-                    devices_list.get(&mac).map(|d| d.type_.clone())
-                };
-                if let Some(DeviceType::AirPods) = type_
-                    && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
-                {
-                    state.noise_control_state = combo_box::State::new({
-                        let mut modes = vec![
-                            AirPodsNoiseControlMode::Transparency,
-                            AirPodsNoiseControlMode::NoiseCancellation,
-                            AirPodsNoiseControlMode::Adaptive,
-                        ];
-                        if state.allow_off_mode {
-                            modes.insert(0, AirPodsNoiseControlMode::Off);
-                        }
-                        modes
-                    });
-                }
+                self.device_states.insert(mac, state);
                 Task::none()
             }
             Message::TrayTextModeChanged(is_enabled) => {
@@ -673,7 +641,15 @@ impl App {
                                         Some(DeviceState::AirPods(state)) => {
                                             let b = &state.battery;
                                             let headphone = b.iter().find(|x| x.component == BatteryComponent::Headphone)
+                                                .filter(|x| !(x.status == BatteryStatus::Disconnected && x.level == 0))
                                                 .map(|x| x.level);
+                                            let format_battery = |battery: Option<&crate::bluetooth::aacp::BatteryInfo>| {
+                                                match battery {
+                                                    Some(info) if info.status == BatteryStatus::Disconnected && info.level == 0 => "-".to_string(),
+                                                    Some(info) => format!("{}%", info.level),
+                                                    None => "-".to_string(),
+                                                }
+                                            };
                                             // if headphones is not None, use only that
                                             if let Some(level) = headphone {
                                                 let charging = b.iter().find(|x| x.component == BatteryComponent::Headphone)
@@ -683,20 +659,20 @@ impl App {
                                                     level, if charging {"\u{1002E6}"} else {""}
                                                 )
                                             } else {
-                                                let left  = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let right = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let case  = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let left_charging = b.iter().find(|x| x.component == BatteryComponent::Left)
+                                                let left_info  = b.iter().find(|x| x.component == BatteryComponent::Left);
+                                                let right_info = b.iter().find(|x| x.component == BatteryComponent::Right);
+                                                let case_info  = b.iter().find(|x| x.component == BatteryComponent::Case);
+                                                let left = format_battery(left_info);
+                                                let right = format_battery(right_info);
+                                                let case = format_battery(case_info);
+                                                let left_charging = left_info
                                                     .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let right_charging = b.iter().find(|x| x.component == BatteryComponent::Right)
+                                                let right_charging = right_info
                                                     .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let case_charging = b.iter().find(|x| x.component == BatteryComponent::Case)
+                                                let case_charging = case_info
                                                     .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
                                                 format!(
-                                                    "\u{1018E5} {}%{} \u{1018E8} {}%{} \u{100E6C} {}%{}",
+                                                    "\u{1018E5} {}{} \u{1018E8} {}{} \u{100E6C} {}{}",
                                                     left, if left_charging {"\u{1002E6}"} else {""}, right, if right_charging {"\u{1002E6}"} else {""}, case, if case_charging {"\u{1002E6}"} else {""}
                                                 )
                                             }
@@ -1278,7 +1254,43 @@ impl App {
             .height(Length::Fill)
             .on_resize(20, Message::Resized);
 
-        container(pane_grid).into()
+        let content: Element<'_, Message> = if let Some(warning) = &self.startup_warning {
+            column![
+                container(
+                    row![
+                        text("Tray unavailable").size(16),
+                        Space::new().width(Length::from(12)),
+                        text(warning).size(13).width(Length::Fill)
+                    ]
+                    .align_y(Center)
+                )
+                .padding(Padding {
+                    top: 12.0,
+                    bottom: 12.0,
+                    left: 16.0,
+                    right: 16.0,
+                })
+                .style(|theme: &Theme| {
+                    let mut style = container::Style::default();
+                    style.background =
+                        Some(Background::Color(theme.palette().danger.scale_alpha(0.15)));
+                    style.text_color = Some(theme.palette().text);
+                    style.border = Border {
+                        width: 1.0,
+                        color: theme.palette().danger.scale_alpha(0.5),
+                        radius: Radius::from(12.0),
+                    };
+                    style
+                }),
+                pane_grid
+            ]
+            .spacing(12)
+            .into()
+        } else {
+            pane_grid.into()
+        };
+
+        container(content).into()
     }
 
     fn theme(&self, _id: window::Id) -> Theme {
