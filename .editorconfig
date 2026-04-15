@@ -16,5 +16,5 @@ indent_size = 4
 trim_trailing_whitespace = false
 max_line_length = off
 
-[*.{py,java,r,R,kt,xml,kts}]
+[*.{py,java,r,R,kt,xml,kts,h,hpp,cpp,qml}]
 indent_size = 4

@@ -12,6 +12,10 @@
 #include <QTimer>
 #include <QProcess>
 #include <QRegularExpression>
+#include <QTranslator>
+#include <QLibraryInfo>
+#include <QDir>
+#include <QStandardPaths>
 
 #include "airpods_packets.h"
 #include "logger.h"
@@ -666,7 +670,7 @@ private slots:
         else if (data.startsWith(AirPodsPackets::Parse::FEATURES_ACK))
         {
             writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
-            
+
             QTimer::singleShot(2000, this, [this]() {
                 if (m_deviceInfo->batteryStatus().isEmpty()) {
                     writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
@@ -718,7 +722,7 @@ private slots:
             mediaController->handleEarDetection(m_deviceInfo->getEarDetection());
         }
         // Battery Status
-        else if (data.size() == 22 && data.startsWith(AirPodsPackets::Parse::BATTERY_STATUS))
+        else if ((data.size() == 22 || data.size() == 12) && data.startsWith(AirPodsPackets::Parse::BATTERY_STATUS))
         {
             m_deviceInfo->getBattery()->parsePacket(data);
             m_deviceInfo->updateBatteryStatus();
@@ -766,7 +770,7 @@ private slots:
         }
         QBluetoothAddress phoneAddress("00:00:00:00:00:00"); // Default address, will be overwritten if PHONE_MAC_ADDRESS is set
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        
+
         if (!env.value("PHONE_MAC_ADDRESS").isEmpty())
         {
             phoneAddress = QBluetoothAddress(env.value("PHONE_MAC_ADDRESS"));
@@ -875,7 +879,7 @@ private slots:
         if (BLEUtils::isValidIrkRpa(m_deviceInfo->magicAccIRK(), device.address)) {
             m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());
-            m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase);
+            m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase, isModelHeadset(m_deviceInfo->model()));
             m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar);
         }
     }
@@ -987,30 +991,43 @@ private:
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
-    QSharedMemory sharedMemory;
-    sharedMemory.setKey("TcpServer-Key2");
+    // Load translations
+    QTranslator *translator = new QTranslator(&app);
+    QString locale = QLocale::system().name();
 
-    // Check if app is already open
-    if(sharedMemory.create(1) == false) 
-    {
-        LOG_INFO("Another instance already running! Opening App Window Instead");
-        QLocalSocket socket;
-        // Connect to the original app, then trigger the reopen signal
-        socket.connectToServer("app_server");
-        if (socket.waitForConnected(500)) {
-            socket.write("reopen");
-            socket.flush();
-            socket.waitForBytesWritten(500);
-            socket.disconnectFromServer();
-            app.exit(); // exit; process already running
-            return 0;
+    // Try to load translation from various locations
+    QStringList translationPaths = {
+        QCoreApplication::applicationDirPath() + "/translations",
+        QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/librepods/translations",
+        "/usr/share/librepods/translations",
+        "/usr/local/share/librepods/translations"
+    };
+
+    for (const QString &path : translationPaths) {
+        if (translator->load("librepods_" + locale, path)) {
+            app.installTranslator(translator);
+            break;
         }
-        else
-        {
-            // Failed connection, log and open the app (assume it's not running)
-            LOG_ERROR("Failed to connect to the original app instance. Assuming it is not running.");
-            LOG_DEBUG("Socket error: " << socket.errorString());
-        }
+    }
+
+    QLocalServer::removeServer("app_server");
+
+    QFile stale("/tmp/app_server");
+    if (stale.exists())
+        stale.remove();
+
+    QLocalSocket socket_check;
+    socket_check.connectToServer("app_server");
+
+    if (socket_check.waitForConnected(300)) {
+        LOG_INFO("Another instance already running! Reopening window...");
+
+        socket_check.write("reopen");
+        socket_check.flush();
+        socket_check.waitForBytesWritten(200);
+        socket_check.disconnectFromServer();
+
+        return 0;
     }
     app.setDesktopFileName("me.kavishdevar.librepods");
     app.setQuitOnLastWindowClosed(false);
@@ -1072,6 +1089,18 @@ int main(int argc, char *argv[]) {
                     trayApp->loadMainModule();
                 }
             }
+            else if (msg == "noise:off") {
+                trayApp->setNoiseControlModeInt(0);
+            }
+            else if (msg == "noise:anc") {
+                trayApp->setNoiseControlModeInt(1);
+            }
+            else if (msg == "noise:transparency") {
+                trayApp->setNoiseControlModeInt(2);
+            }
+            else if (msg == "noise:adaptive") {
+                trayApp->setNoiseControlModeInt(3);
+            }
             else
             {
                 LOG_ERROR("Unknown message received: " << msg);
@@ -1083,7 +1112,7 @@ int main(int argc, char *argv[]) {
             LOG_ERROR("Failed to connect to the duplicate app instance");
             LOG_DEBUG("Connection error: " << socket->errorString());
         });
-        
+
         // Handle server-level errors
         QObject::connect(&server, &QLocalServer::serverError, [&]() {
             LOG_ERROR("Server failed to accept a new connection");
@@ -1092,8 +1121,16 @@ int main(int argc, char *argv[]) {
     });
 
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [&]() {
-        LOG_DEBUG("Application is about to quit. Cleaning up...");
-        sharedMemory.detach();
+        LOG_DEBUG("Application quitting. Cleaning up local server...");
+
+        if (server.isListening()) {
+            server.close();
+        }
+
+        QLocalServer::removeServer("app_server");
+        QFile stale("/tmp/app_server");
+        if (stale.exists())
+            stale.remove();
     });
     return app.exec();
 }

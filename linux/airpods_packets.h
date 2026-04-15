@@ -113,24 +113,24 @@ namespace AirPodsPackets
         static const QByteArray HEADER = ControlCommand::HEADER + static_cast<char>(0x2C);
         static const QByteArray ENABLED = ControlCommand::createCommand(0x2C, 0x01, 0x01);
         static const QByteArray DISABLED = ControlCommand::createCommand(0x2C, 0x02, 0x02);
-        
+
         inline std::optional<bool> parseState(const QByteArray &data)
         {
             if (!data.startsWith(HEADER) || data.size() < HEADER.size() + 2)
                 return std::nullopt;
-            
+
             QByteArray value = data.mid(HEADER.size(), 2);
             if (value.size() != 2)
                 return std::nullopt;
-            
+
             char b1 = value.at(0);
             char b2 = value.at(1);
-            
+
             if (b1 == 0x01 && b2 == 0x01)
                 return true;
             if (b1 == 0x02 || b2 == 0x02)
                 return false;
-            
+
             return std::nullopt;
         }
     }

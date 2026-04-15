@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 @file:OptIn(ExperimentalEncodingApi::class)
 
@@ -596,7 +596,7 @@ class AACPManager {
                 eqData = FloatArray(8) { i -> eq1.get(i) }
                 Log.d(TAG, "EQ Data set to: ${eqData.toList()}, eqOnPhone: $eqOnPhone, eqOnMedia: $eqOnMedia")
             }
-            
+
             Opcodes.INFORMATION -> {
                 Log.e(TAG, "Parsing Information Packet")
                 val information = parseInformationPacket(packet)
@@ -1201,7 +1201,8 @@ class AACPManager {
         var offset = 9
         for (i in 0 until deviceCount) {
             if (offset + 8 > data.size) {
-                throw IllegalArgumentException("Data array too short to parse all connected devices")
+                Log.w(TAG, "Data array too short to parse all connected devices, returning what we have")
+                break
             }
             val macBytes = data.sliceArray(offset until offset + 6)
             val mac = macBytes.joinToString(":") { "%02X".format(it) }

@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 package me.kavishdevar.librepods.screens
 
@@ -160,9 +160,9 @@ fun AccessibilitySettingsScreen(navController: NavController) {
             val mediaEQEnabled = remember { mutableStateOf(false) }
 
             val pressSpeedOptions = mapOf(
-                0.toByte() to "Default",
-                1.toByte() to "Slower",
-                2.toByte() to "Slowest"
+                0.toByte() to stringResource(R.string.default_option),
+                1.toByte() to stringResource(R.string.slower),
+                2.toByte() to stringResource(R.string.slowest)
             )
             val selectedPressSpeedValue =
                 aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL }?.value?.takeIf { it.isNotEmpty() }
@@ -196,9 +196,9 @@ fun AccessibilitySettingsScreen(navController: NavController) {
             }
 
             val pressAndHoldDurationOptions = mapOf(
-                0.toByte() to "Default",
-                1.toByte() to "Slower",
-                2.toByte() to "Slowest"
+                0.toByte() to stringResource(R.string.default_option),
+                1.toByte() to stringResource(R.string.slower),
+                2.toByte() to stringResource(R.string.slowest)
             )
             val selectedPressAndHoldDurationValue =
                 aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL }?.value?.takeIf { it.isNotEmpty() }
@@ -234,9 +234,9 @@ fun AccessibilitySettingsScreen(navController: NavController) {
             }
 
             val volumeSwipeSpeedOptions = mapOf(
-                1.toByte() to "Default",
-                2.toByte() to "Longer",
-                3.toByte() to "Longest"
+                1.toByte() to stringResource(R.string.default_option),
+                2.toByte() to stringResource(R.string.longer),
+                3.toByte() to stringResource(R.string.longest)
             )
             val selectedVolumeSwipeSpeedValue =
                 aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL }?.value?.takeIf { it.isNotEmpty() }
@@ -322,7 +322,7 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 label = stringResource(R.string.press_speed),
                 description = stringResource(R.string.press_speed_description),
                 options = pressSpeedOptions.values.toList(),
-                selectedOption = selectedPressSpeed?: "Default",
+                selectedOption = selectedPressSpeed?: stringResource(R.string.default_option),
                 onOptionSelected = { newValue ->
                     selectedPressSpeed = newValue
                     aacpManager?.sendControlCommand(
@@ -340,7 +340,7 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 label = stringResource(R.string.press_and_hold_duration),
                 description = stringResource(R.string.press_and_hold_duration_description),
                 options = pressAndHoldDurationOptions.values.toList(),
-                selectedOption = selectedPressAndHoldDuration?: "Default",
+                selectedOption = selectedPressAndHoldDuration?: stringResource(R.string.default_option),
                 onOptionSelected = { newValue ->
                     selectedPressAndHoldDuration = newValue
                     aacpManager?.sendControlCommand(
@@ -403,7 +403,7 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                     label = stringResource(R.string.volume_swipe_speed),
                     description = stringResource(R.string.volume_swipe_speed_description),
                     options = volumeSwipeSpeedOptions.values.toList(),
-                    selectedOption = selectedVolumeSwipeSpeed?: "Default",
+                    selectedOption = selectedVolumeSwipeSpeed?: stringResource(R.string.default_option),
                     onOptionSelected = { newValue ->
                         selectedVolumeSwipeSpeed = newValue
                         aacpManager?.sendControlCommand(

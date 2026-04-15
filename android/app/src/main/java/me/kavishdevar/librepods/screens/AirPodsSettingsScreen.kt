@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 @file:OptIn(ExperimentalEncodingApi::class)
 
@@ -218,7 +218,9 @@ fun AirPodsSettingsScreen(dev: BluetoothDevice?, service: AirPodsService,
     val darkMode = isSystemInDarkTheme()
     val hazeStateS = remember { mutableStateOf(HazeState()) }
 
-    val showDialog = remember { mutableStateOf(!sharedPreferences.getBoolean("donationDialogShown", false)) }
+    // val showDialog = remember { mutableStateOf(!sharedPreferences.getBoolean("donationDialogShown", false)) }
+
+    val showDialog = remember { mutableStateOf(false) }
 
     StyledScaffold(
         title = deviceName.text,
@@ -384,7 +386,7 @@ fun AirPodsSettingsScreen(dev: BluetoothDevice?, service: AirPodsService,
                         .fillMaxWidth(0.9f)
                 ) {
                     Text(
-                        text = "Troubleshoot Connection",
+                        text = stringResource(R.string.troubleshooting),
                         style = TextStyle(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
