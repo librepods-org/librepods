@@ -19,22 +19,22 @@
 package me.kavishdevar.librepods.screens
 
 import androidx.compose.foundation.background
-import android.annotation.SuppressLint
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -45,36 +45,23 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import kotlinx.coroutines.Job
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.composables.StyledScaffold
-import me.kavishdevar.librepods.services.ServiceManager
-import kotlin.io.encoding.ExperimentalEncodingApi
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 
-private var debounceJob: Job? = null
-
-@SuppressLint("DefaultLocale")
-@ExperimentalHazeMaterialsApi
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun VersionScreen(navController: NavController) {
+fun VersionScreen(viewModel: AirPodsViewModel) {
+    val state by viewModel.uiState.collectAsState()
     val isDarkTheme = isSystemInDarkTheme()
-    val service = ServiceManager.getService()
-    if (service == null) return
-    val airpodsInstance = service.airpodsInstance
-    if (airpodsInstance == null) return
-
     val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
     val textColor = if (isDarkTheme) Color.White else Color.Black
 
     val backdrop = rememberLayerBackdrop()
 
     StyledScaffold(
-        title = stringResource(R.string.customize_adaptive_audio)
+        title = stringResource(R.string.version)
     ) { spacerHeight ->
         Column(
             modifier = Modifier
@@ -120,7 +107,7 @@ fun VersionScreen(navController: NavController) {
                         )
                     )
                     Text(
-                        text = airpodsInstance.version1 ?: "N/A",
+                        text = state.version1,
                         style = TextStyle(
                             fontSize = 16.sp,
                             color = textColor.copy(0.8f),
@@ -149,7 +136,7 @@ fun VersionScreen(navController: NavController) {
                         )
                     )
                     Text(
-                        text = airpodsInstance.version2 ?: "N/A",
+                        text = state.version2,
                         style = TextStyle(
                             fontSize = 16.sp,
                             color = textColor.copy(0.8f),
@@ -178,7 +165,7 @@ fun VersionScreen(navController: NavController) {
                         )
                     )
                     Text(
-                        text = airpodsInstance.version3 ?: "N/A",
+                        text = state.version3,
                         style = TextStyle(
                             fontSize = 16.sp,
                             color = textColor.copy(0.8f),

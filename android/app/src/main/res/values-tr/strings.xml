@@ -206,10 +206,6 @@
     <string name="environmental_noise">Çevresel Gürültü</string>
     <string name="reconnect_to_last_device">Son bağlanan cihaza yeniden bağlan</string>
     <string name="disconnect">Bağlantıyı Kes</string>
-    <string name="support_me">Beni destekle</string>
-    <string name="never_show_again">Bir daha gösterme</string>
-    <string name="support_dialog_description">Yakın zamanda sol AirPod\'umu kaybettim. LibrePods\'u faydalı bulduysanız, bir yedek satın alıp bu proje üzerinde çalışmaya devam edebilmem için GitHub Sponsors\'ta beni desteklemeyi düşünün - küçük bir miktar bile çok işe yarar. Desteğiniz için teşekkürler!</string>
-    <string name="support_librepods">LibrePods\'u Destekle</string>
     <string name="listening_mode_off_description">Gürültü yönetimini kapatır</string>
     <string name="listening_mode_transparency_description">Dış sesleri içeri alır</string>
     <string name="listening_mode_adaptive_description">Dış gürültüyü dinamik olarak ayarlar</string>

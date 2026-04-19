@@ -18,84 +18,37 @@
 
 package me.kavishdevar.librepods.screens
 
-import android.annotation.SuppressLint
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.composables.StyledIconButton
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledSlider
-import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
-import kotlin.io.encoding.ExperimentalEncodingApi
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 
-private var debounceJob: Job? = null
-
-@SuppressLint("DefaultLocale")
-@ExperimentalHazeMaterialsApi
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun AdaptiveStrengthScreen(navController: NavController) {
-    val isDarkTheme = isSystemInDarkTheme()
-
-    val sliderValue = remember { mutableFloatStateOf(0f) }
-    val service = ServiceManager.getService()!!
-
-    LaunchedEffect(sliderValue) {
-        val sliderValueFromAACP = service.aacpManager.controlCommandStatusList.find {
-            it.identifier == AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH
-        }?.value?.takeIf { it.isNotEmpty() }?.get(0)
-        sliderValueFromAACP?.toFloat()?.let { sliderValue.floatValue = (100 - it) }
-    }
-
-    val listener = remember {
-        object : AACPManager.ControlCommandListener {
-            override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH.value) {
-                    controlCommand.value.takeIf { it.isNotEmpty() }?.get(0)?.toFloat()?.let {
-                        sliderValue.floatValue = (100 - it)
-                    }
-                }
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        service.aacpManager.registerControlCommandListener(
-            AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH,
-            listener
-        )
-        onDispose {
-            service.aacpManager.unregisterControlCommandListener(
-                AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH,
-                listener
-            )
-        }
-    }
-
+fun AdaptiveStrengthScreen(viewModel: AirPodsViewModel) {
+    val state by viewModel.uiState.collectAsState()
     val backdrop = rememberLayerBackdrop()
 
     StyledScaffold(
@@ -109,17 +62,26 @@ fun AdaptiveStrengthScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Spacer(modifier = Modifier.height(spacerHeight))
+            val sliderValue = remember {
+                mutableFloatStateOf(
+                    state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH]?.getOrNull(
+                        0
+                    )?.toFloat() ?: 50f
+                )
+            }
+            var job by remember { mutableStateOf<Job?>(null) }
+            val scope = rememberCoroutineScope()
             StyledSlider(
                 label = stringResource(R.string.customize_adaptive_audio),
-                mutableFloatState = sliderValue,
+                value = sliderValue.floatValue,
                 onValueChange = {
                     sliderValue.floatValue = it
-                    debounceJob?.cancel()
-                    debounceJob = CoroutineScope(Dispatchers.Default).launch {
-                        delay(300)
-                        service.aacpManager.sendControlCommand(
-                            AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH.value,
-                            (100 - it).toInt()
+                    job?.cancel()
+                    job = scope.launch {
+                        delay(150)
+                        viewModel.setControlCommandValue(
+                            AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH,
+                            byteArrayOf((100 - it).toInt().toByte())
                         )
                     }
                 },

@@ -61,7 +61,6 @@ import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.rememberHazeState
 import me.kavishdevar.librepods.R
 
-@ExperimentalHazeMaterialsApi
 @Composable
 fun StyledScaffold(
     title: String,
@@ -133,7 +132,6 @@ fun StyledScaffold(
 }
 
 
-@ExperimentalHazeMaterialsApi
 @Composable
 fun StyledScaffold(
     title: String,
@@ -150,7 +148,6 @@ fun StyledScaffold(
     }
 }
 
-@ExperimentalHazeMaterialsApi
 @Composable
 fun StyledScaffold(
     title: String,

@@ -18,8 +18,8 @@
 
 package me.kavishdevar.librepods.screens
 
+// import me.kavishdevar.librepods.utils.RadareOffsetFinder
 import android.annotation.SuppressLint
-import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -39,10 +39,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,74 +67,35 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import me.kavishdevar.librepods.BuildConfig
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.composables.NavigationButton
 import me.kavishdevar.librepods.composables.StyledDropdown
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledSlider
 import me.kavishdevar.librepods.composables.StyledToggle
-import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
 import me.kavishdevar.librepods.utils.ATTHandles
 import me.kavishdevar.librepods.utils.Capability
-// import me.kavishdevar.librepods.utils.RadareOffsetFinder
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-private var phoneMediaDebounceJob: Job? = null
-private var toneVolumeDebounceJob: Job? = null
-private const val TAG = "AccessibilitySettings"
+//private var phoneMediaDebounceJob: Job? = null
+//private var toneVolumeDebounceJob: Job? = null
+//private const val TAG = "AccessibilitySettings"
 
 @SuppressLint("DefaultLocale")
 @ExperimentalHazeMaterialsApi
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun AccessibilitySettingsScreen(navController: NavController) {
+fun AccessibilitySettingsScreen(viewModel: AirPodsViewModel, navController: NavController) {
+    val state by viewModel.uiState.collectAsState()
+
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
-    val aacpManager = remember { ServiceManager.getService()?.aacpManager }
-    val isSdpOffsetAvailable = remember { mutableStateOf(false) } // always available rn, for testing without radare
-//         remember { mutableStateOf(RadareOffsetFinder.isSdpOffsetAvailable()) }
 
-    val trackColor = if (isDarkTheme) Color(0xFFB3B3B3) else Color(0xFF929491)
-    val activeTrackColor = if (isDarkTheme) Color(0xFF007AFF) else Color(0xFF3C6DF5)
-    val thumbColor = if (isDarkTheme) Color(0xFFFFFFFF) else Color(0xFFFFFFFF)
+    val hearingAidEnabled = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID]?.getOrNull(1)?.toInt() == 1 &&  state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID]?.getOrNull(0)?.toInt() == 1
 
-    val capabilities = remember { ServiceManager.getService()?.airpodsInstance?.model?.capabilities ?: emptySet<Capability>() }
-
-    val hearingAidEnabled = remember { mutableStateOf(
-        aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }?.value?.getOrNull(1) == 0x01.toByte() &&
-                aacpManager.controlCommandStatusList.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }?.value?.getOrNull(0) == 0x01.toByte()
-    ) }
-
-    val hearingAidListener = remember {
-        object : AACPManager.ControlCommandListener {
-            override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value ||
-                    controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG.value) {
-                    val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-                    val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-                    hearingAidEnabled.value = (aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte())
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-        aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-            aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-        }
-    }
 
     val backdrop = rememberLayerBackdrop()
 
@@ -153,46 +112,22 @@ fun AccessibilitySettingsScreen(navController: NavController) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Spacer(modifier = Modifier.height(spacerHeight))
-            val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
 
-            val phoneMediaEQ = remember { mutableStateOf(FloatArray(8) { 0.5f }) }
-            val phoneEQEnabled = remember { mutableStateOf(false) }
-            val mediaEQEnabled = remember { mutableStateOf(false) }
+//            val phoneMediaEQ = remember { mutableStateOf(FloatArray(8) { 0.5f }) }
+//            val phoneEQEnabled = remember { mutableStateOf(false) }
+//            val mediaEQEnabled = remember { mutableStateOf(false) }
 
             val pressSpeedOptions = mapOf(
                 0.toByte() to stringResource(R.string.default_option),
                 1.toByte() to stringResource(R.string.slower),
                 2.toByte() to stringResource(R.string.slowest)
             )
-            val selectedPressSpeedValue =
-                aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL }?.value?.takeIf { it.isNotEmpty() }
-                    ?.get(0)
+
+            val selectedPressSpeedValue = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL]?.getOrNull(0)
             var selectedPressSpeed by remember {
                 mutableStateOf(
                     pressSpeedOptions[selectedPressSpeedValue] ?: pressSpeedOptions[0]
                 )
-            }
-            val selectedPressSpeedListener = object : AACPManager.ControlCommandListener {
-                override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                    if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL.value) {
-                        val newValue = controlCommand.value.takeIf { it.isNotEmpty() }?.get(0)
-                        selectedPressSpeed = pressSpeedOptions[newValue] ?: pressSpeedOptions[0]
-                    }
-                }
-            }
-            LaunchedEffect(Unit) {
-                aacpManager?.registerControlCommandListener(
-                    AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL,
-                    selectedPressSpeedListener
-                )
-            }
-            DisposableEffect(Unit) {
-                onDispose {
-                    aacpManager?.unregisterControlCommandListener(
-                        AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL,
-                        selectedPressSpeedListener
-                    )
-                }
             }
 
             val pressAndHoldDurationOptions = mapOf(
@@ -200,37 +135,13 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 1.toByte() to stringResource(R.string.slower),
                 2.toByte() to stringResource(R.string.slowest)
             )
-            val selectedPressAndHoldDurationValue =
-                aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL }?.value?.takeIf { it.isNotEmpty() }
-                    ?.get(0)
+
+            val selectedPressAndHoldDurationValue = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL]?.getOrNull(0)
             var selectedPressAndHoldDuration by remember {
                 mutableStateOf(
                     pressAndHoldDurationOptions[selectedPressAndHoldDurationValue]
                         ?: pressAndHoldDurationOptions[0]
                 )
-            }
-            val selectedPressAndHoldDurationListener = object : AACPManager.ControlCommandListener {
-                override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                    if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL.value) {
-                        val newValue = controlCommand.value.takeIf { it.isNotEmpty() }?.get(0)
-                        selectedPressAndHoldDuration =
-                            pressAndHoldDurationOptions[newValue] ?: pressAndHoldDurationOptions[0]
-                    }
-                }
-            }
-            LaunchedEffect(Unit) {
-                aacpManager?.registerControlCommandListener(
-                    AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL,
-                    selectedPressAndHoldDurationListener
-                )
-            }
-            DisposableEffect(Unit) {
-                onDispose {
-                    aacpManager?.unregisterControlCommandListener(
-                        AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL,
-                        selectedPressAndHoldDurationListener
-                    )
-                }
             }
 
             val volumeSwipeSpeedOptions = mapOf(
@@ -238,85 +149,36 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 2.toByte() to stringResource(R.string.longer),
                 3.toByte() to stringResource(R.string.longest)
             )
-            val selectedVolumeSwipeSpeedValue =
-                aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL }?.value?.takeIf { it.isNotEmpty() }
-                    ?.get(0)
+            val selectedVolumeSwipeSpeedValue = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL]?.getOrNull(0)
             var selectedVolumeSwipeSpeed by remember {
                 mutableStateOf(
                     volumeSwipeSpeedOptions[selectedVolumeSwipeSpeedValue]
                         ?: volumeSwipeSpeedOptions[1]
                 )
             }
-            val selectedVolumeSwipeSpeedListener = object : AACPManager.ControlCommandListener {
-                override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                    if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL.value) {
-                        val newValue = controlCommand.value.takeIf { it.isNotEmpty() }?.get(0)
-                        selectedVolumeSwipeSpeed =
-                            volumeSwipeSpeedOptions[newValue] ?: volumeSwipeSpeedOptions[1]
-                    }
-                }
-            }
-            LaunchedEffect(Unit) {
-                aacpManager?.registerControlCommandListener(
-                    AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL,
-                    selectedVolumeSwipeSpeedListener
-                )
-            }
-            DisposableEffect(Unit) {
-                onDispose {
-                    aacpManager?.unregisterControlCommandListener(
-                        AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL,
-                        selectedVolumeSwipeSpeedListener
-                    )
-                }
-            }
 
-            LaunchedEffect(phoneMediaEQ.value, phoneEQEnabled.value, mediaEQEnabled.value) {
-                phoneMediaDebounceJob?.cancel()
-                phoneMediaDebounceJob = CoroutineScope(Dispatchers.IO).launch {
-                    delay(150)
-                    val manager = ServiceManager.getService()?.aacpManager
-                    if (manager == null) {
-                        Log.w(TAG, "Cannot write EQ: AACPManager not available")
-                        return@launch
-                    }
-                    try {
-                        val phoneByte = if (phoneEQEnabled.value) 0x01.toByte() else 0x02.toByte()
-                        val mediaByte = if (mediaEQEnabled.value) 0x01.toByte() else 0x02.toByte()
-                        Log.d(
-                            TAG,
-                            "Sending phone/media EQ (phoneEnabled=${phoneEQEnabled.value}, mediaEnabled=${mediaEQEnabled.value})"
-                        )
-                        manager.sendPhoneMediaEQ(phoneMediaEQ.value, phoneByte, mediaByte)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error sending phone/media EQ: ${e.message}")
-                    }
-                }
-            }
-            val toneVolumeValue = remember { mutableFloatStateOf(
-                aacpManager?.controlCommandStatusList?.find {
-                    it.identifier == AACPManager.Companion.ControlCommandIdentifiers.CHIME_VOLUME
-                }?.value?.takeIf { it.isNotEmpty() }?.get(0)?.toFloat() ?: 75f
-            ) }
-            LaunchedEffect(toneVolumeValue.floatValue) {
-                toneVolumeDebounceJob?.cancel()
-                toneVolumeDebounceJob = CoroutineScope(Dispatchers.IO).launch {
-                    delay(150)
-                    val manager = ServiceManager.getService()?.aacpManager
-                    if (manager == null) {
-                        Log.w(TAG, "Cannot write tone volume: AACPManager not available")
-                        return@launch
-                    }
-                    try {
-                        manager.sendControlCommand(
-                            identifier = AACPManager.Companion.ControlCommandIdentifiers.CHIME_VOLUME.value,
-                            value = byteArrayOf(toneVolumeValue.floatValue.toInt().toByte(), 0x50.toByte())
-                        )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error sending tone volume: ${e.message}")
-                    }
-                }
-            }
+//            LaunchedEffect(phoneMediaEQ.value, phoneEQEnabled.value, mediaEQEnabled.value) {
+//                phoneMediaDebounceJob?.cancel()
+//                phoneMediaDebounceJob = CoroutineScope(Dispatchers.IO).launch {
+//                    delay(150)
+//                    val manager = ServiceManager.getService()?.aacpManager
+//                    if (manager == null) {
+//                        Log.w(TAG, "Cannot write EQ: AACPManager not available")
+//                        return@launch
+//                    }
+//                    try {
+//                        val phoneByte = if (phoneEQEnabled.value) 0x01.toByte() else 0x02.toByte()
+//                        val mediaByte = if (mediaEQEnabled.value) 0x01.toByte() else 0x02.toByte()
+//                        Log.d(
+//                            TAG,
+//                            "Sending phone/media EQ (phoneEnabled=${phoneEQEnabled.value}, mediaEnabled=${mediaEQEnabled.value})"
+//                        )
+//                        manager.sendPhoneMediaEQ(phoneMediaEQ.value, phoneByte, mediaByte)
+//                    } catch (e: Exception) {
+//                        Log.w(TAG, "Error sending phone/media EQ: ${e.message}")
+//                    }
+//                }
+//            }
 
             DropdownMenuComponent(
                 label = stringResource(R.string.press_speed),
@@ -325,8 +187,8 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 selectedOption = selectedPressSpeed?: stringResource(R.string.default_option),
                 onOptionSelected = { newValue ->
                     selectedPressSpeed = newValue
-                    aacpManager?.sendControlCommand(
-                        identifier = AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL.value,
+                    viewModel.setControlCommandByte(
+                        identifier = AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL,
                         value = pressSpeedOptions.filterValues { it == newValue }.keys.firstOrNull()
                             ?: 0.toByte()
                     )
@@ -343,8 +205,8 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 selectedOption = selectedPressAndHoldDuration?: stringResource(R.string.default_option),
                 onOptionSelected = { newValue ->
                     selectedPressAndHoldDuration = newValue
-                    aacpManager?.sendControlCommand(
-                        identifier = AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL.value,
+                    viewModel.setControlCommandByte(
+                        identifier = AACPManager.Companion.ControlCommandIdentifiers.CLICK_HOLD_INTERVAL,
                         value = pressAndHoldDurationOptions.filterValues { it == newValue }.keys.firstOrNull()
                             ?: 0.toByte()
                     )
@@ -358,19 +220,21 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 title = stringResource(R.string.noise_control),
                 label = stringResource(R.string.noise_cancellation_single_airpod),
                 description = stringResource(R.string.noise_cancellation_single_airpod_description),
-                controlCommandIdentifier = AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE,
                 independent = true,
+                checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE]?.getOrNull(0) == 0x01.toByte(),
+                onCheckedChange = { viewModel.setControlCommandBoolean(AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE, it) }
             )
 
-            if (capabilities.contains(Capability.LOUD_SOUND_REDUCTION)) {
+            if (state.capabilities.contains(Capability.LOUD_SOUND_REDUCTION) && BuildConfig.FLAVOR == "xposed") {
                 StyledToggle(
                     label = stringResource(R.string.loud_sound_reduction),
                     description = stringResource(R.string.loud_sound_reduction_description),
-                    attHandle = ATTHandles.LOUD_SOUND_REDUCTION
+                    checked = viewModel.getATTCharacteristicValue(ATTHandles.LOUD_SOUND_REDUCTION)?.get(0) == 1.toByte(),
+                    onCheckedChange = { viewModel.setATTCharacteristicValue(ATTHandles.LOUD_SOUND_REDUCTION, if (it) byteArrayOf(0x01) else byteArrayOf(0x00)) }
                 )
             }
 
-            if (!hearingAidEnabled.value&& isSdpOffsetAvailable.value) {
+            if (!hearingAidEnabled && BuildConfig.FLAVOR == "xposed") {
                 NavigationButton(
                     to = "transparency_customization",
                     name = stringResource(R.string.customize_transparency_mode),
@@ -378,12 +242,13 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 )
             }
 
+            val toneVolumeValue = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.CHIME_VOLUME]?.getOrNull(0)?.toFloat() ?: 75f
             StyledSlider(
                 label = stringResource(R.string.tone_volume),
                 description = stringResource(R.string.tone_volume_description),
-                mutableFloatState = toneVolumeValue,
+                value = toneVolumeValue,
                 onValueChange = {
-                    toneVolumeValue.floatValue = it
+                    viewModel.setControlCommandValue(AACPManager.Companion.ControlCommandIdentifiers.CHIME_VOLUME, byteArrayOf(it.toInt().toByte(), 0x50))
                 },
                 valueRange = 0f..100f,
                 snapPoints = listOf(75f),
@@ -392,11 +257,13 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 independent = true
             )
 
-            if (capabilities.contains(Capability.SWIPE_FOR_VOLUME)) {
+            if (state.capabilities.contains(Capability.SWIPE_FOR_VOLUME)) {
+                val volumeSwipeEnabled = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_MODE]?.getOrNull(0)?.toInt() == 0x01
                 StyledToggle(
                     label = stringResource(R.string.volume_control),
                     description = stringResource(R.string.volume_control_description),
-                    controlCommandIdentifier = AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_MODE,
+                    checked = volumeSwipeEnabled,
+                    onCheckedChange = { viewModel.setControlCommandBoolean(AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_MODE, it) }
                 )
 
                 DropdownMenuComponent(
@@ -406,8 +273,8 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                     selectedOption = selectedVolumeSwipeSpeed?: stringResource(R.string.default_option),
                     onOptionSelected = { newValue ->
                         selectedVolumeSwipeSpeed = newValue
-                        aacpManager?.sendControlCommand(
-                            identifier = AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL.value,
+                        viewModel.setControlCommandByte(
+                            identifier = AACPManager.Companion.ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL,
                             value = volumeSwipeSpeedOptions.filterValues { it == newValue }.keys.firstOrNull()
                                 ?: 1.toByte()
                         )
@@ -418,7 +285,7 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 )
             }
 
-            if (!hearingAidEnabled.value&& isSdpOffsetAvailable.value) {
+//            if (!hearingAidEnabled.value&& BuildConfig.FLAVOR == "xposed") {
 //                Text(
 //                    text = stringResource(R.string.apply_eq_to),
 //                    style = TextStyle(
@@ -640,7 +507,7 @@ fun AccessibilitySettingsScreen(navController: NavController) {
                 //         }
                 //     }
                 // }
-            }
+//            }
         }
     }
 }

@@ -335,7 +335,6 @@ fun DebugScreen(navController: NavController) {
                         expandedItems.value = emptySet()
                     },
                     icon = "􀈑",
-                    darkMode = isDarkTheme,
                     backdrop = scaffoldBackdrop
                 )
             }

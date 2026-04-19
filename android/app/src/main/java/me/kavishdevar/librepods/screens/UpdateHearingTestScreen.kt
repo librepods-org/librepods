@@ -55,7 +55,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.hazeSource
@@ -75,11 +74,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 private var debounceJob: MutableState<Job?> = mutableStateOf(null)
 private const val TAG = "HearingAidAdjustments"
 
-@SuppressLint("DefaultLocale")
-@ExperimentalHazeMaterialsApi
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
+fun UpdateHearingTestScreen() {
     val verticalScrollState = rememberScrollState()
     val attManager = ServiceManager.getService()?.attManager
     if (attManager == null) {
@@ -138,17 +134,17 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                     HearingAidSettings(
                         leftEQ = leftEQ.value,
                         rightEQ = rightEQ.value,
-                        leftAmplification = leftAmplification.value,
-                        rightAmplification = rightAmplification.value,
-                        leftTone = tone.value,
-                        rightTone = tone.value,
+                        leftAmplification = leftAmplification.floatValue,
+                        rightAmplification = rightAmplification.floatValue,
+                        leftTone = tone.floatValue,
+                        rightTone = tone.floatValue,
                         leftConversationBoost = conversationBoostEnabled.value,
                         rightConversationBoost = conversationBoostEnabled.value,
-                        leftAmbientNoiseReduction = ambientNoiseReduction.value,
-                        rightAmbientNoiseReduction = ambientNoiseReduction.value,
-                        netAmplification = leftAmplification.value + rightAmplification.value / 2,
-                        balance = 0.5f + (rightAmplification.value - leftAmplification.value) / 2,
-                        ownVoiceAmplification = ownVoiceAmplification.value
+                        leftAmbientNoiseReduction = ambientNoiseReduction.floatValue,
+                        rightAmbientNoiseReduction = ambientNoiseReduction.floatValue,
+                        netAmplification = leftAmplification.floatValue + rightAmplification.floatValue / 2,
+                        balance = 0.5f + (rightAmplification.floatValue - leftAmplification.floatValue) / 2,
+                        ownVoiceAmplification = ownVoiceAmplification.floatValue
                     )
                 )
             }
@@ -161,11 +157,11 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                             leftEQ.value = parsed.leftEQ.copyOf()
                             rightEQ.value = parsed.rightEQ.copyOf()
                             conversationBoostEnabled.value = parsed.leftConversationBoost
-                            tone.value = parsed.leftTone
-                            ambientNoiseReduction.value = parsed.leftAmbientNoiseReduction
-                            ownVoiceAmplification.value = parsed.ownVoiceAmplification
-                            leftAmplification.value = parsed.leftAmplification
-                            rightAmplification.value = parsed.rightAmplification
+                            tone.floatValue = parsed.leftTone
+                            ambientNoiseReduction.floatValue = parsed.leftAmbientNoiseReduction
+                            ownVoiceAmplification.floatValue = parsed.ownVoiceAmplification
+                            leftAmplification.floatValue = parsed.leftAmplification
+                            rightAmplification.floatValue = parsed.rightAmplification
                             Log.d(TAG, "Updated hearing aid settings from notification")
                         } else {
                             Log.w(TAG, "Failed to parse hearing aid settings from notification")
@@ -181,31 +177,45 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 }
             }
 
-            LaunchedEffect(leftEQ.value, rightEQ.value, conversationBoostEnabled.value, initialLoadComplete.value, initialReadSucceeded.value, leftAmplification.value, rightAmplification.value, tone.value, ambientNoiseReduction.value, ownVoiceAmplification.value) {
+            LaunchedEffect(
+                leftEQ.value,
+                rightEQ.value,
+                conversationBoostEnabled.value,
+                initialLoadComplete.value,
+                initialReadSucceeded.value,
+                leftAmplification.floatValue,
+                rightAmplification.floatValue,
+                tone.floatValue,
+                ambientNoiseReduction.floatValue,
+                ownVoiceAmplification.floatValue
+            ) {
                 if (!initialLoadComplete.value) {
                     Log.d(TAG, "Initial device load not complete - skipping send")
                     return@LaunchedEffect
                 }
 
                 if (!initialReadSucceeded.value) {
-                    Log.d(TAG, "Initial device read not successful yet - skipping send until read succeeds")
+                    Log.d(
+                        TAG,
+                        "Initial device read not successful yet - skipping send until read succeeds"
+                    )
                     return@LaunchedEffect
                 }
 
                 hearingAidSettings.value = HearingAidSettings(
                     leftEQ = leftEQ.value,
                     rightEQ = rightEQ.value,
-                    leftAmplification = leftAmplification.value,
-                    rightAmplification = rightAmplification.value,
-                    leftTone = tone.value,
-                    rightTone = tone.value,
+                    leftAmplification = leftAmplification.floatValue,
+                    rightAmplification = rightAmplification.floatValue,
+                    leftTone = tone.floatValue,
+                    rightTone = tone.floatValue,
                     leftConversationBoost = conversationBoostEnabled.value,
                     rightConversationBoost = conversationBoostEnabled.value,
-                    leftAmbientNoiseReduction = ambientNoiseReduction.value,
-                    rightAmbientNoiseReduction = ambientNoiseReduction.value,
-                    netAmplification = leftAmplification.value + rightAmplification.value / 2,
-                    balance = 0.5f + (rightAmplification.value - leftAmplification.value) / 2,
-                    ownVoiceAmplification = ownVoiceAmplification.value
+                    leftAmbientNoiseReduction = ambientNoiseReduction.floatValue,
+                    rightAmbientNoiseReduction = ambientNoiseReduction.floatValue,
+                    netAmplification = leftAmplification.floatValue + rightAmplification.floatValue / 2,
+                    balance = 0.5f + (rightAmplification.floatValue - leftAmplification.floatValue) / 2,
+                    ownVoiceAmplification = ownVoiceAmplification.floatValue
                 )
                 Log.d(TAG, "Updated settings: ${hearingAidSettings.value}")
                 sendHearingAidSettings(attManager, hearingAidSettings.value, debounceJob)
@@ -240,14 +250,17 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                         leftEQ.value = parsedSettings.leftEQ.copyOf()
                         rightEQ.value = parsedSettings.rightEQ.copyOf()
                         conversationBoostEnabled.value = parsedSettings.leftConversationBoost
-                        tone.value = parsedSettings.leftTone
-                        ambientNoiseReduction.value = parsedSettings.leftAmbientNoiseReduction
-                        ownVoiceAmplification.value = parsedSettings.ownVoiceAmplification
-                        leftAmplification.value = parsedSettings.leftAmplification
-                        rightAmplification.value = parsedSettings.rightAmplification
+                        tone.floatValue = parsedSettings.leftTone
+                        ambientNoiseReduction.floatValue = parsedSettings.leftAmbientNoiseReduction
+                        ownVoiceAmplification.floatValue = parsedSettings.ownVoiceAmplification
+                        leftAmplification.floatValue = parsedSettings.leftAmplification
+                        rightAmplification.floatValue = parsedSettings.rightAmplification
                         initialReadSucceeded.value = true
                     } else {
-                        Log.d(TAG, "Failed to read/parse initial hearing aid settings after ${initialReadAttempts.intValue} attempts")
+                        Log.d(
+                            TAG,
+                            "Failed to read/parse initial hearing aid settings after ${initialReadAttempts.intValue} attempts"
+                        )
                     }
                 } catch (e: IOException) {
                     e.printStackTrace()
@@ -256,7 +269,8 @@ fun UpdateHearingTestScreen(@Suppress("unused") navController: NavController) {
                 }
             }
 
-            val frequencies = listOf("250Hz", "500Hz", "1kHz", "2kHz", "3kHz", "4kHz", "6kHz", "8kHz")
+            val frequencies =
+                listOf("250Hz", "500Hz", "1kHz", "2kHz", "3kHz", "4kHz", "6kHz", "8kHz")
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

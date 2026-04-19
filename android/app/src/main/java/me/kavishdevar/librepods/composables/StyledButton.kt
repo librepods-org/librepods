@@ -55,7 +55,7 @@ import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.refraction
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import kotlinx.coroutines.launch
@@ -146,7 +146,12 @@ half4 main(float2 coord) {
                         effects = {
                             vibrancy()
                             blur(2f.dp.toPx())
-                            refraction(12f.dp.toPx(), 24f.dp.toPx())
+                            lens(
+                                refractionHeight = 12f.dp.toPx(),
+                                refractionAmount = 24f.dp.toPx(),
+                                depthEffect = true,
+                                chromaticAberration = true
+                            )
                         },
                         layerBlock = {
                             val width = size.width

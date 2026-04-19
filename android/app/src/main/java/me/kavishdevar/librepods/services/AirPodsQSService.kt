@@ -244,8 +244,10 @@ class AirPodsQSService : TileService() {
 
     private fun getNextAncMode(): Int {
         val availableModes = getAvailableModes()
+        Log.d("AirPodsQSService", "availableModes: $availableModes, currentAncMode: $currentAncMode")
         val currentIndex = availableModes.indexOf(currentAncMode)
         val nextIndex = (currentIndex + 1) % availableModes.size
+        Log.d("AirPodsQSService", "nextIndex: $nextIndex")
         return availableModes[nextIndex]
     }
 

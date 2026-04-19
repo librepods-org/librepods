@@ -63,8 +63,7 @@ import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.refractionWithDispersion
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.launch
@@ -78,13 +77,13 @@ import kotlin.math.tanh
 
 @Composable
 fun StyledIconButton(
-    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     icon: String,
-    darkMode: Boolean,
     tint: Color = Color.Unspecified,
     backdrop: LayerBackdrop = rememberLayerBackdrop(),
-    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
+    val darkMode = isSystemInDarkTheme()
     val animationScope = rememberCoroutineScope()
     val progressAnimationSpec = spring(0.5f, 300f, 0.001f)
     val offsetAnimationSpec = spring(1f, 300f, Offset.VisibilityThreshold)
@@ -218,8 +217,12 @@ half4 main(float2 coord) {
                     }
                 },
                 effects = {
-                    refractionWithDispersion(6f.dp.toPx(), size.height / 2f)
-                    // blur(24f, TileMode.Decal)
+                    lens(
+                        refractionHeight = 6f.dp.toPx(),
+                        refractionAmount = size.height / 2f,
+                        depthEffect = true,
+                        chromaticAberration = true
+                    )
                 },
             )
             .pointerInput(animationScope) {

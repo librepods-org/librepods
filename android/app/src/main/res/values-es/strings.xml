@@ -206,10 +206,6 @@
     <string name="environmental_noise">Ruido ambiental</string>
     <string name="reconnect_to_last_device">Reconectar al último dispositivo conectado</string>
     <string name="disconnect">Desconectar</string>
-    <string name="support_me">Apóyame</string>
-    <string name="never_show_again">No volver a mostrar</string>
-    <string name="support_dialog_description">Hace poco perdí mi AirPod izquierdo. Si LibrePods te ha resultado útil, considera apoyarme en GitHub Sponsors para que pueda comprar un reemplazo y seguir trabajando en este proyecto; incluso una pequeña donación es de gran ayuda. ¡Gracias por tu apoyo!</string>
-    <string name="support_librepods">Apoya a LibrePods</string>
     <string name="listening_mode_off_description">Desactiva la gestión del ruido</string>
     <string name="listening_mode_transparency_description">Deja entrar los sonidos externos</string>
     <string name="listening_mode_adaptive_description">Ajuste dinámico del ruido externo</string>

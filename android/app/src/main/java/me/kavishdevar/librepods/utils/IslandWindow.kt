@@ -240,6 +240,7 @@ class IslandWindow(private val context: Context) {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT
         )
+
         containerView.addView(islandView, containerParams)
 
         params = WindowManager.LayoutParams(
@@ -379,7 +380,11 @@ class IslandWindow(private val context: Context) {
             videoView.start()
         }
 
-        windowManager.addView(containerView, params)
+        try {
+            windowManager.addView(containerView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         islandView.post {
             initialHeight = islandView.height

@@ -18,6 +18,7 @@
 
 package me.kavishdevar.librepods.screens
 
+// import me.kavishdevar.librepods.utils.RadareOffsetFinder
 import android.annotation.SuppressLint
 import android.util.Log
 import androidx.compose.foundation.background
@@ -43,6 +44,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,23 +61,22 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import kotlinx.coroutines.delay
+import me.kavishdevar.librepods.BuildConfig
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.composables.StyledIconButton
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledSlider
 import me.kavishdevar.librepods.composables.StyledToggle
 import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.ATTHandles
-// import me.kavishdevar.librepods.utils.RadareOffsetFinder
 import me.kavishdevar.librepods.utils.TransparencySettings
 import me.kavishdevar.librepods.utils.parseTransparencySettingsResponse
 import me.kavishdevar.librepods.utils.sendTransparencySettings
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import java.io.IOException
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -84,20 +86,21 @@ private const val TAG = "TransparencySettings"
 @ExperimentalHazeMaterialsApi
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun TransparencySettingsScreen(navController: NavController) {
+fun TransparencySettingsScreen(viewModel: AirPodsViewModel) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
     val verticalScrollState = rememberScrollState()
+
     val attManager = ServiceManager.getService()?.attManager ?: return
-    val aacpManager = remember { ServiceManager.getService()?.aacpManager }
-    val isSdpOffsetAvailable = remember { mutableStateOf(false) } // always available rn, for testing without radare
-//         remember { mutableStateOf(RadareOffsetFinder.isSdpOffsetAvailable()) }
 
     val trackColor = if (isDarkTheme) Color(0xFFB3B3B3) else Color(0xFF929491)
     val activeTrackColor = if (isDarkTheme) Color(0xFF007AFF) else Color(0xFF3C6DF5)
     val thumbColor = if (isDarkTheme) Color(0xFFFFFFFF) else Color(0xFFFFFFFF)
 
     val backdrop = rememberLayerBackdrop()
+
+
+    val state by viewModel.uiState.collectAsState()
 
     StyledScaffold(
         title = stringResource(R.string.customize_transparency_mode)
@@ -205,7 +208,7 @@ fun TransparencySettingsScreen(navController: NavController) {
                     balance = balanceSliderValue.floatValue
                 )
                 Log.d("TransparencySettings", "Updated settings: ${transparencySettings.value}")
-                sendTransparencySettings(attManager, transparencySettings.value)
+                sendTransparencySettings(viewModel::setATTCharacteristicValue, transparencySettings.value)
             }
 
             DisposableEffect(Unit) {
@@ -222,18 +225,14 @@ fun TransparencySettingsScreen(navController: NavController) {
 
                     // If we have an AACP manager, prefer its EQ data to populate EQ controls first
                     try {
-                        if (aacpManager != null) {
-                            Log.d(TAG, "Found AACPManager, reading cached EQ data")
-                            val aacpEQ = aacpManager.eqData
-                            if (aacpEQ.isNotEmpty()) {
-                                eq.value = aacpEQ.copyOf()
-                                phoneMediaEQ.value = aacpEQ.copyOf()
-                                Log.d(TAG, "Populated EQ from AACPManager: ${aacpEQ.toList()}")
-                            } else {
-                                Log.d(TAG, "AACPManager EQ data empty")
-                            }
+                        Log.d(TAG, "Found AACPManager, reading cached EQ data")
+                        val aacpEQ = state.eqData
+                        if (aacpEQ.isNotEmpty()) {
+                            eq.value = aacpEQ.copyOf()
+                            phoneMediaEQ.value = aacpEQ.copyOf()
+                            Log.d(TAG, "Populated EQ from AACPManager: ${aacpEQ.toList()}")
                         } else {
-                            Log.d(TAG, "No AACPManager available")
+                            Log.d(TAG, "AACPManager EQ data empty")
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Error reading EQ from AACPManager: ${e.message}")
@@ -277,18 +276,19 @@ fun TransparencySettingsScreen(navController: NavController) {
             }
 
             // Only show transparency mode section if SDP offset is available
-            if (isSdpOffsetAvailable.value) {
+            if (BuildConfig.FLAVOR == "xposed") {
                 StyledToggle(
                     label = stringResource(R.string.transparency_mode),
-                    checkedState = enabled,
+                    checked = enabled.value,
                     independent = true,
-                    description = stringResource(R.string.customize_transparency_mode_description)
+                    description = stringResource(R.string.customize_transparency_mode_description),
+                    onCheckedChange = { enabled.value = it }
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 StyledSlider(
                     label = stringResource(R.string.amplification),
                     valueRange = -1f..1f,
-                    mutableFloatState = amplificationSliderValue,
+                    value = amplificationSliderValue.floatValue,
                     onValueChange = {
                         amplificationSliderValue.floatValue = it
                     },
@@ -300,7 +300,7 @@ fun TransparencySettingsScreen(navController: NavController) {
                 StyledSlider(
                     label = stringResource(R.string.balance),
                     valueRange = -1f..1f,
-                    mutableFloatState = balanceSliderValue,
+                    value = balanceSliderValue.floatValue,
                     onValueChange = {
                         balanceSliderValue.floatValue = it
                     },
@@ -313,7 +313,7 @@ fun TransparencySettingsScreen(navController: NavController) {
                 StyledSlider(
                     label = stringResource(R.string.tone),
                     valueRange = -1f..1f,
-                    mutableFloatState = toneSliderValue,
+                    value = toneSliderValue.floatValue,
                     onValueChange = {
                         toneSliderValue.floatValue = it
                     },
@@ -325,7 +325,7 @@ fun TransparencySettingsScreen(navController: NavController) {
                 StyledSlider(
                     label = stringResource(R.string.ambient_noise_reduction),
                     valueRange = 0f..1f,
-                    mutableFloatState = ambientNoiseReductionSliderValue,
+                    value = ambientNoiseReductionSliderValue.floatValue,
                     onValueChange = {
                         ambientNoiseReductionSliderValue.floatValue = it
                     },
@@ -336,14 +336,12 @@ fun TransparencySettingsScreen(navController: NavController) {
 
                 StyledToggle(
                     label = stringResource(R.string.conversation_boost),
-                    checkedState = conversationBoostEnabled,
+                    checked = conversationBoostEnabled.value,
                     independent = true,
-                    description = stringResource(R.string.conversation_boost_description)
+                    description = stringResource(R.string.conversation_boost_description),
+                    onCheckedChange = { conversationBoostEnabled.value = it }
                 )
-            }
 
-            // Only show transparency mode EQ section if SDP offset is available
-            if (isSdpOffsetAvailable.value) {
                 Text(
                     text = stringResource(R.string.equalizer),
                     style = TextStyle(

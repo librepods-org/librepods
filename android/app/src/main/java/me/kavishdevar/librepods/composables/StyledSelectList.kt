@@ -48,7 +48,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.kavishdevar.librepods.R
@@ -59,18 +58,9 @@ data class SelectItem(
     val iconRes: Int? = null,
     val selected: Boolean,
     val onClick: () -> Unit,
+    val visible: Boolean = true,
     val enabled: Boolean = true
 )
-
-data class SelectItem2(
-    val name: String,
-    val description: String? = null,
-    val iconRes: Int? = null,
-    val selected: () -> Boolean,
-    val onClick: () -> Unit,
-    val enabled: Boolean = true
-)
-
 
 @Composable
 fun StyledSelectList(
@@ -87,18 +77,19 @@ fun StyledSelectList(
             .background(backgroundColor, RoundedCornerShape(28.dp)),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        val visibleItems = items.filter { it.enabled }
+        val visibleItems = items.filter { it.visible }
         visibleItems.forEachIndexed { index, item ->
             val isFirst = index == 0
             val isLast = index == visibleItems.size - 1
             val hasIcon = item.iconRes != null
 
             val shape = when {
+                isFirst && isLast -> RoundedCornerShape(28.dp)
                 isFirst -> RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
                 isLast -> RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
                 else -> RoundedCornerShape(0.dp)
             }
-            var itemBackgroundColor by remember { mutableStateOf(backgroundColor) }
+            var itemBackgroundColor by remember { mutableStateOf(if (item.enabled) backgroundColor else if (isDarkTheme) Color(0x40050505) else Color(0x40D9D9D9)) }
             val animatedBackgroundColor by animateColorAsState(targetValue = itemBackgroundColor, animationSpec = tween(durationMillis = 500))
 
             Row(
@@ -108,10 +99,13 @@ fun StyledSelectList(
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onPress = {
-                                itemBackgroundColor = if (isDarkTheme) Color(0x40888888) else Color(0x40D9D9D9)
-                                tryAwaitRelease()
-                                itemBackgroundColor = backgroundColor
-                                item.onClick()
+                                if (item.enabled) {
+                                    itemBackgroundColor =
+                                        if (isDarkTheme) Color(0x40888888) else Color(0x40D9D9D9)
+                                    tryAwaitRelease()
+                                    itemBackgroundColor = backgroundColor
+                                    item.onClick()
+                                }
                             }
                         )
                     }
@@ -121,7 +115,7 @@ fun StyledSelectList(
             ) {
                 if (hasIcon) {
                     Icon(
-                        painter = painterResource(item.iconRes!!),
+                        painter = painterResource(item.iconRes),
                         contentDescription = "Icon",
                         tint = Color(0xFF007AFF),
                         modifier = Modifier

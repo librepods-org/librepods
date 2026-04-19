@@ -40,70 +40,76 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.composables.NavigationButton
-import me.kavishdevar.librepods.services.ServiceManager
-import me.kavishdevar.librepods.utils.Capability
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 @Composable
-fun HearingHealthSettings(navController: NavController) {
-    val service = ServiceManager.getService()
-    if (service == null) return
-    val airpodsInstance = service.airpodsInstance
-    if (airpodsInstance == null) return
-    if (airpodsInstance.model.capabilities.contains(Capability.HEARING_AID)) {
-        val isDarkTheme = isSystemInDarkTheme()
-        val textColor = if (isDarkTheme) Color.White else Color.Black
-        val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+fun HearingHealthSettings(
+    navController: NavController,
+    hasPPECapability: Boolean,
+    hasHearingAidCapability: Boolean,
+    isXposed: Boolean
+) {
+    val isDarkTheme = isSystemInDarkTheme()
+    val textColor = if (isDarkTheme) Color.White else Color.Black
+    val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+    val shouldShowHearingAid = hasHearingAidCapability && isXposed
 
-        if (airpodsInstance.model.capabilities.contains(Capability.PPE)) {
-            Box(
+    if (hasPPECapability && shouldShowHearingAid) {
+        Box(
+            modifier = Modifier
+                .background(if (isDarkTheme) Color(0xFF000000) else Color(0xFFF2F2F7))
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+        ){
+            Text(
+                text = stringResource(R.string.hearing_health),
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor.copy(alpha = 0.6f)
+                )
+            )
+        }
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(28.dp))
+                .fillMaxWidth()
+                .background(backgroundColor, RoundedCornerShape(28.dp))
+                .padding(top = 2.dp)
+        ) {
+            NavigationButton(
+                to = "hearing_protection",
+                name = stringResource(R.string.hearing_protection),
+                navController = navController,
+                independent = false
+            )
+
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = Color(0x40888888),
                 modifier = Modifier
-                    .background(if (isDarkTheme) Color(0xFF000000) else Color(0xFFF2F2F7))
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ){
-                Text(
-                    text = stringResource(R.string.hearing_health),
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textColor.copy(alpha = 0.6f)
-                    )
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(28.dp))
-                    .fillMaxWidth()
-                    .background(backgroundColor, RoundedCornerShape(28.dp))
-                    .padding(top = 2.dp)
-            ) {
-                NavigationButton(
-                    to = "hearing_protection",
-                    name = stringResource(R.string.hearing_protection),
-                    navController = navController,
-                    independent = false
-                )
-                HorizontalDivider(
-                    thickness = 1.dp,
-                    color = Color(0x40888888),
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp)
-                )
-                
-                NavigationButton(
-                    to = "hearing_aid",
-                    name = stringResource(R.string.hearing_aid),
-                    navController = navController,
-                    independent = false
-                )
-            }
-        } else {
+                    .padding(horizontal = 12.dp)
+            )
+
+
             NavigationButton(
                 to = "hearing_aid",
                 name = stringResource(R.string.hearing_aid),
-                navController = navController
+                navController = navController,
+                independent = false
             )
         }
+    } else if (shouldShowHearingAid) {
+        NavigationButton(
+            to = "hearing_aid",
+            name = stringResource(R.string.hearing_aid),
+            navController = navController
+        )
+    } else if (hasPPECapability) {
+        NavigationButton(
+            to = "hearing_protection",
+            name = stringResource(R.string.hearing_protection),
+            title = stringResource(R.string.hearing_health),
+            navController = navController
+        )
     }
 }

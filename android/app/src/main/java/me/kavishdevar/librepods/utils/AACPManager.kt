@@ -55,6 +55,7 @@ class AACPManager {
             const val TIPI_3: Byte = 0x0C // Don't know this one
             const val SMART_ROUTING_RESP: Byte = 0x11
             const val SEND_CONNECTED_MAC: Byte = 0x14
+            const val AUDIO_SOURCE_2: Byte = 0x0C // seems redundant?
         }
 
         private val HEADER_BYTES = byteArrayOf(0x04, 0x00, 0x04, 0x00)
@@ -216,7 +217,7 @@ class AACPManager {
     var audioSource: AudioSource? = null
         private set
 
-    var eqData = FloatArray(8) { 0.0f }
+    var eqData = FloatArray(8)
         private set
 
     var eqOnPhone: Boolean = false
@@ -265,6 +266,7 @@ class AACPManager {
         fun onConnectedDevicesReceived(connectedDevices: List<ConnectedDevice>)
         fun onOwnershipToFalseRequest(sender: String, reasonReverseTapped: Boolean)
         fun onShowNearbyUI(sender: String)
+        fun onEQPacketReceived(eqData: FloatArray)
     }
 
     fun parseStemPressResponse(data: ByteArray): Pair<StemPressType, StemPressBudType> {
@@ -458,21 +460,27 @@ class AACPManager {
                         controlCommand.value.joinToString(" ") { "%02X".format(it) }
                     }"
                 )
-                Log.d(
-                    TAG, "Control command list is now: ${
-                    controlCommandStatusList.joinToString(", ") { it ->
-                        "${it.identifier.name} (${it.identifier.value.toHexString()}) - ${
-                            it.value.joinToString(
-                                " "
-                            ) { "%02X".format(it) }
-                        }"
+
+                val controlCommandListText = try {
+                        controlCommandStatusList.joinToString(", ") { it ->
+                            "${it.identifier.name} (${it.identifier.value.toHexString()}) - ${
+                                it.value.joinToString(
+                                    " "
+                                ) { "%02X".format(it) }
+                            }"
+                        }
+                    } catch (e: Exception) {
+                        e.message
                     }
-                }")
+
+                Log.d(
+                    TAG, "Control command list is now: $controlCommandListText")
 
                 val controlCommandIdentifier =
                     ControlCommandIdentifiers.fromByte(controlCommand.identifier)
                 if (controlCommandIdentifier != null) {
                     controlCommandListeners[controlCommandIdentifier]?.forEach { listener ->
+                        Log.d(TAG, "calling listener for ${controlCommandIdentifier.name}")
                         listener.onControlCommandReceived(controlCommand)
                     }
                 } else {
@@ -585,7 +593,7 @@ class AACPManager {
 
                 eqOnMedia = (packet[10] == 0x01.toByte())
                 eqOnPhone = (packet[11] == 0x01.toByte())
-                // there are 4 eqs. i am not sure what those are for, maybe all 4 listening modes, or maybe phone+media left+right, but then there shouldn't be another flag for phone/media enabled. just directly the EQ... weird.
+                // there are 4 eqs. i am not sure what those are for, maybe all 4 listening modes, or maybe phone+media left+right, but then there shouldn't be another flag for phone/media visible. just directly the EQ... weird.
                 // the EQs are little endian floats
                 val eq1 = ByteBuffer.wrap(packet, 12, 32).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
                 val eq2 = ByteBuffer.wrap(packet, 44, 32).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
@@ -594,11 +602,14 @@ class AACPManager {
 
                 // for now, taking just the first EQ
                 eqData = FloatArray(8) { i -> eq1.get(i) }
+
                 Log.d(TAG, "EQ Data set to: ${eqData.toList()}, eqOnPhone: $eqOnPhone, eqOnMedia: $eqOnMedia")
+
+                callback?.onEQPacketReceived(eqData)
             }
 
             Opcodes.INFORMATION -> {
-                Log.e(TAG, "Parsing Information Packet")
+                Log.d(TAG, "Parsing Information Packet")
                 val information = parseInformationPacket(packet)
                 callback?.onDeviceInformationReceived(information)
             }

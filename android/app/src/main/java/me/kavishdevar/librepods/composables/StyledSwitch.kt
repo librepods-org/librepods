@@ -19,7 +19,7 @@
 package me.kavishdevar.librepods.composables
 
 import android.content.res.Configuration
-import androidx.compose.animation.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
@@ -68,7 +68,7 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.refractionWithDispersion
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.coroutineScope
@@ -100,22 +100,18 @@ fun StyledSwitch(
     val density = LocalDensity.current
     val animationScope = rememberCoroutineScope()
     val progressAnimationSpec = spring(0.5f, 300f, 0.001f)
-    val colorAnimationSpec = tween<Color>(200, easing = FastOutSlowInEasing)
     val progressAnimation = remember { Animatable(0f) }
     val innerShadowLayer = rememberGraphicsLayer().apply {
         compositingStrategy = CompositingStrategy.Offscreen
     }
-    val animatedTrackColor = remember { Animatable(if (checked) onColor else offColor) }
+    val targetColor = if (checked) onColor else offColor
+    val animatedTrackColor by animateColorAsState(targetColor)
     val totalDrag = remember { mutableFloatStateOf(0f) }
     val tapThreshold = 10f
     val isFirstComposition = remember { mutableStateOf(true) }
     LaunchedEffect(checked) {
         if (!isFirstComposition.value) {
             coroutineScope {
-                launch {
-                    val targetColor = if (checked) onColor else offColor
-                    animatedTrackColor.animateTo(targetColor, colorAnimationSpec)
-                }
                 launch {
                     val targetFrac = if (checked) 1f else 0f
                     animatedFraction.animateTo(targetFrac, progressAnimationSpec)
@@ -140,7 +136,7 @@ fun StyledSwitch(
             modifier = Modifier
                 .layerBackdrop(switchBackdrop)
                 .clip(RoundedCornerShape(trackHeight / 2))
-                .background(animatedTrackColor.value)
+                .background(animatedTrackColor)
                 .width(trackWidth)
                 .height(trackHeight)
                 .onSizeChanged { trackWidthPx.floatValue = it.width.toFloat() }
@@ -262,7 +258,12 @@ fun StyledSwitch(
                         drawRect(Color.White.copy(1f - progress))
                     },
                     effects = {
-                        refractionWithDispersion(6f.dp.toPx(), size.height / 2f)
+                        lens(
+                            refractionHeight = 6f.dp.toPx(),
+                            refractionAmount = size.height / 2f,
+                            depthEffect = true,
+                            chromaticAberration = true
+                        )
                     }
                 )
                 .width(thumbWidth)

@@ -18,48 +18,31 @@
 
 package me.kavishdevar.librepods.screens
 
-import android.annotation.SuppressLint
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import kotlinx.coroutines.Job
+import me.kavishdevar.librepods.BuildConfig
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledToggle
-import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
 import me.kavishdevar.librepods.utils.ATTHandles
-import kotlin.io.encoding.ExperimentalEncodingApi
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 
-private var debounceJob: Job? = null
-
-@SuppressLint("DefaultLocale")
-@ExperimentalHazeMaterialsApi
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun HearingProtectionScreen(navController: NavController) {
-    val isDarkTheme = isSystemInDarkTheme()
-    val service = ServiceManager.getService()
-    if (service == null) return
-
-    val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
-    val textColor = if (isDarkTheme) Color.White else Color.Black
-
+fun HearingProtectionScreen(viewModel: AirPodsViewModel) {
     val backdrop = rememberLayerBackdrop()
-
+    val state by viewModel.uiState.collectAsState()
     StyledScaffold(
         title = stringResource(R.string.hearing_protection),
     ) { spacerHeight ->
@@ -71,20 +54,36 @@ fun HearingProtectionScreen(navController: NavController) {
         ) {
             Spacer(modifier = Modifier.height(spacerHeight))
 
-            StyledToggle(
-                title = stringResource(R.string.environmental_noise),
-                label = stringResource(R.string.loud_sound_reduction),
-                description = stringResource(R.string.loud_sound_reduction_description),
-                attHandle = ATTHandles.LOUD_SOUND_REDUCTION
-            )
+            if (BuildConfig.FLAVOR == "xposed") {
+                StyledToggle(
+                    title = stringResource(R.string.environmental_noise),
+                    label = stringResource(R.string.loud_sound_reduction),
+                    description = stringResource(R.string.loud_sound_reduction_description),
+                    checked = viewModel.getATTCharacteristicValue(ATTHandles.LOUD_SOUND_REDUCTION)
+                        ?.get(0)?.toInt() == 1,
+                    onCheckedChange = {
+                        viewModel.setATTCharacteristicValue(
+                            ATTHandles.LOUD_SOUND_REDUCTION,
+                            byteArrayOf(if (it) 1.toByte() else 0.toByte())
+                        )
+                    }
+//                attHandle = ATTHandles.LOUD_SOUND_REDUCTION
+                )
 
-            Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+            }
             StyledToggle(
                 title = stringResource(R.string.workspace_use),
                 label = stringResource(R.string.ppe),
                 description = stringResource(R.string.workspace_use_description),
-                controlCommandIdentifier = AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG
-            )
+                checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG]?.getOrNull(
+                    0
+                )?.toInt() == 1,
+                onCheckedChange = {
+                    viewModel.setControlCommandBoolean(
+                        AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG, it
+                    )
+                })
         }
     }
 }

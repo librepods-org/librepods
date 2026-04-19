@@ -35,8 +35,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,19 +52,21 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 @ExperimentalHazeMaterialsApi
 @Composable
-fun MicrophoneSettings(hazeState: HazeState) {
+fun MicrophoneSettings(
+    hazeState: HazeState,
+    micModeValue: Byte,
+    onMicModeValueChanged: (Byte) -> Unit
+) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
     val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
@@ -77,11 +77,6 @@ fun MicrophoneSettings(hazeState: HazeState) {
             .background(backgroundColor, RoundedCornerShape(28.dp))
             .padding(top = 2.dp)
     ) {
-        val service = ServiceManager.getService()!!
-        val micModeValue = service.aacpManager.controlCommandStatusList.find {
-            it.identifier == AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE
-        }?.value?.get(0) ?: 0x00.toByte()
-
         var selectedMode by remember {
             mutableStateOf(
                 when (micModeValue) {
@@ -111,22 +106,6 @@ fun MicrophoneSettings(hazeState: HazeState) {
                     }
                     Log.d("MicrophoneSettings", "Microphone mode received: $selectedMode")
                 }
-            }
-        }
-
-        LaunchedEffect(Unit) {
-            service.aacpManager.registerControlCommandListener(
-                AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE,
-                listener
-            )
-        }
-
-        DisposableEffect(Unit) {
-            onDispose {
-                service.aacpManager.unregisterControlCommandListener(
-                    AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE,
-                    listener
-                )
             }
         }
 
@@ -194,10 +173,11 @@ fun MicrophoneSettings(hazeState: HazeState) {
                                         options[2] -> 0x02
                                         else -> 0x00
                                     }
-                                    service.aacpManager.sendControlCommand(
-                                        AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE.value,
-                                        byteArrayOf(byteValue.toByte())
-                                    )
+//                                    service.aacpManager.sendControlCommand(
+//                                        AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE.value,
+//                                        byteArrayOf(byteValue.toByte())
+//                                    )
+                                    onMicModeValueChanged(byteValue.toByte())
                                 }
                             }
                             parentHoveredIndex = null
@@ -277,21 +257,11 @@ fun MicrophoneSettings(hazeState: HazeState) {
                             microphoneAlwaysLeftText -> 0x02
                             else -> 0x00
                         }
-                        service.aacpManager.sendControlCommand(
-                            AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE.value,
-                            byteArrayOf(byteValue.toByte())
-                        )
+                        onMicModeValueChanged(byteValue.toByte())
                     },
                     hazeState = hazeState
                 )
             }
         }
     }
-}
-
-@ExperimentalHazeMaterialsApi
-@Preview
-@Composable
-fun MicrophoneSettingsPreview() {
-    MicrophoneSettings(HazeState())
 }

@@ -208,10 +208,6 @@
     <string name="environmental_noise">環境噪音</string>
     <string name="reconnect_to_last_device">重新連接至上次連接的裝置</string>
     <string name="disconnect">中斷連線</string>
-    <string name="support_me">贊助我</string>
-    <string name="never_show_again">不再顯示</string>
-    <string name="support_dialog_description">我最近弄丟了左耳的 AirPod。如果你覺得 LibrePods 很好用，請考慮在 GitHub Sponsors 上贊助我，讓我能買個替換品並繼續開發這個專案，一點點金額也能帶來很大的幫助。感謝你的支持！</string>
-    <string name="support_librepods">贊助 LibrePods</string>
     <string name="listening_mode_off_description">關閉噪音管理</string>
     <string name="listening_mode_transparency_description">允許外部聲音</string>
     <string name="listening_mode_adaptive_description">動態調整外部噪音</string>

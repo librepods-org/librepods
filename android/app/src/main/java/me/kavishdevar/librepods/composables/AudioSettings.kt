@@ -42,25 +42,32 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.services.ServiceManager
-import me.kavishdevar.librepods.utils.AACPManager
-import me.kavishdevar.librepods.utils.ATTHandles
-import me.kavishdevar.librepods.utils.Capability
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 @Composable
-fun AudioSettings(navController: NavController) {
+fun AudioSettings(
+    navController: NavController,
+    adaptiveVolumeCapability: Boolean,
+    conversationalAwarenessCapability: Boolean,
+    loudSoundReductionCapability: Boolean,
+    adaptiveAudioCapability: Boolean,
+
+    adaptiveVolumeChecked: Boolean,
+    onAdaptiveVolumeCheckedChange: (Boolean) -> Unit,
+
+    conversationalAwarenessChecked: Boolean,
+    onConversationalAwarenessCheckedChange: (Boolean) -> Unit,
+
+    loudSoundReductionChecked: Boolean,
+    onLoudSoundReductionCheckedChange: (Boolean) -> Unit,
+
+    isXposed: Boolean,
+    isPremium: Boolean
+) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
-    val service = ServiceManager.getService()
-    if (service == null) return
-    val airpodsInstance = service.airpodsInstance
-    if (airpodsInstance == null) return
-    if (!airpodsInstance.model.capabilities.contains(Capability.ADAPTIVE_VOLUME) &&
-        !airpodsInstance.model.capabilities.contains(Capability.CONVERSATION_AWARENESS) &&
-        !airpodsInstance.model.capabilities.contains(Capability.LOUD_SOUND_REDUCTION) &&
-        !airpodsInstance.model.capabilities.contains(Capability.ADAPTIVE_AUDIO)
-    ) {
+
+    if (!adaptiveVolumeCapability && !conversationalAwarenessCapability && !loudSoundReductionCapability && !adaptiveAudioCapability) {
         return
     }
     Box(
@@ -88,12 +95,14 @@ fun AudioSettings(navController: NavController) {
             .padding(top = 2.dp)
     ) {
 
-        if (airpodsInstance.model.capabilities.contains(Capability.ADAPTIVE_VOLUME)) {
+        if (adaptiveVolumeCapability) {
             StyledToggle(
                 label = stringResource(R.string.personalized_volume),
                 description = stringResource(R.string.personalized_volume_description),
-                controlCommandIdentifier = AACPManager.Companion.ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG,
-                independent = false
+                independent = false,
+                checked = adaptiveVolumeChecked,
+                onCheckedChange = onAdaptiveVolumeCheckedChange,
+                enabled = isPremium
             )
 
             HorizontalDivider(
@@ -104,12 +113,14 @@ fun AudioSettings(navController: NavController) {
             )
         }
 
-        if (airpodsInstance.model.capabilities.contains(Capability.CONVERSATION_AWARENESS)) {
+        if (conversationalAwarenessCapability) {
             StyledToggle(
                 label = stringResource(R.string.conversational_awareness),
                 description = stringResource(R.string.conversational_awareness_description),
-                controlCommandIdentifier = AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG,
-                independent = false
+                independent = false,
+                checked = conversationalAwarenessChecked,
+                onCheckedChange = onConversationalAwarenessCheckedChange,
+                enabled = isPremium
             )
             HorizontalDivider(
                 thickness = 1.dp,
@@ -119,12 +130,13 @@ fun AudioSettings(navController: NavController) {
             )
         }
 
-        if (airpodsInstance.model.capabilities.contains(Capability.LOUD_SOUND_REDUCTION)){
+        if (loudSoundReductionCapability && isXposed){
             StyledToggle(
                 label = stringResource(R.string.loud_sound_reduction),
                 description = stringResource(R.string.loud_sound_reduction_description),
-                attHandle = ATTHandles.LOUD_SOUND_REDUCTION,
-                independent = false
+                independent = false,
+                checked = loudSoundReductionChecked,
+                onCheckedChange = onLoudSoundReductionCheckedChange
             )
             HorizontalDivider(
                 thickness = 1.dp,
@@ -134,7 +146,7 @@ fun AudioSettings(navController: NavController) {
             )
         }
 
-        if (airpodsInstance.model.capabilities.contains(Capability.ADAPTIVE_AUDIO)) {
+        if (adaptiveAudioCapability) {
             NavigationButton(
                 to = "adaptive_strength",
                 name = stringResource(R.string.adaptive_audio),
@@ -148,5 +160,19 @@ fun AudioSettings(navController: NavController) {
 @Preview
 @Composable
 fun AudioSettingsPreview() {
-    AudioSettings(rememberNavController())
+    AudioSettings(
+        navController = rememberNavController(),
+        adaptiveVolumeCapability = true,
+        conversationalAwarenessCapability = true,
+        loudSoundReductionCapability = true,
+        adaptiveAudioCapability = true,
+        adaptiveVolumeChecked = true,
+        onAdaptiveVolumeCheckedChange = { },
+        conversationalAwarenessChecked = true,
+        onConversationalAwarenessCheckedChange = { },
+        loudSoundReductionChecked = true,
+        onLoudSoundReductionCheckedChange = { },
+        isXposed = true,
+        isPremium = true
+    )
 }

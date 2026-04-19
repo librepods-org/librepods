@@ -18,15 +18,11 @@
 
 package me.kavishdevar.librepods.composables
 
-import android.content.Context
-import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -35,13 +31,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -49,24 +43,22 @@ import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.constants.StemAction
 
 @Composable
-fun PressAndHoldSettings(navController: NavController) {
+fun PressAndHoldSettings(
+    navController: NavController,
+    leftAction: StemAction,
+    rightAction: StemAction
+) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
     val dividerColor = Color(0x40888888)
 
-    val context = LocalContext.current
-    val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-
-    val leftAction = sharedPreferences.getString("left_long_press_action", StemAction.CYCLE_NOISE_CONTROL_MODES.name)
-    val rightAction = sharedPreferences.getString("right_long_press_action", StemAction.CYCLE_NOISE_CONTROL_MODES.name)
-
-    val leftActionText = when (StemAction.valueOf(leftAction ?: StemAction.CYCLE_NOISE_CONTROL_MODES.name)) {
+    val leftActionText = when (leftAction) {
         StemAction.CYCLE_NOISE_CONTROL_MODES -> stringResource(R.string.noise_control)
         StemAction.DIGITAL_ASSISTANT -> "Digital Assistant"
         else -> "INVALID!!"
     }
 
-    val rightActionText = when (StemAction.valueOf(rightAction ?: StemAction.CYCLE_NOISE_CONTROL_MODES.name)) {
+    val rightActionText = when (rightAction) {
         StemAction.CYCLE_NOISE_CONTROL_MODES -> stringResource(R.string.noise_control)
         StemAction.DIGITAL_ASSISTANT -> "Digital Assistant"
         else -> "INVALID!!"
@@ -113,10 +105,4 @@ fun PressAndHoldSettings(navController: NavController) {
             currentState = rightActionText,
         )
     }
-}
-
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_YES)
-@Composable
-fun PressAndHoldSettingsPreview() {
-    PressAndHoldSettings(navController = NavController(LocalContext.current))
 }

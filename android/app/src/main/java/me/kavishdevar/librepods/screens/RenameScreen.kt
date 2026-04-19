@@ -53,26 +53,22 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.composables.StyledIconButton
 import me.kavishdevar.librepods.composables.StyledScaffold
-import me.kavishdevar.librepods.services.ServiceManager
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalHazeMaterialsApi::class)
 @Composable
-fun RenameScreen(navController: NavController) {
+fun RenameScreen(viewModel: AirPodsViewModel) {
     val sharedPreferences = LocalContext.current.getSharedPreferences("settings", Context.MODE_PRIVATE)
-    val isDarkTheme = isSystemInDarkTheme()
     val name = remember { mutableStateOf(TextFieldValue(sharedPreferences.getString("name", "") ?: "")) }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -115,7 +111,7 @@ fun RenameScreen(navController: NavController) {
                     onValueChange = {
                         name.value = it
                         sharedPreferences.edit {putString("name", it.text)}
-                        ServiceManager.getService()?.setName(it.text)
+                        viewModel.setName(it.text)
                     },
                     textStyle = TextStyle(
                         fontSize = 16.sp,
@@ -158,10 +154,4 @@ fun RenameScreen(navController: NavController) {
             }
         }
     }
-}
-
-@Preview
-@Composable
-fun RenameScreenPreview() {
-    RenameScreen(navController = NavController(LocalContext.current))
 }

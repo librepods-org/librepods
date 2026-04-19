@@ -37,8 +37,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -65,11 +66,11 @@ import me.kavishdevar.librepods.composables.ConfirmationDialog
 import me.kavishdevar.librepods.composables.NavigationButton
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledToggle
-import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
 import me.kavishdevar.librepods.utils.ATTHandles
 import me.kavishdevar.librepods.utils.parseTransparencySettingsResponse
 import me.kavishdevar.librepods.utils.sendTransparencySettings
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 private const val TAG = "AccessibilitySettings"
@@ -78,23 +79,22 @@ private const val TAG = "AccessibilitySettings"
 @ExperimentalHazeMaterialsApi
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun HearingAidScreen(navController: NavController) {
+fun HearingAidScreen(viewModel: AirPodsViewModel, navController: NavController) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
     val verticalScrollState  = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
-    val attManager = ServiceManager.getService()?.attManager ?: return
-
-    val aacpManager = remember { ServiceManager.getService()?.aacpManager }
 
     val showDialog = remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
     val initialLoad = remember { mutableStateOf(true) }
 
+    val state by viewModel.uiState.collectAsState()
+
     val hearingAidEnabled = remember {
-        val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-        val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-        mutableStateOf((aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte()))
+        val aidStatus = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID]
+        val assistStatus = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG]
+        mutableStateOf((aidStatus?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.getOrNull(0) == 0x01.toByte()))
     }
 
     val hazeStateS = remember { mutableStateOf(HazeState()) } // dont question this. i could possibly use something other than initializing it with an empty state and then replacing it with the the one provided by the scaffold
@@ -115,41 +115,16 @@ fun HearingAidScreen(navController: NavController) {
             hazeStateS.value = hazeState
             Spacer(modifier = Modifier.height(spacerHeight))
 
-            val hearingAidListener = remember {
-                object : AACPManager.ControlCommandListener {
-                    override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                        if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value ||
-                            controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG.value) {
-                            val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-                            val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-                            hearingAidEnabled.value = (aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte())
-                        }
-                    }
-                }
-            }
-
 //            val mediaAssistEnabled = remember { mutableStateOf(false) }
 //            val adjustMediaEnabled = remember { mutableStateOf(false) }
 //            val adjustPhoneEnabled = remember { mutableStateOf(false) }
-
-            LaunchedEffect(Unit) {
-                aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-                aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-            }
-
-            DisposableEffect(Unit) {
-                onDispose {
-                    aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-                    aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-                }
-            }
 
             LaunchedEffect(hearingAidEnabled.value) {
                 if (hearingAidEnabled.value && !initialLoad.value) {
                     showDialog.value = true
                 } else if (!hearingAidEnabled.value && !initialLoad.value) {
-                    aacpManager?.sendControlCommand(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value, byteArrayOf(0x01, 0x02))
-                    aacpManager?.sendControlCommand(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG.value, 0x02.toByte())
+                    viewModel.setControlCommandValue(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, byteArrayOf(0x01, 0x02))
+                    viewModel.setControlCommandByte(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, 0x02.toByte())
                     hearingAidEnabled.value = false
                 }
                 initialLoad.value = false
@@ -186,7 +161,8 @@ fun HearingAidScreen(navController: NavController) {
             ) {
                 StyledToggle(
                     label = stringResource(R.string.hearing_aid),
-                    checkedState = hearingAidEnabled,
+                    checked = hearingAidEnabled.value,
+                    onCheckedChange = { hearingAidEnabled.value = it },
                     independent = false
                 )
                 HorizontalDivider(
@@ -269,20 +245,24 @@ fun HearingAidScreen(navController: NavController) {
         dismissText = "Cancel",
         onConfirm = {
             showDialog.value = false
-            val enrolled = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }?.value?.getOrNull(0) == 0x01.toByte()
+            val enrolled = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID]?.getOrNull(0) == 0x01.toByte()
             if (!enrolled) {
-                aacpManager?.sendControlCommand(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value, byteArrayOf(0x01, 0x01))
+                viewModel.setControlCommandValue(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, byteArrayOf(0x01, 0x01))
             } else {
-                aacpManager.sendControlCommand(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value, byteArrayOf(0x01, 0x01))
+                viewModel.setControlCommandValue(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, byteArrayOf(0x01, 0x01))
             }
-            aacpManager?.sendControlCommand(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG.value, 0x01.toByte())
+            viewModel.setControlCommandByte(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, 0x01.toByte())
             hearingAidEnabled.value = true
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val data = attManager.read(ATTHandles.TRANSPARENCY)
+                    val data = viewModel.getATTCharacteristicValue(ATTHandles.TRANSPARENCY) ?: byteArrayOf()
+                    if (data.isEmpty()) {
+                        Log.w(TAG, "read failed")
+                        return@launch
+                    }
                     val parsed = parseTransparencySettingsResponse(data)
                     val disabledSettings = parsed.copy(enabled = false)
-                    sendTransparencySettings(attManager, disabledSettings)
+                    sendTransparencySettings(viewModel::setATTCharacteristicValue, disabledSettings)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error disabling transparency: ${e.message}")
                 }

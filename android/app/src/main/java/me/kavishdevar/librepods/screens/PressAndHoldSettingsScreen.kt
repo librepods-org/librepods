@@ -22,37 +22,25 @@ package me.kavishdevar.librepods.screens
 
 import android.content.Context
 import android.util.Log
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -61,59 +49,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.composables.SelectItem
-import me.kavishdevar.librepods.composables.StyledIconButton
+import me.kavishdevar.librepods.composables.StyledButton
 import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledSelectList
 import me.kavishdevar.librepods.constants.StemAction
 import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.AACPManager
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import kotlin.experimental.and
 import kotlin.io.encoding.ExperimentalEncodingApi
-
-@Composable
-fun RightDivider() {
-    HorizontalDivider(
-        thickness = 1.dp,
-        color = Color(0x40888888),
-        modifier = Modifier
-            .padding(start = 72.dp, end = 20.dp)
-    )
-}
-
-@Composable
-fun RightDividerNoIcon() {
-    HorizontalDivider(
-        thickness = 1.dp,
-        color = Color(0x40888888),
-        modifier = Modifier
-            .padding(start = 20.dp, end = 20.dp)
-    )
-}
 
 @ExperimentalHazeMaterialsApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LongPress(navController: NavController, name: String) {
+fun LongPress(viewModel: AirPodsViewModel, name: String) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
 
-    val modesByte = ServiceManager.getService()!!.aacpManager.controlCommandStatusList.find {
-        it.identifier == AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS
-    }?.value?.takeIf { it.isNotEmpty() }?.get(0)
+    val state by viewModel.uiState.collectAsState()
 
-    if (modesByte != null) {
-        Log.d("PressAndHoldSettingsScreen", "Current modes state: ${modesByte.toString(2)}")
-        Log.d("PressAndHoldSettingsScreen", "Off mode: ${(modesByte and 0x01) != 0.toByte()}")
-        Log.d("PressAndHoldSettingsScreen", "Transparency mode: ${(modesByte and 0x04) != 0.toByte()}")
-        Log.d("PressAndHoldSettingsScreen", "Noise Cancellation mode: ${(modesByte and 0x02) != 0.toByte()}")
-        Log.d("PressAndHoldSettingsScreen", "Adaptive mode: ${(modesByte and 0x08) != 0.toByte()}")
-    }
+    val modesByte = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS]?.get(0) ?: 0
+
+    Log.d("PressAndHoldSettingsScreen", "Current modes state: ${modesByte.toString(2)}")
+    Log.d("PressAndHoldSettingsScreen", "Off mode: ${(modesByte and 0x01) != 0.toByte()}")
+    Log.d("PressAndHoldSettingsScreen", "Transparency mode: ${(modesByte and 0x04) != 0.toByte()}")
+    Log.d("PressAndHoldSettingsScreen", "Noise Cancellation mode: ${(modesByte and 0x02) != 0.toByte()}")
+    Log.d("PressAndHoldSettingsScreen", "Adaptive mode: ${(modesByte and 0x08) != 0.toByte()}")
+
     val context = LocalContext.current
     val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     val prefKey = if (name.lowercase() == "left") "left_long_press_action" else "right_long_press_action"
@@ -124,9 +91,8 @@ fun LongPress(navController: NavController, name: String) {
     StyledScaffold(
         title = name
     ) { spacerHeight ->
-        val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
         Column (
-          modifier = Modifier
+            modifier = Modifier
               .layerBackdrop(backdrop)
               .fillMaxSize()
               .padding(top = 8.dp)
@@ -148,10 +114,35 @@ fun LongPress(navController: NavController, name: String) {
                     onClick = {
                         longPressAction = StemAction.DIGITAL_ASSISTANT
                         sharedPreferences.edit { putString(prefKey, StemAction.DIGITAL_ASSISTANT.name) }
-                    }
+                    },
+                    enabled = state.isPremium
                 )
             )
             StyledSelectList(items = actionItems)
+
+            if (!state.isPremium) {
+                Spacer(modifier = Modifier.height(24.dp))
+                StyledButton(
+                    onClick = {
+                        viewModel.purchase(context)
+                    },
+                    backdrop = rememberLayerBackdrop(),
+                    modifier = Modifier.fillMaxWidth(),
+                    maxScale = 0.05f,
+                    tint = Color(0xFF916100)
+                ) {
+                    Text(
+                        stringResource(R.string.unlock_all_features),
+                        style = TextStyle(
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = FontFamily(Font(R.font.sf_pro)),
+                            color = textColor
+                        ),
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             if (longPressAction == StemAction.CYCLE_NOISE_CONTROL_MODES) {
                 Spacer(modifier = Modifier.height(32.dp))
@@ -176,10 +167,11 @@ fun LongPress(navController: NavController, name: String) {
                 val allowOff = offListeningModeValue == 1.toByte()
                 Log.d("PressAndHoldSettingsScreen", "Allow Off option: $allowOff")
 
-                val initialByte = ServiceManager.getService()!!.aacpManager.controlCommandStatusList.find {
-                    it.identifier == AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS
-                }?.value?.takeIf { it.isNotEmpty() }?.get(0)?.toInt() ?: sharedPreferences.getInt("long_press_byte", 0b0101)
-                var currentByte by remember { mutableStateOf(initialByte) }
+                val initialByte = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS]
+                    ?.get(0)?.toInt()
+                    ?: sharedPreferences.getInt("long_press_byte", 0b0101)
+
+                var currentByte by remember { mutableIntStateOf(initialByte) }
 
                 val listeningModeItems = mutableListOf<SelectItem>()
                 if (allowOff) {
@@ -197,8 +189,8 @@ fun LongPress(navController: NavController, name: String) {
                                 } else {
                                     currentByte or bit
                                 }
-                                ServiceManager.getService()!!.aacpManager.sendControlCommand(
-                                    AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS.value,
+                                viewModel.setControlCommandByte(
+                                    AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS,
                                     newValue.toByte()
                                 )
                                 sharedPreferences.edit {
@@ -223,8 +215,8 @@ fun LongPress(navController: NavController, name: String) {
                             } else {
                                 currentByte or bit
                             }
-                            ServiceManager.getService()!!.aacpManager.sendControlCommand(
-                                AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS.value,
+                            viewModel.setControlCommandByte(
+                                AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS,
                                 newValue.toByte()
                             )
                             sharedPreferences.edit {
@@ -246,8 +238,8 @@ fun LongPress(navController: NavController, name: String) {
                             } else {
                                 currentByte or bit
                             }
-                            ServiceManager.getService()!!.aacpManager.sendControlCommand(
-                                AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS.value,
+                            viewModel.setControlCommandByte(
+                                AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS,
                                 newValue.toByte()
                             )
                             sharedPreferences.edit {
@@ -269,8 +261,8 @@ fun LongPress(navController: NavController, name: String) {
                             } else {
                                 currentByte or bit
                             }
-                            ServiceManager.getService()!!.aacpManager.sendControlCommand(
-                                AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS.value,
+                            viewModel.setControlCommandByte(
+                                AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS,
                                 newValue.toByte()
                             )
                             sharedPreferences.edit {
@@ -296,9 +288,7 @@ fun LongPress(navController: NavController, name: String) {
             }
         }
     }
-    Log.d("PressAndHoldSettingsScreen", "Current byte: ${ServiceManager.getService()!!.aacpManager.controlCommandStatusList.find {
-        it.identifier == AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE_CONFIGS
-    }?.value?.takeIf { it.isNotEmpty() }?.get(0)?.toString(2)}")
+    Log.d("PressAndHoldSettingsScreen", "Current byte: ${modesByte.toString(2)}")
 }
 
 fun countEnabledModes(byteValue: Int): Int {

@@ -18,6 +18,7 @@
 
 package me.kavishdevar.librepods.composables
 
+import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.util.Log
 import androidx.compose.animation.core.Animatable
@@ -43,7 +44,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -81,7 +81,7 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.refractionWithDispersion
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
@@ -203,10 +203,11 @@ class MomentumAnimation(
     }
 }
 
+@SuppressLint("UnrememberedMutableState")
 @Composable
 fun StyledSlider(
     label: String? = null,
-    mutableFloatState: MutableFloatState,
+    value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
     backdrop: Backdrop = rememberLayerBackdrop(),
@@ -217,23 +218,26 @@ fun StyledSlider(
     startLabel: String? = null,
     endLabel: String? = null,
     independent: Boolean = false,
-    description: String? = null
+    description: String? = null,
+    enabled: Boolean = true
 ) {
     val backgroundColor = if (isSystemInDarkTheme()) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
     val isLightTheme = !isSystemInDarkTheme()
-    val accentColor =
-        if (isLightTheme) Color(0xFF0088FF)
-        else Color(0xFF0091FF)
     val trackColor =
         if (isLightTheme) Color(0xFF787878).copy(0.2f)
         else Color(0xFF787880).copy(0.36f)
+    val accentColor =
+        if (enabled) {
+            if (isLightTheme) Color(0xFF0088FF)
+            else Color(0xFF0091FF)
+        } else {
+            trackColor
+        }
     val labelTextColor = if (isLightTheme) Color.Black else Color.White
 
-    val fraction by remember {
-        derivedStateOf {
-            ((mutableFloatState.floatValue - valueRange.start) / (valueRange.endInclusive - valueRange.start))
-                .fastCoerceIn(0f, 1f)
-        }
+    val fraction by derivedStateOf {
+        ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start))
+            .fastCoerceIn(0f, 1f)
     }
 
     val sliderBackdrop = rememberLayerBackdrop()
@@ -427,71 +431,87 @@ fun StyledSlider(
                                 )
                         translationY =  if (startLabel != null || endLabel != null) trackPositionState.floatValue + with(density) { 26.dp.toPx() } + size.height / 2f else trackPositionState.floatValue + with(density) { 8.dp.toPx() }
                     }
-                    .draggable(
-                        rememberDraggableState { delta ->
-                            val trackWidth = trackWidthState.floatValue
-                            if (trackWidth > 0f) {
-                                val targetFraction = fraction + delta / trackWidth
-                                val targetValue =
-                                    lerp(valueRange.start, valueRange.endInclusive, targetFraction)
-                                        .fastCoerceIn(valueRange.start, valueRange.endInclusive)
-                                val snappedValue = if (snapPoints.isNotEmpty()) snapIfClose(
-                                    targetValue,
-                                    snapPoints,
-                                    snapThreshold
-                                ) else targetValue
-                                onValueChange(snappedValue)
-                            }
-                        },
-                        Orientation.Horizontal,
-                        startDragImmediately = true,
-                        onDragStarted = {
-                            // Remove this block as momentumAnimation handles pressing
-                        },
-                        onDragStopped = {
-                            // Remove this block as momentumAnimation handles pressing
-                            onValueChange((mutableFloatState.floatValue * 100).roundToInt() / 100f)
-                        }
-                    )
-                    .then(momentumAnimation.modifier)
-                    .drawBackdrop(
-                        rememberCombinedBackdrop(backdrop, sliderBackdrop),
-                        { RoundedCornerShape(28.dp) },
-                        highlight = {
-                            val progress = momentumAnimation.progress
-                            Highlight.Ambient.copy(alpha = progress)
-                        },
-                        shadow = {
-                            Shadow(
-                                radius = 4f.dp,
-                                color = Color.Black.copy(0.05f)
-                            )
-                        },
-                        innerShadow = {
-                            val progress = momentumAnimation.progress
-                            InnerShadow(
-                                radius = 4f.dp * progress,
-                                alpha = progress
-                            )
-                        },
-                        layerBlock = {
-                            scaleX = momentumAnimation.scaleX
-                            scaleY = momentumAnimation.scaleY
-                            val velocity = momentumAnimation.velocity / 5000f
-                            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.15f, 0.15f)
-                            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.15f, 0.15f)
-                        },
-                        onDrawSurface = {
-                            val progress = momentumAnimation.progress
-                            drawRect(Color.White.copy(alpha = 1f - progress))
-                        },
-                        effects = {
-                            val progress = momentumAnimation.progress
-                            blur(8f.dp.toPx() * (1f - progress))
-                            refractionWithDispersion(
-                                height = 6f.dp.toPx() * progress,
-                                amount = size.height / 2f * progress
-                            )
+                    .then(
+                        if (enabled) {
+                            Modifier
+                                .draggable(
+                                    rememberDraggableState { delta ->
+                                        val trackWidth = trackWidthState.floatValue
+                                        if (trackWidth > 0f) {
+                                            val targetFraction = fraction + delta / trackWidth
+                                            val targetValue =
+                                                lerp(
+                                                    valueRange.start,
+                                                    valueRange.endInclusive,
+                                                    targetFraction
+                                                )
+                                                    .fastCoerceIn(
+                                                        valueRange.start,
+                                                        valueRange.endInclusive
+                                                    )
+                                            val snappedValue = if (snapPoints.isNotEmpty()) snapIfClose(
+                                                targetValue,
+                                                snapPoints,
+                                                snapThreshold
+                                            ) else targetValue
+                                            onValueChange(snappedValue)
+                                        }
+                                    },
+                                    Orientation.Horizontal,
+                                    startDragImmediately = true,
+                                    onDragStarted = {
+                                        // Remove this block as momentumAnimation handles pressing
+                                    },
+                                    onDragStopped = {
+                                        // Remove this block as momentumAnimation handles pressing
+                                        onValueChange((value * 100).roundToInt() / 100f)
+                                    }
+                                )
+                                .then(momentumAnimation.modifier)
+                                .drawBackdrop(
+                                    rememberCombinedBackdrop(backdrop, sliderBackdrop),
+                                    { RoundedCornerShape(28.dp) },
+                                    highlight = {
+                                        val progress = momentumAnimation.progress
+                                        Highlight.Ambient.copy(alpha = progress)
+                                    },
+                                    shadow = {
+                                        Shadow(
+                                            radius = 4f.dp,
+                                            color = Color.Black.copy(0.05f)
+                                        )
+                                    },
+                                    innerShadow = {
+                                        val progress = momentumAnimation.progress
+                                        InnerShadow(
+                                            radius = 4f.dp * progress,
+                                            alpha = progress
+                                        )
+                                    },
+                                    layerBlock = {
+                                        scaleX = momentumAnimation.scaleX
+                                        scaleY = momentumAnimation.scaleY
+                                        val velocity = momentumAnimation.velocity / 5000f
+                                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.15f, 0.15f)
+                                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.15f, 0.15f)
+                                    },
+                                    onDrawSurface = {
+                                        val progress = momentumAnimation.progress
+                                        drawRect(Color.White.copy(alpha = 1f - progress))
+                                    },
+                                    effects = {
+                                        val progress = momentumAnimation.progress
+                                        blur(8f.dp.toPx() * (1f - progress))
+                                        lens(
+                                            refractionHeight = 6f.dp.toPx() * progress,
+                                            refractionAmount = size.height / 2f * progress,
+                                            depthEffect = true,
+                                            chromaticAberration = true
+                                        )
+                                    }
+                                )
+                        } else {
+                            Modifier.background(trackColor, RoundedCornerShape(28.dp))
                         }
                     )
                     .size(40f.dp, 24f.dp)
@@ -566,12 +586,13 @@ fun StyledSliderPreview() {
             .padding(16.dp)
             .fillMaxSize()
     ) {
-        Box (
-            Modifier.align(Alignment.Center)
+        Column (
+            Modifier.align(Alignment.Center),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         )
         {
             StyledSlider(
-                mutableFloatState = a,
+                value = a.floatValue,
                 onValueChange = {
                     a.floatValue = it
                 },
@@ -581,6 +602,19 @@ fun StyledSliderPreview() {
                 independent = true,
                 startIcon = "A",
                 endIcon = "B",
+            )
+            StyledSlider(
+                value = a.floatValue,
+                onValueChange = {
+                    a.floatValue = it
+                },
+                valueRange = 0f..2f,
+                snapPoints = listOf(1f),
+                snapThreshold = 0.1f,
+                independent = true,
+                startIcon = "A",
+                endIcon = "B",
+                enabled = false
             )
         }
     }

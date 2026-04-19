@@ -21,11 +21,6 @@
 package me.kavishdevar.librepods.composables
 
 import android.annotation.SuppressLint
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.Build
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
@@ -60,48 +55,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.constants.AirPodsNotifications
 import me.kavishdevar.librepods.constants.NoiseControlMode
-import me.kavishdevar.librepods.services.AirPodsService
-import me.kavishdevar.librepods.utils.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.roundToInt
 
 @SuppressLint("UnspecifiedRegisterReceiverFlag", "UnusedBoxWithConstraintsScope")
 @Composable
 fun NoiseControlSettings(
-    service: AirPodsService,
+    showOffListeningMode: Boolean,
+    noiseControlModeValue: Int,
+    onNoiseControlModeChanged: (Int) -> Unit
 ) {
-    val context = LocalContext.current
-    val offListeningModeConfigValue = service.aacpManager.controlCommandStatusList.find {
-        it.identifier == AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION
-    }?.value?.takeIf { it.isNotEmpty() }?.get(0) != 2.toByte()
-    val offListeningMode = remember { mutableStateOf(offListeningModeConfigValue) }
-
-    val offListeningModeListener = object: AACPManager.ControlCommandListener {
-        override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-            offListeningMode.value = controlCommand.value[0] != 2.toByte()
-        }
-    }
-
-    service.aacpManager.registerControlCommandListener(
-        AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION,
-        offListeningModeListener
-    )
-
     val isDarkTheme = isSystemInDarkTheme()
     val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFE3E3E8)
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -109,7 +84,6 @@ fun NoiseControlSettings(
     val selectedBackground = if (isDarkTheme) Color(0xBF5C5A5F) else Color(0xFFFFFFFF)
 
 
-    val noiseControlModeFromService = service.aacpManager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE)
 
     val noiseControlMode = remember { mutableStateOf(NoiseControlMode.OFF) }
 
@@ -117,10 +91,11 @@ fun NoiseControlSettings(
     val d2a = remember { mutableFloatStateOf(0f) }
     val d3a = remember { mutableFloatStateOf(0f) }
 
+    // this function exists solely for the dividers, should get rid of it
     fun onModeSelected(mode: NoiseControlMode, received: Boolean = false) {
         val previousMode = noiseControlMode.value
 
-        val targetMode = if (!offListeningMode.value && mode == NoiseControlMode.OFF) {
+        val targetMode = if (!showOffListeningMode && mode == NoiseControlMode.OFF) {
              NoiseControlMode.TRANSPARENCY
         } else {
             mode
@@ -128,9 +103,8 @@ fun NoiseControlSettings(
 
         noiseControlMode.value = targetMode
 
-        if (!received && targetMode != previousMode) {
-            service.aacpManager.sendControlCommand(identifier = AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE.value, value = targetMode.ordinal + 1)
-        }
+        if (!received && targetMode != previousMode) onNoiseControlModeChanged(targetMode.ordinal + 1)
+
 
         when (noiseControlMode.value) {
             NoiseControlMode.NOISE_CANCELLATION -> {
@@ -157,42 +131,11 @@ fun NoiseControlSettings(
     }
 
 
-    if (noiseControlModeFromService != null) {
-        val value = noiseControlModeFromService.value
-        if (value.isNotEmpty()) {
-            val index = (value[0].toInt() - 1).coerceIn(0, NoiseControlMode.entries.size - 1)
-            noiseControlMode.value = NoiseControlMode.entries[index]
+    val index = (noiseControlModeValue - 1).coerceIn(0, NoiseControlMode.entries.size - 1)
+    noiseControlMode.value = NoiseControlMode.entries[index]
 
-            onModeSelected(noiseControlMode.value, received = true)
-        }
-    }
+    onModeSelected(noiseControlMode.value, received = true)
 
-    val noiseControlReceiver = remember {
-        object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == AirPodsNotifications.ANC_DATA) {
-                    noiseControlMode.value = NoiseControlMode.entries.toTypedArray()[intent.getIntExtra("data", 3) - 1]
-                    onModeSelected(noiseControlMode.value, true)
-                } else if (intent.action == AirPodsNotifications.DISCONNECT_RECEIVERS) {
-                    try {
-                        context.unregisterReceiver(this)
-                    } catch (e: IllegalArgumentException) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-        }
-    }
-
-    val noiseControlIntentFilter = IntentFilter().apply {
-        addAction(AirPodsNotifications.ANC_DATA)
-        addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        context.registerReceiver(noiseControlReceiver, noiseControlIntentFilter, Context.RECEIVER_EXPORTED)
-    } else {
-        context.registerReceiver(noiseControlReceiver, noiseControlIntentFilter)
-    }
     Box(
         modifier = Modifier
             .background(if (isDarkTheme) Color(0xFF000000) else Color(0xFFF2F2F7))
@@ -207,14 +150,14 @@ fun NoiseControlSettings(
             )
         )
     }
-    @Suppress("COMPOSE_APPLIER_CALL_MISMATCH")
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
     ) {
         val density = LocalDensity.current
-        val buttonCount = if (offListeningMode.value) 4 else 3
+        val buttonCount = if (showOffListeningMode) 4 else 3
         val buttonWidth = maxWidth / buttonCount
 
         val isDragging = remember { mutableStateOf(false) }
@@ -222,10 +165,10 @@ fun NoiseControlSettings(
             mutableFloatStateOf(
                 with(density) {
                     when(noiseControlMode.value) {
-                        NoiseControlMode.OFF -> if (offListeningMode.value) 0f else buttonWidth.toPx()
-                        NoiseControlMode.TRANSPARENCY -> if (offListeningMode.value) buttonWidth.toPx() else 0f
-                        NoiseControlMode.ADAPTIVE -> if (offListeningMode.value) (buttonWidth * 2).toPx() else buttonWidth.toPx()
-                        NoiseControlMode.NOISE_CANCELLATION -> if (offListeningMode.value) (buttonWidth * 3).toPx() else (buttonWidth * 2).toPx()
+                        NoiseControlMode.OFF -> if (showOffListeningMode) 0f else buttonWidth.toPx()
+                        NoiseControlMode.TRANSPARENCY -> if (showOffListeningMode) buttonWidth.toPx() else 0f
+                        NoiseControlMode.ADAPTIVE -> if (showOffListeningMode) (buttonWidth * 2).toPx() else buttonWidth.toPx()
+                        NoiseControlMode.NOISE_CANCELLATION -> if (showOffListeningMode) (buttonWidth * 3).toPx() else (buttonWidth * 2).toPx()
                     }
                 }
             )
@@ -238,10 +181,10 @@ fun NoiseControlSettings(
         )
 
         val targetOffset = buttonWidth * when(noiseControlMode.value) {
-            NoiseControlMode.OFF -> if (offListeningMode.value) 0 else 1
-            NoiseControlMode.TRANSPARENCY -> if (offListeningMode.value) 1 else 0
-            NoiseControlMode.ADAPTIVE -> if (offListeningMode.value) 2 else 1
-            NoiseControlMode.NOISE_CANCELLATION -> if (offListeningMode.value) 3 else 2
+            NoiseControlMode.OFF -> if (showOffListeningMode) 0 else 1
+            NoiseControlMode.TRANSPARENCY -> if (showOffListeningMode) 1 else 0
+            NoiseControlMode.ADAPTIVE -> if (showOffListeningMode) 2 else 1
+            NoiseControlMode.NOISE_CANCELLATION -> if (showOffListeningMode) 3 else 2
         }
 
         val animatedOffset by animateFloatAsState(
@@ -264,7 +207,7 @@ fun NoiseControlSettings(
                 Row(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    if (offListeningMode.value) {
+                    if (showOffListeningMode) {
                         NoiseControlButton(
                             icon = ImageBitmap.imageResource(R.drawable.noise_cancellation),
                             onClick = { onModeSelected(NoiseControlMode.OFF) },
@@ -337,13 +280,12 @@ fun NoiseControlSettings(
                                 val position = dragOffset / with(density) { buttonWidth.toPx() }
                                 val newIndex = position.roundToInt()
                                 val newMode = when(newIndex) {
-                                    0 -> if (offListeningMode.value) NoiseControlMode.OFF else NoiseControlMode.TRANSPARENCY
-                                    1 -> if (offListeningMode.value) NoiseControlMode.TRANSPARENCY else NoiseControlMode.ADAPTIVE
-                                    2 -> if (offListeningMode.value) NoiseControlMode.ADAPTIVE else NoiseControlMode.NOISE_CANCELLATION
+                                    0 -> if (showOffListeningMode) NoiseControlMode.OFF else NoiseControlMode.TRANSPARENCY
+                                    1 -> if (showOffListeningMode) NoiseControlMode.TRANSPARENCY else NoiseControlMode.ADAPTIVE
+                                    2 -> if (showOffListeningMode) NoiseControlMode.ADAPTIVE else NoiseControlMode.NOISE_CANCELLATION
                                     3 -> NoiseControlMode.NOISE_CANCELLATION
                                     else -> noiseControlMode.value // Keep current if index is invalid
                                 }
-                                // Call onModeSelected which now handles service call but not callback
                                 onModeSelected(newMode)
                             }
                         )
@@ -361,7 +303,7 @@ fun NoiseControlSettings(
                         .fillMaxWidth()
                         .zIndex(1f)
                 ) {
-                    if (offListeningMode.value) {
+                    if (showOffListeningMode) {
                         NoiseControlButton(
                             icon = ImageBitmap.imageResource(R.drawable.noise_cancellation),
                             onClick = { onModeSelected(NoiseControlMode.OFF) },
@@ -420,7 +362,7 @@ fun NoiseControlSettings(
                     .fillMaxWidth()
                     .padding(top = 4.dp)
             ) {
-                if (offListeningMode.value) {
+                if (showOffListeningMode) {
                     Text(
                         text = stringResource(R.string.off),
                         style = TextStyle(fontSize = 12.sp, color = textColor),
@@ -449,10 +391,4 @@ fun NoiseControlSettings(
             }
         }
     }
-}
-
-@Preview
-@Composable
-fun NoiseControlSettingsPreview() {
-    NoiseControlSettings(AirPodsService())
 }

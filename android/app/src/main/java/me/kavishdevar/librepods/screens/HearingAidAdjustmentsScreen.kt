@@ -31,9 +31,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,7 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
@@ -59,6 +59,7 @@ import me.kavishdevar.librepods.utils.ATTHandles
 import me.kavishdevar.librepods.utils.HearingAidSettings
 import me.kavishdevar.librepods.utils.parseHearingAidSettingsResponse
 import me.kavishdevar.librepods.utils.sendHearingAidSettings
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import java.io.IOException
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -69,13 +70,14 @@ private const val TAG = "HearingAidAdjustments"
 @ExperimentalHazeMaterialsApi
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
-fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController) {
+fun HearingAidAdjustmentsScreen(viewModel: AirPodsViewModel) {
     isSystemInDarkTheme()
     val verticalScrollState = rememberScrollState()
     val hazeState = remember { HazeState() }
     val attManager = ServiceManager.getService()?.attManager ?: throw IllegalStateException("ATTManager not available")
 
-    val aacpManager = remember { ServiceManager.getService()?.aacpManager }
+    val state by viewModel.uiState.collectAsState()
+
     val backdrop = rememberLayerBackdrop()
     StyledScaffold(
         title = stringResource(R.string.adjustments)
@@ -125,25 +127,6 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
                 )
             }
 
-            val hearingAidEnabled = remember {
-                val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-                val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-                mutableStateOf((aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte()))
-            }
-
-            val hearingAidListener = remember {
-                object : AACPManager.ControlCommandListener {
-                    override fun onControlCommandReceived(controlCommand: AACPManager.ControlCommand) {
-                        if (controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID.value ||
-                            controlCommand.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG.value) {
-                            val aidStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }
-                            val assistStatus = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG }
-                            hearingAidEnabled.value = (aidStatus?.value?.getOrNull(1) == 0x01.toByte()) && (assistStatus?.value?.getOrNull(0) == 0x01.toByte())
-                        }
-                    }
-                }
-            }
-
             val hearingAidATTListener = remember {
                 object : (ByteArray) -> Unit {
                     override fun invoke(value: ByteArray) {
@@ -162,19 +145,6 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
                             Log.w(TAG, "Failed to parse hearing aid settings from notification")
                         }
                     }
-                }
-            }
-
-            LaunchedEffect(Unit) {
-                aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-                aacpManager?.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-            }
-
-            DisposableEffect(Unit) {
-                onDispose {
-                    aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID, hearingAidListener)
-                    aacpManager?.unregisterControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.HEARING_ASSIST_CONFIG, hearingAidListener)
-                    attManager.unregisterListener(ATTHandles.HEARING_AID, hearingAidATTListener)
                 }
             }
 
@@ -256,7 +226,7 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
             StyledSlider(
                 label = stringResource(R.string.amplification),
                 valueRange = -1f..1f,
-                mutableFloatState = amplificationSliderValue,
+                value = amplificationSliderValue.floatValue,
                 onValueChange = {
                     amplificationSliderValue.floatValue = it
                 },
@@ -268,14 +238,15 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
 
             StyledToggle(
                 label = stringResource(R.string.swipe_to_control_amplification),
-                controlCommandIdentifier = AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE,
+                checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE]?.getOrNull(0) == 0x01.toByte(),
+                onCheckedChange = { viewModel.setControlCommandBoolean(AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE, it) },
                 description = stringResource(R.string.swipe_amplification_description)
             )
 
             StyledSlider(
                 label = stringResource(R.string.balance),
                 valueRange = -1f..1f,
-                mutableFloatState = balanceSliderValue,
+                value = balanceSliderValue.floatValue,
                 onValueChange = {
                     balanceSliderValue.floatValue = it
                 },
@@ -288,7 +259,7 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
             StyledSlider(
                 label = stringResource(R.string.tone),
                 valueRange = -1f..1f,
-                mutableFloatState = toneSliderValue,
+                value = toneSliderValue.floatValue,
                 onValueChange = {
                     toneSliderValue.floatValue = it
                 },
@@ -300,7 +271,7 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
             StyledSlider(
                 label = stringResource(R.string.ambient_noise_reduction),
                 valueRange = 0f..1f,
-                mutableFloatState = ambientNoiseReductionSliderValue,
+                value = ambientNoiseReductionSliderValue.floatValue,
                 onValueChange = {
                     ambientNoiseReductionSliderValue.floatValue = it
                 },
@@ -311,7 +282,8 @@ fun HearingAidAdjustmentsScreen(@Suppress("unused") navController: NavController
 
             StyledToggle(
                 label = stringResource(R.string.conversation_boost),
-                checkedState = conversationBoostEnabled,
+                checked = conversationBoostEnabled.value,
+                onCheckedChange = { conversationBoostEnabled.value = it },
                 independent = true,
                 description = stringResource(R.string.conversation_boost_description)
             )

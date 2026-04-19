@@ -139,7 +139,7 @@ fun parseTransparencySettingsResponse(data: ByteArray): TransparencySettings {
 
 private var debounceJob: Job? = null
 
-fun sendTransparencySettings(attManager: ATTManager, transparencySettings: TransparencySettings) {
+fun sendTransparencySettings(writer: (ATTHandles, ByteArray) -> Unit, transparencySettings: TransparencySettings) {
     debounceJob?.cancel()
     debounceJob = CoroutineScope(Dispatchers.IO).launch {
         delay(100)
@@ -171,7 +171,7 @@ fun sendTransparencySettings(attManager: ATTManager, transparencySettings: Trans
             }
 
             val data = buffer.array()
-            attManager.write(ATTHandles.TRANSPARENCY, value = data)
+            writer(ATTHandles.TRANSPARENCY, data)
         } catch (e: IOException) {
             e.printStackTrace()
         }

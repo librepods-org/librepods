@@ -139,7 +139,11 @@ class PopupWindow(
                     vid.start()
                 }
 
-                mWindowManager.addView(mView, mParams)
+                try {
+                    mWindowManager.addView(mView, mParams)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
 
                 val displayMetrics = mView.context.resources.displayMetrics
                 val screenHeight = displayMetrics.heightPixels

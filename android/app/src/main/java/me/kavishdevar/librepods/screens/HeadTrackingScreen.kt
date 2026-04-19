@@ -23,10 +23,7 @@
 
 package me.kavishdevar.librepods.screens
 
-import android.content.Context
-import android.os.Build
 import android.util.Log
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.tween
@@ -83,7 +80,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -100,6 +96,7 @@ import me.kavishdevar.librepods.composables.StyledScaffold
 import me.kavishdevar.librepods.composables.StyledToggle
 import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.utils.HeadTracking
+import me.kavishdevar.librepods.viewmodel.AirPodsViewModel
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
 import kotlin.math.cos
@@ -107,14 +104,14 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 @ExperimentalHazeMaterialsApi
-@RequiresApi(Build.VERSION_CODES.Q)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
-fun HeadTrackingScreen() {
+fun HeadTrackingScreen(viewModel: AirPodsViewModel) {
+    val state by viewModel.uiState.collectAsState()
     DisposableEffect(Unit) {
-        ServiceManager.getService()?.startHeadTracking()
+        viewModel.startHeadTracking()
         onDispose {
-            ServiceManager.getService()?.stopHeadTracking()
+            viewModel.stopHeadTracking()
         }
     }
     val isDarkTheme = isSystemInDarkTheme()
@@ -127,25 +124,22 @@ fun HeadTrackingScreen() {
         title = stringResource(R.string.head_tracking),
         actionButtons = listOf(
             { scaffoldBackdrop ->
-               var isActive by remember { mutableStateOf(ServiceManager.getService()?.isHeadTrackingActive == true) }
                 StyledIconButton(
                     onClick = {
-                        if (ServiceManager.getService()?.isHeadTrackingActive == false) {
-                            ServiceManager.getService()?.startHeadTracking()
+                        if (!state.headTrackingActive) {
+                            viewModel.startHeadTracking()
                             Log.d("HeadTrackingScreen", "Head tracking started")
                         } else {
-                            ServiceManager.getService()?.stopHeadTracking()
+                            viewModel.stopHeadTracking()
                             Log.d("HeadTrackingScreen", "Head tracking stopped")
                         }
                     },
-                    icon = if (isActive) "􀊅" else "􀊃",
-                    darkMode = isDarkTheme,
+                    icon = if (state.headTrackingActive) "􀊅" else "􀊃",
                     backdrop = scaffoldBackdrop
                 )
             }
         ),
     ) { spacerHeight, hazeState ->
-        val sharedPreferences = LocalContext.current.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
         var gestureText by remember { mutableStateOf("") }
         val coroutineScope = rememberCoroutineScope()
@@ -167,10 +161,37 @@ fun HeadTrackingScreen() {
                     .verticalScroll(scrollState)
             ) {
                 Spacer(modifier = Modifier.height(spacerHeight))
+
+                val context = LocalContext.current
+
+                if (!state.isPremium) {
+                    StyledButton(
+                        onClick = {
+                            viewModel.purchase(context)
+                        },
+                        backdrop = rememberLayerBackdrop(),
+                        modifier = Modifier.fillMaxWidth(),
+                        maxScale = 0.05f,
+                        tint = Color(0xFF916100)
+                    ) {
+                        Text(
+                            stringResource(R.string.unlock_all_features),
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily(Font(R.font.sf_pro)),
+                                color = textColor
+                            ),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
                 StyledToggle(
                     label = "Head Gestures",
-                    sharedPreferences = sharedPreferences,
-                    sharedPreferenceKey = "head_gestures",
+                    checked = state.headGesturesEnabled,
+                    onCheckedChange = { viewModel.setHeadGesturesEnabled(it) },
+                    enabled = state.isPremium
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
@@ -738,12 +759,4 @@ private fun AccelerationPlot() {
             }
         }
     }
-}
-
-@ExperimentalHazeMaterialsApi
-@RequiresApi(Build.VERSION_CODES.Q)
-@Preview
-@Composable
-fun HeadTrackingScreenPreview() {
-    HeadTrackingScreen()
 }
