@@ -81,17 +81,14 @@ impl ksni::Tray for MyTray {
     fn tool_tip(&self) -> ToolTip {
         let format_component =
             |label: &str, level: Option<u8>, status: Option<BatteryStatus>| -> String {
-                match status {
-                    Some(BatteryStatus::Disconnected) => format!("{}: -", label),
-                    _ => {
-                        let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
-                        let suffix = if status == Some(BatteryStatus::Charging) {
-                            "⚡"
-                        } else {
-                            ""
-                        };
-                        format!("{}: {}{}", label, pct, suffix)
+                match (level, status) {
+                    (Some(0), Some(BatteryStatus::Disconnected)) | (None, _) => {
+                        format!("{}: -", label)
                     }
+                    (Some(level), Some(BatteryStatus::Charging)) => {
+                        format!("{}: {}%⚡", label, level)
+                    }
+                    (Some(level), _) => format!("{}: {}%", label, level),
                 }
             };
 

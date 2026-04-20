@@ -194,6 +194,11 @@
     <string name="root_access_denied">Root 权限被拒绝。请授予 Root 权限。</string>
     <string name="troubleshooting_steps">故障排除步骤</string>
     <string name="hearing_test_value_instruction">请输入 dbHL 中的损失值</string>
+    <string name="about">关于</string>
+    <string name="model_name">型号名称</string>
+    <string name="model_number">型号编号</string>
+    <string name="serial_number">序列号</string>
+    <string name="version">版本</string>
     <string name="hearing_health">听力健康</string>
     <string name="hearing_protection">听力保护</string>
     <string name="workspace_use">工作区使用</string>
@@ -202,6 +207,12 @@
     <string name="environmental_noise">环境噪音</string>
     <string name="reconnect_to_last_device">重新连接到上次连接的设备</string>
     <string name="disconnect">断开连接</string>
+    <string name="support_me">支持我</string>
+    <string name="never_show_again">不再显示</string>
     <string name="support_dialog_description">我最近丢了我的左耳 AirPod。如果你觉得 LibrePods 有用，请考虑在 GitHub Sponsors 上支持我，这样我就可以购买一个替换品并继续从事这个项目——即使是少量捐助也能发挥很大作用。感谢你的支持！</string>
     <string name="support_librepods">支持 LibrePods</string>
+    <string name="listening_mode_off_description">关闭噪音管理</string>
+    <string name="listening_mode_transparency_description">允许外部声音进入</string>
+    <string name="listening_mode_adaptive_description">动态调整外部噪音</string>
+    <string name="listening_mode_noise_cancellation_description">阻隔外部声音</string>
 </resources>

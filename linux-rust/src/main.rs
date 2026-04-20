@@ -19,7 +19,7 @@ use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use dbus::message::MatchRule;
 use devices::airpods::AirPodsDevice;
 use ksni::TrayMethods;
-use log::{info, warn};
+use log::{error, info, warn};
 use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::{AtomicBool};
@@ -162,8 +162,17 @@ async fn async_main(
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
-        let handle = tray.spawn().await.unwrap();
-        Some(handle)
+        match tray.spawn().await {
+            Ok(handle) => Some(handle),
+            Err(err) => {
+                let message = "LibrePods could not start a system tray icon because no StatusNotifier/AppIndicator tray is available. The app will continue without a tray icon. Add a tray to your desktop environment or launch with --no-tray to suppress this warning.".to_string();
+                error!("{} ksni error: {}", message, err);
+                if let Err(send_err) = ui_tx.send(BluetoothUIMessage::TrayUnavailable(message)) {
+                    warn!("Failed to send tray-unavailable UI message: {:?}", send_err);
+                }
+                None
+            }
+        }
     };
 
     let session = bluer::Session::new().await?;

@@ -1,5 +1,7 @@
 # LibrePods Linux
 
+![screenshot](imgs/main-app.png)
+
 A native Linux application to control your AirPods, with support for:
 
 - Noise Control modes (Off, Transparency, Adaptive, Noise Cancellation)
@@ -41,6 +43,31 @@ A native Linux application to control your AirPods, with support for:
     # For Fedora
     sudo dnf install openssl-devel
     ```
+4. Libpulse development headers
+
+    ```bash
+    # On Arch Linux / EndevaourOS, these are included in the libpulse package, so you might already have them installed.
+    sudo pacman -S libpulse
+
+    # For Debian / Ubuntu
+    sudo apt-get install libpulse-dev
+
+    # For Fedora
+    sudo dnf install pulseaudio-libs-devel
+    ```
+5. Cmake
+
+    ```bash
+    # For Arch Linux / EndeavourOS
+    sudo pacman -S cmake
+
+    # For Debian / Ubuntu
+    sudo apt-get install cmake
+
+    # For Fedora
+    sudo dnf install cmake
+    ```
+
 ## Setup
 
 1. Build the application:
@@ -82,7 +109,8 @@ Then restart WirePlumber:
 systemctl --user restart wireplumber
 ```
 
-**Note:** Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
+> [!WARNING]
+> Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
 
 #### PulseAudio
 
@@ -100,6 +128,35 @@ systemctl --user enable --now mpris-proxy
   - Switch between noise control modes
   - View battery levels
   - Control playback
+
+
+## CLI Control
+
+`librepods-ctl` is a small command-line tool that lets you access LibrePods from the terminal or via scripts, as long as the main application is running.
+
+### Usage
+```bash
+librepods-ctl
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `noise:off` | Disable noise control |
+| `noise:anc` | Enable Active Noise Cancellation |
+| `noise:transparency` | Enable Transparency mode |
+| `noise:adaptive` | Enable Adaptive mode |
+
+### Example
+```bash
+# Enable ANC
+librepods-ctl noise:anc
+
+# Enable Transparency mode
+librepods-ctl noise:transparency
+```
+
 
 ## Hearing Aid
 

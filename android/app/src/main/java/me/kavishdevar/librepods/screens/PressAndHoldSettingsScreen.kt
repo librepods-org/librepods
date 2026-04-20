@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 @file:OptIn(ExperimentalStdlibApi::class, ExperimentalEncodingApi::class)
 
@@ -186,7 +186,7 @@ fun LongPress(navController: NavController, name: String) {
                     listeningModeItems.add(
                         SelectItem(
                             name = stringResource(R.string.off),
-                            description = "Turns off noise management",
+                            description = stringResource(R.string.listening_mode_off_description),
                             iconRes = R.drawable.noise_cancellation,
                             selected = (currentByte and 0x01) != 0,
                             onClick = {
@@ -212,7 +212,7 @@ fun LongPress(navController: NavController, name: String) {
                 listeningModeItems.addAll(listOf(
                     SelectItem(
                         name = stringResource(R.string.transparency),
-                        description = "Lets in external sounds",
+                        description = stringResource(R.string.listening_mode_transparency_description),
                         iconRes = R.drawable.transparency,
                         selected = (currentByte and 0x04) != 0,
                         onClick = {
@@ -235,7 +235,7 @@ fun LongPress(navController: NavController, name: String) {
                     ),
                     SelectItem(
                         name = stringResource(R.string.adaptive),
-                        description = "Dynamically adjust external noise",
+                        description = stringResource(R.string.listening_mode_adaptive_description),
                         iconRes = R.drawable.adaptive,
                         selected = (currentByte and 0x08) != 0,
                         onClick = {
@@ -258,7 +258,7 @@ fun LongPress(navController: NavController, name: String) {
                     ),
                     SelectItem(
                         name = stringResource(R.string.noise_cancellation),
-                        description = "Blocks out external sounds",
+                        description = stringResource(R.string.listening_mode_noise_cancellation_description),
                         iconRes = R.drawable.noise_cancellation,
                         selected = (currentByte and 0x02) != 0,
                         onClick = {

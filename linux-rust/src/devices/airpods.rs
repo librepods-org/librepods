@@ -150,10 +150,12 @@ impl AirPodsDevice {
         let tray_handle_clone = tray_handle.clone();
         tokio::spawn(async move {
             while let Some(value) = listening_mode_rx.recv().await {
-                if let Some(handle) = &tray_handle_clone {
+                if let Some(mode) = value.first().copied().filter(|mode| (0x01..=0x04).contains(mode))
+                    && let Some(handle) = &tray_handle_clone
+                {
                     handle
                         .update(|tray: &mut MyTray| {
-                            tray.listening_mode = Some(value[0]);
+                            tray.listening_mode = Some(mode);
                         })
                         .await;
                 }
