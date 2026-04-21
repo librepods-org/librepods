@@ -1498,7 +1498,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             "AirPods Socket Connection Issues",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Notifications about problems connecting to AirPods protocol"
+            description = getString(R.string.notification_channel_issues)
             enableLights(true)
             lightColor = Color.RED
             enableVibration(true)
@@ -1522,8 +1522,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
         val notification = NotificationCompat.Builder(this, "background_service_status")
             .setSmallIcon(R.drawable.airpods)
-            .setContentTitle("Background Service Running")
-            .setContentText("Useless notification, disable it by clicking on it.")
+            .setContentTitle(getString(R.string.background_service_running))
+            .setContentText(getString(R.string.useless_notification))
             .setContentIntent(pendingIntentNotifDisable)
             .setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -1551,10 +1551,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
         val notification = NotificationCompat.Builder(this, "socket_connection_failure")
             .setSmallIcon(R.drawable.airpods)
-            .setContentTitle("AirPods Connection Issue")
-            .setContentText("Unable to connect to AirPods over L2CAP")
+            .setContentTitle(getString(R.string.airpods_connection_issue))
+            .setContentText(getString(R.string.l2cap_connection_failed))
             .setStyle(NotificationCompat.BigTextStyle()
-                .bigText("Your AirPods are connected via Bluetooth, but LibrePods couldn't connect to AirPods using L2CAP. " +
+                .bigText(getString(R.string.l2cap_connection_failed_detail) + " " +
                          "Error: $errorMessage"))
             .setContentIntent(pendingIntent)
             .setCategory(Notification.CATEGORY_ERROR)
@@ -1857,8 +1857,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         } else if (!connected) {
             updatedNotification = NotificationCompat.Builder(this, "background_service_status")
                 .setSmallIcon(R.drawable.airpods)
-                .setContentTitle("AirPods not connected")
-                .setContentText("Tap to open app")
+                .setContentTitle(getString(R.string.airpods_not_connected))
+                .setContentText(getString(R.string.tap_to_open_app))
                 .setContentIntent(pendingIntent)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setPriority(NotificationCompat.PRIORITY_LOW)

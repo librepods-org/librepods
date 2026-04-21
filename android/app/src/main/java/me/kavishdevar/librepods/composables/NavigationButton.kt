@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import me.kavishdevar.librepods.R
+import me.kavishdevar.librepods.utils.navigateDebounced
 
 @Composable
 fun NavigationButton(
@@ -95,7 +96,7 @@ fun NavigationButton(
                             backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
                         },
                         onTap = {
-                            if (onClick != null) onClick() else navController.navigate(to)
+                            if (onClick != null) onClick() else navController.navigateDebounced(to)
                         }
                     )
                 }

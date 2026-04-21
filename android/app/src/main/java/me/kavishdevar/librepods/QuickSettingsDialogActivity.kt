@@ -81,6 +81,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -597,7 +598,7 @@ fun NewControlCenterDialogContent(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Text(
-                                    text = "Conversational\nAwareness",
+                                    text = stringResource(R.string.conversational_awareness).replace(" ", "\n"),
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
@@ -613,7 +614,7 @@ fun NewControlCenterDialogContent(
         } else {
             Spacer(modifier = Modifier.weight(1f))
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Loading...", color = textColor)
+                Text(stringResource(R.string.loading), color = textColor)
             }
             Spacer(modifier = Modifier.weight(1f))
         }
@@ -629,11 +630,12 @@ private fun getModeIconRes(mode: NoiseControlMode): Int {
     }
 }
 
+@Composable
 private fun getModeLabel(mode: NoiseControlMode): String {
     return when (mode) {
-        NoiseControlMode.OFF -> "Off"
-        NoiseControlMode.TRANSPARENCY -> "Transparency"
-        NoiseControlMode.ADAPTIVE -> "Adaptive"
-        NoiseControlMode.NOISE_CANCELLATION -> "Noise Cancel"
+        NoiseControlMode.OFF -> stringResource(R.string.off)
+        NoiseControlMode.TRANSPARENCY -> stringResource(R.string.transparency)
+        NoiseControlMode.ADAPTIVE -> stringResource(R.string.adaptive)
+        NoiseControlMode.NOISE_CANCELLATION -> stringResource(R.string.noise_cancel)
     }
 }

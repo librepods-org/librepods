@@ -91,6 +91,9 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -106,6 +109,7 @@ import androidx.core.net.toUri
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import me.kavishdevar.librepods.utils.popBackStackSafely
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.isGranted
@@ -424,6 +428,8 @@ fun Main() {
                 }
             }
 
+            val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
             AnimatedVisibility(
                 visible = showBackButton.value,
                 enter = fadeIn(animationSpec = tween()) + scaleIn(initialScale = 0f, animationSpec = tween()),
@@ -432,11 +438,11 @@ fun Main() {
                     .align(Alignment.TopStart)
                     .padding(
                         start = 8.dp,
-                        top = (LocalWindowInfo.current.containerSize.width * 0.05f).dp
+                        top = statusBarPadding
                     )
             ) {
                 StyledIconButton(
-                        onClick = { navController.popBackStack() },
+                        onClick = { navController.popBackStackSafely() },
                         icon = "􀯶",
                         darkMode = isSystemInDarkTheme(),
                         backdrop = backButtonBackdrop
@@ -551,7 +557,7 @@ fun PermissionsScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Permission Required",
+            text = stringResource(R.string.permission_required_title),
             style = TextStyle(
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
@@ -579,8 +585,8 @@ fun PermissionsScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         PermissionCard(
-            title = "Bluetooth Permissions",
-            description = "Required to communicate with your AirPods",
+            title = stringResource(R.string.bluetooth_permissions),
+            description = stringResource(R.string.bluetooth_permissions_desc),
             icon = ImageVector.vectorResource(id = R.drawable.ic_bluetooth),
             isGranted = permissionState.permissions.filter {
                 it.permission.contains("BLUETOOTH")
@@ -591,8 +597,8 @@ fun PermissionsScreen(
         )
 
         PermissionCard(
-            title = "Notification Permission",
-            description = "To show battery status",
+            title = stringResource(R.string.notification_permission),
+            description = stringResource(R.string.notification_permission_desc),
             icon = Icons.Default.Notifications,
             isGranted = permissionState.permissions.find {
                 it.permission == "android.permission.POST_NOTIFICATIONS"
@@ -603,8 +609,8 @@ fun PermissionsScreen(
         )
 
         PermissionCard(
-            title = "Phone Permissions",
-            description = "For answering calls with Head Gestures",
+            title = stringResource(R.string.phone_permissions),
+            description = stringResource(R.string.phone_permissions_desc),
             icon = Icons.Default.Phone,
             isGranted = permissionState.permissions.filter {
                 it.permission.contains("PHONE") || it.permission.contains("CALLS")
@@ -615,8 +621,8 @@ fun PermissionsScreen(
         )
 
         PermissionCard(
-            title = "Display Over Other Apps",
-            description = "For popup animations when AirPods connect",
+            title = stringResource(R.string.display_over_other_apps),
+            description = stringResource(R.string.display_over_other_apps_desc),
             icon = ImageVector.vectorResource(id = R.drawable.ic_layers),
             isGranted = canDrawOverlays,
             backgroundColor = backgroundColor,
@@ -637,7 +643,7 @@ fun PermissionsScreen(
             shape = RoundedCornerShape(8.dp)
         ) {
             Text(
-                "Ask for regular permissions",
+                stringResource(R.string.ask_regular_permissions),
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
@@ -668,7 +674,7 @@ fun PermissionsScreen(
             shape = RoundedCornerShape(8.dp)
         ) {
             Text(
-                if (canDrawOverlays) "Overlay Permission Granted" else "Grant Overlay Permission",
+                if (canDrawOverlays) stringResource(R.string.overlay_permission_granted) else stringResource(R.string.grant_overlay_permission),
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
@@ -700,7 +706,7 @@ fun PermissionsScreen(
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Text(
-                    "Continue without overlay",
+                    stringResource(R.string.continue_without_overlay),
                     style = TextStyle(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,

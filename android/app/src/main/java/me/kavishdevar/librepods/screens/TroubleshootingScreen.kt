@@ -175,13 +175,13 @@ fun TroubleshootingScreen(navController: NavController) {
                         outputStream.write(logContent.toByteArray())
                     }
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Log saved successfully", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.log_saved), Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(
                             context,
-                            "Failed to save log: ${e.localizedMessage}",
+                            context.getString(R.string.failed_save_log, e.localizedMessage),
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -192,11 +192,11 @@ fun TroubleshootingScreen(navController: NavController) {
 
     LaunchedEffect(currentStep) {
         instructionText = when (currentStep) {
-            0 -> "First, let's ensure Xposed module is properly configured. Tap the button below to check Xposed scope settings."
-            1 -> "Please put your AirPods in the case and close it, so they disconnect completely."
-            2 -> "Preparing to collect logs... Please wait."
-            3 -> "Now, open the AirPods case and connect your AirPods. Logs are being collected. Connection will be detected automatically, or you can manually stop logging when you're done."
-            4 -> "Log collection complete! You can now save or share the logs."
+            0 -> context.getString(R.string.troubleshooting_step_0)
+            1 -> context.getString(R.string.troubleshooting_step_1)
+            2 -> context.getString(R.string.troubleshooting_step_2)
+            3 -> context.getString(R.string.troubleshooting_step_3)
+            4 -> context.getString(R.string.troubleshooting_step_4)
             else -> ""
         }
     }
@@ -288,7 +288,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                         contentColor = MaterialTheme.colorScheme.error
                                     )
                                 ) {
-                                    Text("Delete All")
+                                    Text(stringResource(R.string.delete_all))
                                 }
                             }
                         }
@@ -422,7 +422,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                             contentColor = textColor
                                         )
                                     ) {
-                                        Text("Open Xposed Settings")
+                                        Text(stringResource(R.string.open_xposed_settings))
                                     }
                                 }
 
@@ -479,7 +479,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                                             selectedLogFile = it
                                                             Toast.makeText(
                                                                 context,
-                                                                "Log saved: ${it.name}",
+                                                                context.getString(R.string.log_saved_name, it.name),
                                                                 Toast.LENGTH_SHORT
                                                             ).show()
                                                         }
@@ -488,7 +488,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                                     withContext(Dispatchers.Main) {
                                                         Toast.makeText(
                                                             context,
-                                                            "Error collecting logs: ${e.message}",
+                                                            context.getString(R.string.error_collecting_logs, e.message),
                                                             Toast.LENGTH_SHORT
                                                         ).show()
                                                         isCollectingLogs = false
@@ -504,7 +504,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                             contentColor = textColor
                                         )
                                     ) {
-                                        Text("Continue")
+                                        Text(stringResource(R.string.continue_btn))
                                     }
                                 }
 
@@ -520,7 +520,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                         Spacer(modifier = Modifier.height(8.dp))
 
                                         Text(
-                                            text = if (currentStep == 2) "Preparing..." else "Collecting logs...",
+                                            text = if (currentStep == 2) stringResource(R.string.preparing_logs) else stringResource(R.string.collecting_logs),
                                             fontSize = 14.sp,
                                             color = textColor
                                         )
@@ -544,7 +544,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                                             isCollectingLogs = false
                                                             Toast.makeText(
                                                                 context,
-                                                                "Log collection stopped",
+                                                                context.getString(R.string.log_collection_stopped),
                                                                 Toast.LENGTH_SHORT
                                                             ).show()
                                                         }
@@ -558,7 +558,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                             ) {
-                                                Text("Stop Collection")
+                                                Text(stringResource(R.string.stop_collection))
                                             }
                                         }
                                     }
@@ -606,7 +606,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                                 contentDescription = "Share"
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Share")
+                                            Text(stringResource(R.string.share))
                                         }
 
                                         Spacer(modifier = Modifier.width(16.dp))
@@ -631,7 +631,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                                 contentDescription = "Save"
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Save")
+                                            Text(stringResource(R.string.save))
                                         }
                                     }
 
@@ -649,7 +649,7 @@ fun TroubleshootingScreen(navController: NavController) {
                                             contentColor = textColor
                                         )
                                     ) {
-                                        Text("Done")
+                                        Text(stringResource(R.string.done))
                                     }
                                 }
                             }
@@ -660,9 +660,9 @@ fun TroubleshootingScreen(navController: NavController) {
                 if (showDeleteDialog && selectedLogFile != null) {
                     AlertDialog(
                         onDismissRequest = { showDeleteDialog = false },
-                        title = { Text("Delete Log File") },
+                        title = { Text(stringResource(R.string.delete_log_file)) },
                         text = {
-                            Text("Are you sure you want to delete this log file? This action cannot be undone.")
+                            Text(stringResource(R.string.delete_log_confirm))
                         },
                         confirmButton = {
                             TextButton(
@@ -672,14 +672,14 @@ fun TroubleshootingScreen(navController: NavController) {
                                             savedLogs.remove(file)
                                             Toast.makeText(
                                                 context,
-                                                "Log file deleted",
+                                                context.getString(R.string.log_file_deleted),
                                                 Toast.LENGTH_SHORT
                                             )
                                                 .show()
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "Failed to delete log file",
+                                                context.getString(R.string.failed_delete_log),
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
@@ -687,12 +687,12 @@ fun TroubleshootingScreen(navController: NavController) {
                                     showDeleteDialog = false
                                 }
                             ) {
-                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                                Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
                             }
                         },
                         dismissButton = {
                             TextButton(onClick = { showDeleteDialog = false }) {
-                                Text("Cancel")
+                                Text(stringResource(R.string.cancel))
                             }
                         }
                     )
@@ -701,9 +701,9 @@ fun TroubleshootingScreen(navController: NavController) {
                 if (showDeleteAllDialog) {
                     AlertDialog(
                         onDismissRequest = { showDeleteAllDialog = false },
-                        title = { Text("Delete All Logs") },
+                        title = { Text(stringResource(R.string.delete_all_logs)) },
                         text = {
-                            Text("Are you sure you want to delete all log files? This action cannot be undone and will remove ${savedLogs.size} log files.")
+                            Text(stringResource(R.string.delete_all_logs_confirm, savedLogs.size))
                         },
                         confirmButton = {
                             TextButton(
@@ -720,13 +720,13 @@ fun TroubleshootingScreen(navController: NavController) {
                                                 savedLogs.clear()
                                                 Toast.makeText(
                                                     context,
-                                                    "Deleted $deletedCount log files",
+                                                    context.getString(R.string.deleted_logs_count, deletedCount),
                                                     Toast.LENGTH_SHORT
                                                 ).show()
                                             } else {
                                                 Toast.makeText(
                                                     context,
-                                                    "Failed to delete log files",
+                                                    context.getString(R.string.failed_delete_logs),
                                                     Toast.LENGTH_SHORT
                                                 ).show()
                                             }
@@ -735,12 +735,12 @@ fun TroubleshootingScreen(navController: NavController) {
                                     showDeleteAllDialog = false
                                 }
                             ) {
-                                Text("Delete All", color = MaterialTheme.colorScheme.error)
+                                Text(stringResource(R.string.delete_all), color = MaterialTheme.colorScheme.error)
                             }
                         },
                         dismissButton = {
                             TextButton(onClick = { showDeleteAllDialog = false }) {
-                                Text("Cancel")
+                                Text(stringResource(R.string.cancel))
                             }
                         }
                     )

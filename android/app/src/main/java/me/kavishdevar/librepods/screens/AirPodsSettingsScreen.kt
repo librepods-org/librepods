@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.navigation.NavController
+import me.kavishdevar.librepods.utils.navigateDebounced
 import androidx.navigation.compose.rememberNavController
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
@@ -227,7 +228,7 @@ fun AirPodsSettingsScreen(dev: BluetoothDevice?, service: AirPodsService,
         actionButtons = listOf(
             {scaffoldBackdrop ->
                 StyledIconButton(
-                    onClick = { navController.navigate("app_settings") },
+                    onClick = { navController.navigateDebounced("app_settings") },
                     icon = "􀍟",
                     darkMode = darkMode,
                     backdrop = scaffoldBackdrop
@@ -380,7 +381,7 @@ fun AirPodsSettingsScreen(dev: BluetoothDevice?, service: AirPodsService,
                 )
                 Spacer(Modifier.height(32.dp))
                 StyledButton(
-                    onClick = { navController.navigate("troubleshooting") },
+                    onClick = { navController.navigateDebounced("troubleshooting") },
                     backdrop = backdrop,
                     modifier = Modifier
                         .fillMaxWidth(0.9f)

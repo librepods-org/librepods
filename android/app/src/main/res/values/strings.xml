@@ -214,4 +214,106 @@
     <string name="listening_mode_transparency_description">Lets in external sounds</string>
     <string name="listening_mode_adaptive_description">Dynamically adjust external noise</string>
     <string name="listening_mode_noise_cancellation_description">Blocks out external sounds</string>
+    <string name="permission_required_title">Permission Required</string>
+    <string name="bluetooth_permissions">Bluetooth Permissions</string>
+    <string name="bluetooth_permissions_desc">Required to communicate with your AirPods</string>
+    <string name="notification_permission">Notification Permission</string>
+    <string name="notification_permission_desc">To show battery status</string>
+    <string name="phone_permissions">Phone Permissions</string>
+    <string name="phone_permissions_desc">For answering calls with Head Gestures</string>
+    <string name="display_over_other_apps">Display Over Other Apps</string>
+    <string name="display_over_other_apps_desc">For popup animations when AirPods connect</string>
+    <string name="ask_regular_permissions">Ask for regular permissions</string>
+    <string name="overlay_permission_granted">Overlay Permission Granted</string>
+    <string name="grant_overlay_permission">Grant Overlay Permission</string>
+    <string name="continue_without_overlay">Continue without overlay</string>
+    <!-- Onboarding Screen -->
+    <string name="setting_up">Setting Up</string>
+    <string name="check_root_access">Check Root Access</string>
+    <string name="setup_required">Setup Required</string>
+    <string name="setup_required_desc">AirPods functionality requires one-time setup for hooking into Bluetooth library</string>
+    <string name="start_setup">Start Setup</string>
+    <string name="module_enabled_confirm">I\'ve Enabled/Reactivated the Module</string>
+    <string name="bluetooth_toggled_confirm">I\'ve Toggled Bluetooth</string>
+    <string name="continue_to_settings">Continue to Settings</string>
+    <string name="try_again">Try Again</string>
+    <string name="skip_setup">Skip Setup</string>
+    <string name="skip_setup_desc">Have you installed the root module that patches the Bluetooth library directly? This option is for users who have manually patched their system instead of using the dynamic hook.</string>
+    <string name="yes_skip_setup">Yes, Skip Setup</string>
+    <string name="cancel">Cancel</string>
+    <!-- Onboarding Status Titles -->
+    <string name="enable_xposed_module">Enable Xposed Module</string>
+    <string name="toggle_bluetooth">Toggle Bluetooth</string>
+    <string name="setup_complete">Setup Complete</string>
+    <string name="getting_ready">Getting Ready</string>
+    <string name="checking_radare2">Checking if radare2 already downloaded</string>
+    <string name="downloading_radare2">Downloading radare2</string>
+    <string name="extracting_radare2">Extracting radare2</string>
+    <string name="setting_permissions">Setting executable permissions</string>
+    <string name="finding_offset">Finding function offset</string>
+    <string name="saving_offset">Saving offset</string>
+    <string name="cleaning_up">Cleaning Up</string>
+    <string name="setup_failed">Setup Failed</string>
+    <!-- Onboarding Status Descriptions -->
+    <string name="enable_module_desc">Please enable the LibrePods Xposed module in your Xposed manager (e.g. LSPosed). If already enabled, disable and re-enable it.</string>
+    <string name="toggle_bluetooth_desc">Please turn off and then turn on Bluetooth to apply the changes.</string>
+    <string name="setup_complete_desc">All set! You can now use your AirPods with enhanced functionality.</string>
+    <string name="preparing">Preparing</string>
+    <string name="checking_radare2_desc">Checking if radare2 are already installed</string>
+    <string name="downloading_radare2_start">Starting radare2 download</string>
+    <string name="extracting_radare2_desc">Extracting radare2</string>
+    <string name="setting_permissions_desc">Setting executable permissions on radare2 binaries</string>
+    <string name="finding_offset_desc">Looking for the required Bluetooth function in system libraries</string>
+    <string name="saving_offset_desc">Saving the function offset</string>
+    <string name="cleaning_up_desc">Removing temporary extracted files</string>
+    <!-- TroubleshootingScreen -->
+    <string name="delete_all">Delete All</string>
+    <string name="open_xposed_settings">Open Xposed Settings</string>
+    <string name="continue_btn">Continue</string>
+    <string name="preparing_logs">Preparing...</string>
+    <string name="collecting_logs">Collecting logs...</string>
+    <string name="stop_collection">Stop Collection</string>
+    <string name="share">Share</string>
+    <string name="save">Save</string>
+    <string name="done">Done</string>
+    <string name="delete">Delete</string>
+    <string name="delete_log_file">Delete Log File</string>
+    <string name="delete_log_confirm">Are you sure you want to delete this log file? This action cannot be undone.</string>
+    <string name="delete_all_logs">Delete All Logs</string>
+    <string name="delete_all_logs_confirm">Are you sure you want to delete all log files? This action cannot be undone and will remove %d log files.</string>
+    <string name="log_saved">Log saved successfully</string>
+    <string name="log_saved_name">Log saved: %s</string>
+    <string name="log_collection_stopped">Log collection stopped</string>
+    <string name="log_file_deleted">Log file deleted</string>
+    <string name="failed_delete_log">Failed to delete log file</string>
+    <string name="deleted_logs_count">Deleted %d log files</string>
+    <string name="failed_delete_logs">Failed to delete log files</string>
+    <string name="error_collecting_logs">Error collecting logs: %s</string>
+    <string name="share_log_file">Share log file</string>
+    <string name="total_logs">Total Logs: %d</string>
+    <!-- HearingAidScreen -->
+    <string name="enable_hearing_aid">Enable Hearing Aid</string>
+    <string name="enable_hearing_aid_msg">Enabling Hearing Aid will disable Headphone Accommodation and Customized Transparency Mode.</string>
+    <string name="enable">Enable</string>
+    <!-- QuickSettingsDialogActivity -->
+    <string name="loading">Loading...</string>
+    <string name="noise_cancel">Noise Cancel</string>
+    <!-- AirPodsService Notifications -->
+    <string name="background_service_running">Background Service Running</string>
+    <string name="useless_notification">Useless notification, disable it by clicking on it.</string>
+    <string name="airpods_connection_issue">AirPods Connection Issue</string>
+    <string name="l2cap_connection_failed">Unable to connect to AirPods over L2CAP</string>
+    <string name="l2cap_connection_failed_detail">Your AirPods are connected via Bluetooth, but LibrePods couldn\'t connect to AirPods using L2CAP. This usually happens when another device already has an L2CAP connection open. Try disconnecting the AirPods from other devices first.</string>
+    <string name="tap_to_open_app">Tap to open app</string>
+    <string name="notification_channel_issues">Notifications about problems connecting to AirPods protocol</string>
+    <!-- AirPodsQSService -->
+    <string name="disconnected">Disconnected</string>
+    <!-- TroubleshootingScreen Instructions -->
+    <string name="troubleshooting_step_0">First, let\'s ensure Xposed module is properly configured. Tap the button below to check Xposed scope settings.</string>
+    <string name="troubleshooting_step_1">Please put your AirPods in the case and close it, so they disconnect completely.</string>
+    <string name="troubleshooting_step_2">Preparing to collect logs... Please wait.</string>
+    <string name="troubleshooting_step_3">Now, open the AirPods case and connect your AirPods. Logs are being collected. Connection will be detected automatically, or you can manually stop logging when you\'re done.</string>
+    <string name="troubleshooting_step_4">Log collection complete! You can now save or share the logs.</string>
+    <string name="failed_save_log">Failed to save log: %s</string>
+    <string name="unknown_error">Unknown error</string>
 </resources>

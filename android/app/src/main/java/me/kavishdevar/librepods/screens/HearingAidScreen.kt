@@ -263,10 +263,10 @@ fun HearingAidScreen(navController: NavController) {
 
     ConfirmationDialog(
         showDialog = showDialog,
-        title = "Enable Hearing Aid",
-        message = "Enabling Hearing Aid will disable Headphone Accommodation and Customized Transparency Mode.",
-        confirmText = "Enable",
-        dismissText = "Cancel",
+        title = stringResource(R.string.enable_hearing_aid),
+        message = stringResource(R.string.enable_hearing_aid_msg),
+        confirmText = stringResource(R.string.enable),
+        dismissText = stringResource(R.string.cancel),
         onConfirm = {
             showDialog.value = false
             val enrolled = aacpManager?.controlCommandStatusList?.find { it.identifier == AACPManager.Companion.ControlCommandIdentifiers.HEARING_AID }?.value?.getOrNull(0) == 0x01.toByte()

@@ -215,4 +215,106 @@
     <string name="listening_mode_transparency_description">允许外部声音进入</string>
     <string name="listening_mode_adaptive_description">动态调整外部噪音</string>
     <string name="listening_mode_noise_cancellation_description">阻隔外部声音</string>
+    <string name="permission_required_title">需要权限</string>
+    <string name="bluetooth_permissions">蓝牙权限</string>
+    <string name="bluetooth_permissions_desc">与 AirPods 通信所必需</string>
+    <string name="notification_permission">通知权限</string>
+    <string name="notification_permission_desc">用于显示电池状态</string>
+    <string name="phone_permissions">电话权限</string>
+    <string name="phone_permissions_desc">用于通过头部手势接听电话</string>
+    <string name="display_over_other_apps">显示在其他应用上层</string>
+    <string name="display_over_other_apps_desc">用于 AirPods 连接时的弹出动画</string>
+    <string name="ask_regular_permissions">请求常规权限</string>
+    <string name="overlay_permission_granted">悬浮窗权限已授予</string>
+    <string name="grant_overlay_permission">授予悬浮窗权限</string>
+    <string name="continue_without_overlay">不使用悬浮窗继续</string>
+    <!-- Onboarding Screen -->
+    <string name="setting_up">正在设置</string>
+    <string name="check_root_access">检查 Root 权限</string>
+    <string name="setup_required">需要设置</string>
+    <string name="setup_required_desc">AirPods 功能需要一次性设置以挂钩蓝牙库</string>
+    <string name="start_setup">开始设置</string>
+    <string name="module_enabled_confirm">我已启用/重新激活模块</string>
+    <string name="bluetooth_toggled_confirm">我已开关蓝牙</string>
+    <string name="continue_to_settings">继续进入设置</string>
+    <string name="try_again">重试</string>
+    <string name="skip_setup">跳过设置</string>
+    <string name="skip_setup_desc">你是否已安装了直接修补蓝牙库的 Root 模块？此选项适用于手动修补系统而非使用动态挂钩的用户。</string>
+    <string name="yes_skip_setup">是的，跳过设置</string>
+    <string name="cancel">取消</string>
+    <!-- Onboarding Status Titles -->
+    <string name="enable_xposed_module">启用 Xposed 模块</string>
+    <string name="toggle_bluetooth">开关蓝牙</string>
+    <string name="setup_complete">设置完成</string>
+    <string name="getting_ready">正在准备</string>
+    <string name="checking_radare2">检查 radare2 是否已下载</string>
+    <string name="downloading_radare2">正在下载 radare2</string>
+    <string name="extracting_radare2">正在解压 radare2</string>
+    <string name="setting_permissions">正在设置执行权限</string>
+    <string name="finding_offset">正在查找函数偏移</string>
+    <string name="saving_offset">正在保存偏移</string>
+    <string name="cleaning_up">正在清理</string>
+    <string name="setup_failed">设置失败</string>
+    <!-- Onboarding Status Descriptions -->
+    <string name="enable_module_desc">请在你的 Xposed 管理器（如 LSPosed）中启用 LibrePods Xposed 模块。如果已启用，请禁用后重新启用。</string>
+    <string name="toggle_bluetooth_desc">请关闭然后打开蓝牙以应用更改。</string>
+    <string name="setup_complete_desc">设置完成！你现在可以使用增强功能的 AirPods 了。</string>
+    <string name="preparing">正在准备</string>
+    <string name="checking_radare2_desc">检查 radare2 是否已安装</string>
+    <string name="downloading_radare2_start">正在开始下载 radare2</string>
+    <string name="extracting_radare2_desc">正在解压 radare2</string>
+    <string name="setting_permissions_desc">正在为 radare2 二进制文件设置执行权限</string>
+    <string name="finding_offset_desc">正在系统库中查找所需的蓝牙函数</string>
+    <string name="saving_offset_desc">正在保存函数偏移</string>
+    <string name="cleaning_up_desc">正在删除临时解压文件</string>
+    <!-- TroubleshootingScreen -->
+    <string name="delete_all">全部删除</string>
+    <string name="open_xposed_settings">打开 Xposed 设置</string>
+    <string name="continue_btn">继续</string>
+    <string name="preparing_logs">正在准备...</string>
+    <string name="collecting_logs">正在收集日志...</string>
+    <string name="stop_collection">停止收集</string>
+    <string name="share">分享</string>
+    <string name="save">保存</string>
+    <string name="done">完成</string>
+    <string name="delete">删除</string>
+    <string name="delete_log_file">删除日志文件</string>
+    <string name="delete_log_confirm">确定要删除此日志文件吗？此操作无法撤销。</string>
+    <string name="delete_all_logs">删除所有日志</string>
+    <string name="delete_all_logs_confirm">确定要删除所有日志文件吗？此操作无法撤销，将删除 %d 个日志文件。</string>
+    <string name="log_saved">日志保存成功</string>
+    <string name="log_saved_name">日志已保存：%s</string>
+    <string name="log_collection_stopped">日志收集已停止</string>
+    <string name="log_file_deleted">日志文件已删除</string>
+    <string name="failed_delete_log">删除日志文件失败</string>
+    <string name="deleted_logs_count">已删除 %d 个日志文件</string>
+    <string name="failed_delete_logs">删除日志文件失败</string>
+    <string name="error_collecting_logs">收集日志出错：%s</string>
+    <string name="share_log_file">分享日志文件</string>
+    <string name="total_logs">日志总数：%d</string>
+    <!-- HearingAidScreen -->
+    <string name="enable_hearing_aid">启用助听</string>
+    <string name="enable_hearing_aid_msg">启用助听将禁用耳机调节和自定义通透模式。</string>
+    <string name="enable">启用</string>
+    <!-- QuickSettingsDialogActivity -->
+    <string name="loading">加载中...</string>
+    <string name="noise_cancel">降噪</string>
+    <!-- AirPodsService Notifications -->
+    <string name="background_service_running">后台服务运行中</string>
+    <string name="useless_notification">无用的通知，点击以禁用。</string>
+    <string name="airpods_connection_issue">AirPods 连接问题</string>
+    <string name="l2cap_connection_failed">无法通过 L2CAP 连接 AirPods</string>
+    <string name="l2cap_connection_failed_detail">你的 AirPods 已通过蓝牙连接，但 LibrePods 无法通过 L2CAP 连接。这通常发生在另一台设备已打开 L2CAP 连接时。请尝试先断开 AirPods 与其他设备的连接。</string>
+    <string name="tap_to_open_app">点击打开应用</string>
+    <string name="notification_channel_issues">关于 AirPods 协议连接问题的通知</string>
+    <!-- AirPodsQSService -->
+    <string name="disconnected">未连接</string>
+    <!-- TroubleshootingScreen Instructions -->
+    <string name="troubleshooting_step_0">首先，让我们确保 Xposed 模块已正确配置。点击下方按钮检查 Xposed 作用域设置。</string>
+    <string name="troubleshooting_step_1">请将 AirPods 放入充电盒并关闭盒盖，使其完全断开连接。</string>
+    <string name="troubleshooting_step_2">正在准备收集日志...请稍候。</string>
+    <string name="troubleshooting_step_3">现在，打开 AirPods 充电盒并连接。正在收集日志。连接将自动检测，或者你可以在完成后手动停止日志记录。</string>
+    <string name="troubleshooting_step_4">日志收集完成！你现在可以保存或分享日志。</string>
+    <string name="failed_save_log">保存日志失败：%s</string>
+    <string name="unknown_error">未知错误</string>
 </resources>
