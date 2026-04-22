@@ -85,15 +85,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import me.kavishdevar.librepods.composables.AdaptiveRainbowBrush
-import me.kavishdevar.librepods.composables.ControlCenterNoiseControlSegmentedButton
-import me.kavishdevar.librepods.composables.IconAreaSize
-import me.kavishdevar.librepods.composables.VerticalVolumeSlider
-import me.kavishdevar.librepods.constants.AirPodsNotifications
-import me.kavishdevar.librepods.constants.NoiseControlMode
+import me.kavishdevar.librepods.presentation.components.AdaptiveRainbowBrush
+import me.kavishdevar.librepods.presentation.components.ControlCenterNoiseControlSegmentedButton
+import me.kavishdevar.librepods.presentation.components.IconAreaSize
+import me.kavishdevar.librepods.presentation.components.VerticalVolumeSlider
+import me.kavishdevar.librepods.data.AirPodsNotifications
+import me.kavishdevar.librepods.data.NoiseControlMode
 import me.kavishdevar.librepods.services.AirPodsService
-import me.kavishdevar.librepods.ui.theme.LibrePodsTheme
-import me.kavishdevar.librepods.utils.AACPManager
+import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
+import me.kavishdevar.librepods.bluetooth.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
 

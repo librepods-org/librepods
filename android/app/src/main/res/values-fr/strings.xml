@@ -34,7 +34,7 @@
     <string name="airpods_not_connected">AirPods non connectés</string>
     <string name="airpods_not_connected_description">Veuillez connecter vos AirPods pour accéder aux réglages.</string>
     <string name="back">Retour</string>
-    <string name="app_settings">Personnalisations</string>
+    <string name="customizations">Personnalisations</string>
     <string name="relative_conversational_awareness_volume">Volume relatif</string>
     <string name="relative_conversational_awareness_volume_description">Réduit à un pourcentage du volume actuel plutôt qu\'au volume maximum.</string>
     <string name="conversational_awareness_pause_music">Mettre la musique en pause</string>
@@ -206,10 +206,6 @@
     <string name="environmental_noise">Bruit environnemental</string>
     <string name="reconnect_to_last_device">Reconnecter au dernier appareil</string>
     <string name="disconnect">Déconnecter</string>
-    <string name="support_me">Soutenez-moi</string>
-    <string name="never_show_again">Ne plus afficher</string>
-    <string name="support_dialog_description">J\'ai récemment perdu mon AirPod gauche. Si LibrePods vous est utile, pensez à me soutenir sur GitHub Sponsors pour m\'aider à en racheter un et continuer ce projet — même un petit montant aide beaucoup. Merci pour votre soutien !</string>
-    <string name="support_librepods">Soutenir LibrePods</string>
     <string name="listening_mode_off_description">Désactiver la gestion du bruit</string>
     <string name="listening_mode_transparency_description">Laisser entrer les sons extérieurs</string>
     <string name="listening_mode_adaptive_description">Ajuster dynamiquement les sons extérieurs</string>

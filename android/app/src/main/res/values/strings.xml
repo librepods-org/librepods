@@ -34,7 +34,7 @@
     <string name="airpods_not_connected">AirPods not connected</string>
     <string name="airpods_not_connected_description">Please connect your AirPods to access settings.</string>
     <string name="back">Back</string>
-    <string name="app_settings">Customizations</string>
+    <string name="customizations">Customizations</string>
     <string name="relative_conversational_awareness_volume">Relative volume</string>
     <string name="relative_conversational_awareness_volume_description">Reduces to a percentage of the current volume instead of the maximum volume.</string>
     <string name="conversational_awareness_pause_music">Pause Music</string>
@@ -169,7 +169,7 @@
     <string name="enter_enc_key_hex">Enter 16-byte ENC_KEY as hex string (32 characters):</string>
     <string name="must_be_32_hex_chars">Must be exactly 32 hex characters</string>
     <string name="error_converting_hex">Error converting hex:</string>
-    <string name="found_offset_restart_bluetooth">Found offset please restart the Bluetooth process</string>
+    <string name="found_offset_restart_bluetooth">Please restart the Bluetooth process</string>
     <string name="digital_assistant">Digital Assistant</string>
     <string name="on">On</string>
     <string name="camera_remote">Camera Remote</string>
@@ -206,12 +206,34 @@
     <string name="environmental_noise">Environmental Noise</string>
     <string name="reconnect_to_last_device">Reconnect to last connected device</string>
     <string name="disconnect">Disconnect</string>
-    <string name="support_me">Support me</string>
-    <string name="never_show_again">Never show again</string>
-    <string name="support_dialog_description">I recently lost my left AirPod. If you\'ve found LibrePods useful, consider supporting me on GitHub Sponsors so I can buy a replacement and continue working on this project- even a little amount goes a long way. Thank you for your support!</string>
-    <string name="support_librepods">Support LibrePods</string>
     <string name="listening_mode_off_description">Turns off noise management</string>
     <string name="listening_mode_transparency_description">Lets in external sounds</string>
     <string name="listening_mode_adaptive_description">Dynamically adjust external noise</string>
     <string name="listening_mode_noise_cancellation_description">Blocks out external sounds</string>
+    <string name="unlock_advanced_features">Unlock advanced features</string>
+    <string name="buy">Buy</string>
+    <string name="restore_purchases">Restore purchases</string>
+    <string name="ear_detection_description">Automatically stop playing audio when you take them off, and resume playback when you put them back on.</string>
+    <string name="battery">Battery</string>
+    <string name="battery_description">View accurate battery status in the app and notification.</string>
+    <string name="noise_control_description">Switch between listening modes directly from the app or Quick Settings.</string>
+    <string name="advanced_device_settings">Advanced device settings</string>
+    <string name="advanced_device_settings_description">Customize settings like Personalized Volume, Adaptive Audio, Pause media when falling asleep, and other Accessibility settings.</string>
+    <string name="automatic_connection">Automatic Connection</string>
+    <string name="automatic_connection_description">Enable and customize automatic connection to AirPods.</string>
+    <string name="customizations_description">Get access to app customizations, including phone battery in widget, conversational awareness volume, and many more upcoming customization features.</string>
+    <string name="support_the_development">Support the development</string>
+    <string name="support_development_description">LibrePods is developed by a single developer. Upgrading helps keep the app alive.</string>
+    <string name="feature_availability_disclaimer">Feature availability depends on your AirPods model and firmware version.</string>
+    <string name="contact">Contact</string>
+    <string name="email">E-Mail</string>
+    <string name="discord">Discord</string>
+    <string name="github_issues">GitHub Issues</string>
+    <string name="version_code">Version code</string>
+    <string name="flavor" translatable="false">Flavor</string>
+    <string name="build_type">Build type</string>
+    <string name="no">No</string>
+    <string name="yes">Yes</string>
+    <string name="settings">Settings</string>
+    <string name="requires_xposed">requires xposed</string>
 </resources>

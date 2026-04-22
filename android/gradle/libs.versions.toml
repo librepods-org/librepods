@@ -1,28 +1,27 @@
 [versions]
-accompanistPermissions = "0.36.0"
-agp = "8.9.1"
-hiddenapibypass = "6.1"
-kotlin = "2.1.10"
-coreKtx = "1.17.0"
-lifecycleRuntimeKtx = "2.8.7"
-activityCompose = "1.10.1"
-composeBom = "2025.04.00"
-annotations = "26.0.2"
-navigationCompose = "2.8.9"
+accompanistPermissions = "0.37.3"
+agp = "9.1.0"
+kotlin = "2.3.20"
+coreKtx = "1.18.0"
+lifecycleRuntimeKtx = "2.10.0"
+activityCompose = "1.13.0"
+composeBom = "2026.03.01"
+annotations = "26.1.0"
+navigationCompose = "2.9.7"
 constraintlayout = "2.2.1"
-haze = "1.6.10"
-hazeMaterials = "1.6.10"
+haze = "1.7.2"
+hazeMaterials = "1.7.2"
 dynamicanimation = "1.1.0"
-foundationLayout = "1.9.1"
-uiTooling = "1.9.1"
-mockk = "1.14.3"
-ui = "1.9.2"
-aboutLibraries = "13.0.0-rc01"
+aboutLibraries = "14.0.1"
+materialIconsCore = "1.7.8"
+backdrop = "2.0.0-alpha03"
+billing = "8.3.0"
+hilt = "2.59.2"
+xposed = "101.0.0"
 
 [libraries]
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-hiddenapibypass = { module = "org.lsposed.hiddenapibypass:hiddenapibypass", version.ref = "hiddenapibypass" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -36,15 +35,21 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 haze-materials = { group = "dev.chrisbanes.haze", name = "haze-materials", version.ref = "hazeMaterials" }
 androidx-dynamicanimation = { group = "androidx.dynamicanimation", name = "dynamicanimation", version.ref = "dynamicanimation" }
-androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
-androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling", version.ref = "uiTooling" }
-mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
-androidx-compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
+androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout"}
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 aboutlibraries = { group = "com.mikepenz", name = "aboutlibraries", version.ref = "aboutLibraries" }
 aboutlibraries-compose-m3 = { group = "com.mikepenz", name = "aboutlibraries-compose-m3", version.ref = "aboutLibraries" }
+androidx-compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core", version.ref = "materialIconsCore" }
+backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
+billing = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
+hilt = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
+libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "xposed" }
+libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "xposed" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 aboutLibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutLibraries" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

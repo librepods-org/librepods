@@ -34,7 +34,7 @@
     <string name="airpods_not_connected">AirPods chưa được kết nối</string>
     <string name="airpods_not_connected_description">Vui lòng kết nối đến AirPods của bạn để truy cập cài đặt.</string>
     <string name="back">Quay lại</string>
-    <string name="app_settings">Tùy chỉnh</string>
+    <string name="customizations">Tùy chỉnh</string>
     <string name="relative_conversational_awareness_volume">Âm lượng tương đối</string>
     <string name="relative_conversational_awareness_volume_description">Giảm xuống phần trăm của âm lượng hiện tại thay vì âm lượng tối đa.</string>
     <string name="conversational_awareness_pause_music">Tạm dừng nhạc</string>
@@ -169,7 +169,7 @@
     <string name="enter_enc_key_hex">Nhập ENC_KEY 16 byte dưới dạng chuỗi hex (32 ký tự):</string>
     <string name="must_be_32_hex_chars">Phải chính xác 32 ký tự hex</string>
     <string name="error_converting_hex">Lỗi chuyển đổi hex:</string>
-    <string name="found_offset_restart_bluetooth">Đã tìm thấy độ lệch, vui lòng khởi động lại tiến trình Bluetooth</string>
+    <string name="found_offset_restart_bluetooth">vui lòng khởi động lại tiến trình Bluetooth</string>
     <string name="digital_assistant">Trợ lý kỹ thuật số</string>
     <string name="on">Bật</string>
     <string name="camera_remote">Điều khiển máy ảnh từ xa</string>
@@ -206,10 +206,6 @@
     <string name="environmental_noise">Tiếng ồn môi trường</string>
     <string name="reconnect_to_last_device">Kết nối lại với thiết bị được kết nối lần cuối</string>
     <string name="disconnect">Ngắt kết nối</string>
-    <string name="support_me">Hỗ trợ tôi</string>
-    <string name="never_show_again">Không hiển thị lại</string>
-    <string name="support_dialog_description">Gần đây tôi bị mất tai bên trái của AirPod. Nếu bạn thấy LibrePods hữu ích, hãy cân nhắc hỗ trợ tôi trên GitHub Sponsors để tôi có thể mua cái thay thế và tiếp tục làm việc trên dự án này - ngay cả một khoản nhỏ cũng rất có ý nghĩa. Cảm ơn sự hỗ trợ của bạn!</string>
-    <string name="support_librepods">Hỗ trợ LibrePods</string>
     <string name="listening_mode_off_description">Tắt quản lý tiếng ồn</string>
     <string name="listening_mode_transparency_description">Cho phép âm thanh bên ngoài</string>
     <string name="listening_mode_adaptive_description">Điều chỉnh động tiếng ồn bên ngoài</string>

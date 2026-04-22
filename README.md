@@ -129,6 +129,27 @@ A huge thank you to everyone supporting the project!
 - MagicPods for Steam Deck ([website](https://magicpods.app/steamdeck/))
 - MagicPods - if you're looking for "LibrePods for Windows"  ([ms store](https://apps.microsoft.com/store/detail/9P6SKKFKSHKM) [installer](https://magicpods.app/installer/MagicPods.appinstaller) | [website](https://magicpods.app/))
 
+# Nightly / Development Builds
+
+Want to try the latest features before they're officially released? You can grab nightly builds from GitHub Actions:
+
+### Android
+1. Go to the [Actions tab](https://github.com/kavishdevar/librepods/actions/workflows/ci-android.yml)
+2. Click on the most recent successful workflow run
+3. Scroll down to **Artifacts** and download the **Debug APK** zip file
+4. Extract the zip and install the `.apk` on your device
+
+> [!NOTE]
+> You need to be signed in to GitHub to download artifacts. Nightly builds are debug-signed and may not auto-update — you may need to uninstall the stable version first.
+
+### Linux (Rust)
+1. Go to the [Actions tab](https://github.com/kavishdevar/librepods/actions/workflows/ci-linux-rust.yml)
+2. Click on the most recent successful workflow run
+3. Download the **librepods-x86_64.AppImage** or **librepods** binary from **Artifacts**
+
+> [!WARNING]
+> Nightly builds are unstable and may contain bugs. Use at your own risk.
+
 # Star History
 
 <a href="https://www.star-history.com/#kavishdevar/librepods&type=date&legend=top-left">

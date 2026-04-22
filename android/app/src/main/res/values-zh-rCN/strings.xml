@@ -33,7 +33,7 @@
     <string name="airpods_not_connected">AirPods 未连接</string>
     <string name="airpods_not_connected_description">请连接 AirPods 以访问设置。</string>
     <string name="back">返回</string>
-    <string name="app_settings">自定义</string>
+    <string name="customizations">自定义</string>
     <string name="relative_conversational_awareness_volume">相对音量</string>
     <string name="relative_conversational_awareness_volume_description">降低到当前音量的百分比，而不是最大音量。</string>
     <string name="conversational_awareness_pause_music">暂停音乐</string>
@@ -207,10 +207,6 @@
     <string name="environmental_noise">环境噪音</string>
     <string name="reconnect_to_last_device">重新连接到上次连接的设备</string>
     <string name="disconnect">断开连接</string>
-    <string name="support_me">支持我</string>
-    <string name="never_show_again">不再显示</string>
-    <string name="support_dialog_description">我最近丢了我的左耳 AirPod。如果你觉得 LibrePods 有用，请考虑在 GitHub Sponsors 上支持我，这样我就可以购买一个替换品并继续从事这个项目——即使是少量捐助也能发挥很大作用。感谢你的支持！</string>
-    <string name="support_librepods">支持 LibrePods</string>
     <string name="listening_mode_off_description">关闭噪音管理</string>
     <string name="listening_mode_transparency_description">允许外部声音进入</string>
     <string name="listening_mode_adaptive_description">动态调整外部噪音</string>

@@ -40,13 +40,13 @@ val cameraPackages = mutableSetOf(
 var cameraOpen = false
 private var currentCustomPackage: String? = null
 
-class AppListenerService : AccessibilityService() {
+class AppListenerService: AccessibilityService() {
     private lateinit var prefs: android.content.SharedPreferences
     private val preferenceChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "custom_camera_package") {
             val newPackage = sharedPreferences.getString(key, null)
             currentCustomPackage?.let { cameraPackages.remove(it) }
-            if (newPackage != null && newPackage.isNotBlank()) {
+            if (!newPackage.isNullOrBlank()) {
                 cameraPackages.add(newPackage)
             }
             currentCustomPackage = newPackage
@@ -57,7 +57,7 @@ class AppListenerService : AccessibilityService() {
         super.onCreate()
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val customPackage = prefs.getString("custom_camera_package", null)
-        if (customPackage != null && customPackage.isNotBlank()) {
+        if (!customPackage.isNullOrBlank()) {
             cameraPackages.add(customPackage)
             currentCustomPackage = customPackage
         }
