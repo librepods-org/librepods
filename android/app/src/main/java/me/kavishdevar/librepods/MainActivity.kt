@@ -144,6 +144,7 @@ import me.kavishdevar.librepods.presentation.screens.OpenSourceLicensesScreen
 import me.kavishdevar.librepods.presentation.screens.PurchaseScreen
 import me.kavishdevar.librepods.presentation.screens.RenameScreen
 import me.kavishdevar.librepods.presentation.screens.TransparencySettingsScreen
+import me.kavishdevar.librepods.presentation.screens.TroubleshootingScreen
 import me.kavishdevar.librepods.presentation.screens.UpdateHearingTestScreen
 import me.kavishdevar.librepods.presentation.screens.VersionScreen
 import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
@@ -473,9 +474,9 @@ fun Main() {
                         val appSettingsViewModel: AppSettingsViewModel = viewModel()
                         AppSettingsScreen(navController, appSettingsViewModel)
                     }
-//                    composable("troubleshooting") {
-//                        TroubleshootingScreen(navController)
-//                    }
+                    composable("troubleshooting") {
+                        TroubleshootingScreen(navController)
+                    }
                     composable("head_tracking") {
                         if (airPodsViewModel != null) HeadTrackingScreen(airPodsViewModel, navController)
                     }

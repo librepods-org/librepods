@@ -1261,7 +1261,7 @@ class AACPManager {
             val start = index
             // find next 0x00 byte
             while (index < data.size && data[index] != 0x00.toByte()) index++
-            val str = data.sliceArray(start..index).decodeToString()
+            val str = data.sliceArray(start until index).decodeToString()
             strings.add(str)
         }
 

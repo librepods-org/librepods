@@ -382,13 +382,15 @@ fun AppSettingsScreen(
             }
 
 
-//            NavigationButton(
-//                to = "troubleshooting",
-//                name = stringResource(R.string.troubleshooting),
-//                navController = navController,
-//                independent = true,
-//                description = stringResource(R.string.troubleshooting_description)
-//            )
+            if (!BuildConfig.PLAY_BUILD) {
+                NavigationButton(
+                    to = "troubleshooting",
+                    name = stringResource(R.string.troubleshooting),
+                    navController = navController,
+                    independent = true,
+                    description = stringResource(R.string.troubleshooting_description)
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 

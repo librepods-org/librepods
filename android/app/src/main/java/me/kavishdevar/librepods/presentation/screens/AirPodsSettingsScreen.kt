@@ -500,23 +500,25 @@ fun AirPodsSettingsScreen(viewModel: AirPodsViewModel, navController: NavControl
                 }
 
                 Spacer(Modifier.height(32.dp))
-//                StyledButton(
-//                    onClick = { navController.navigate("troubleshooting") },
-//                    backdrop = backdrop,
-//                    modifier = Modifier
-//                        .fillMaxWidth(0.9f)
-//                ) {
-//                    Text(
-//                        text = stringResource(R.string.troubleshooting),
-//                        style = TextStyle(
-//                            fontSize = 16.sp,
-//                            fontWeight = FontWeight.Medium,
-//                            fontFamily = FontFamily(Font(R.font.sf_pro)),
-//                            color = if (isSystemInDarkTheme()) Color.White else Color.Black
-//                        )
-//                    )
-//                }
-//                Spacer(Modifier.height(16.dp))
+                if (!BuildConfig.PLAY_BUILD) {
+                    StyledButton(
+                        onClick = { navController.navigate("troubleshooting") },
+                        backdrop = backdrop,
+                        modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.troubleshooting),
+                            style = TextStyle(
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily(Font(R.font.sf_pro)),
+                                color = if (isSystemInDarkTheme()) Color.White else Color.Black
+                            )
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
                 StyledButton(
                     onClick = {
                         viewModel.reconnectFromSavedMac()

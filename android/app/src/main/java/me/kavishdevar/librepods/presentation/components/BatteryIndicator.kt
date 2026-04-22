@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,8 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.BatteryStatus
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -66,8 +68,8 @@ fun BatteryIndicator(
     val isDarkTheme = isSystemInDarkTheme()
     val backgroundColor = if (isDarkTheme) Color.Black else Color(0xFFF2F2F7)
     val batteryTextColor = if (isDarkTheme) Color.White else Color.Black
-    val batteryFillColor = if (batteryPercentage > 25)
-        if (isDarkTheme) Color(0xFF2ED158) else Color(0xFF35C759)
+    val batteryFillColor =
+        if (batteryPercentage > 25) if (isDarkTheme) Color(0xFF2ED158) else Color(0xFF35C759)
         else if (isDarkTheme) Color(0xFFFC4244) else Color(0xFFfe373C)
 
     val initialScale = if (previousCharging) 1f else 0f
@@ -80,27 +82,57 @@ fun BatteryIndicator(
     }
 
     Column(
-        modifier = Modifier
-            .background(backgroundColor), // just for haze to work
+        modifier = Modifier.background(backgroundColor).padding(4.dp), // just for haze to work
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
-            modifier = Modifier.padding(bottom = 4.dp),
-            contentAlignment = Alignment.Center
+            modifier = Modifier.padding(bottom = 4.dp), contentAlignment = Alignment.Center
         ) {
             val strokeWidthPx = with(LocalDensity.current) { 4.dp.toPx() }
             val gapFromCenterPx = with(LocalDensity.current) { 8.sp.toPx() }
 
-            if (status == BatteryStatus.OPTIMIZED_CHARGING) {
-                Canvas(modifier = Modifier.size(40.dp)) {
-                    val radius = size.minDimension / 2
-                    val progress = batteryPercentage / 100f
+            val trackColor = if (isDarkTheme) Color(0xFF272728) else Color(0xFFE3E3E8)
+            val optimizedLimit = 0.8f
+            val progress = batteryPercentage / 100f
 
-                    val angleDeg = -90f + 360f * progress
+            Canvas(modifier = Modifier.size(34.dp)) {
+                val startAngle = -90f
+                val stroke = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                val inset = strokeWidthPx / 2
+                Rect(
+                    left = inset,
+                    top = inset,
+                    right = size.width - inset,
+                    bottom = size.height - inset
+                )
+                val radius = size.minDimension / 2
+
+                if (status == BatteryStatus.OPTIMIZED_CHARGING) {
+                    drawArc(
+                        color = trackColor,
+                        startAngle = startAngle,
+                        sweepAngle = 360f * optimizedLimit,
+                        useCenter = false,
+                        style = stroke
+                    )
+
+                    val sweep = 360f * min(progress, optimizedLimit)
+                    drawArc(
+                        color = batteryFillColor,
+                        startAngle = startAngle,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        style = stroke
+                    )
+
+                    // ---- PILL MARKER AT 80% ----
+                    val angleDeg = startAngle + 360f * optimizedLimit
                     val angleRad = Math.toRadians(angleDeg.toDouble())
 
-                    val outerX = center.x + (radius - strokeWidthPx) * cos(angleRad).toFloat()
-                    val outerY = center.y + (radius - strokeWidthPx) * sin(angleRad).toFloat()
+                    val arcRadius = radius - strokeWidthPx
+
+                    val outerX = center.x + arcRadius * cos(angleRad).toFloat()
+                    val outerY = center.y + arcRadius * sin(angleRad).toFloat()
 
                     val dirX = center.x - outerX
                     val dirY = center.y - outerY
@@ -116,34 +148,38 @@ fun BatteryIndicator(
                     val endY = center.y - normY * gapFromCenterPx
 
                     drawLine(
-                        color = batteryFillColor,
+                        color = if (batteryPercentage >= 80) batteryFillColor else trackColor,
                         start = Offset(startX, startY),
                         end = Offset(endX, endY),
                         strokeWidth = strokeWidthPx,
                         cap = StrokeCap.Round
                     )
+                } else {
+                    drawArc(
+                        color = trackColor,
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = stroke
+                    )
+
+                    drawArc(
+                        color = batteryFillColor,
+                        startAngle = startAngle,
+                        sweepAngle = 360f * progress,
+                        useCenter = false,
+                        style = stroke
+                    )
                 }
             }
 
-            CircularProgressIndicator(
-                progress = { batteryPercentage / 100f },
-                modifier = Modifier.size(40.dp),
-                color = batteryFillColor,
-                gapSize = 0.dp,
-                strokeCap = StrokeCap.Round,
-                strokeWidth = 4.dp,
-                trackColor = if (isDarkTheme) Color(0xFF0E0E0F) else Color(0xFFE3E3E8)
-            )
-
             Text(
-                text = "\uDBC0\uDEE6",
-                style = TextStyle(
-                    fontSize = 12.sp,
+                text = "\uDBC0\uDEE6", style = TextStyle(
+                    fontSize = 14.sp,
                     fontFamily = FontFamily(Font(R.font.sf_pro)),
                     color = batteryFillColor,
                     textAlign = TextAlign.Center
-                ),
-                modifier = Modifier.scale(scaleAnim.value)
+                ), modifier = Modifier.scale(scaleAnim.value)
             )
         }
 
@@ -153,7 +189,7 @@ fun BatteryIndicator(
             text = "$prefix $batteryPercentage%",
             color = batteryTextColor,
             style = TextStyle(
-                fontSize = 16.sp,
+                fontSize = 14.sp,
                 fontFamily = FontFamily(Font(R.font.sf_pro)),
                 textAlign = TextAlign.Center
             ),
@@ -168,6 +204,11 @@ fun BatteryIndicatorPreview() {
     Box(
         modifier = Modifier.background(bg)
     ) {
-        BatteryIndicator(batteryPercentage = 80, status = BatteryStatus.CHARGING, prefix = "\uDBC6\uDCE5", previousCharging = false)
+        BatteryIndicator(
+            batteryPercentage = 50,
+            status = BatteryStatus.OPTIMIZED_CHARGING,
+            prefix = "\uDBC6\uDCE5",
+            previousCharging = false
+        )
     }
 }
