@@ -254,18 +254,18 @@ fun AirPodsSettingsScreen(viewModel: AirPodsViewModel, navController: NavControl
                         })
                 }
 
-                if (capabilities.contains(Capability.STEM_CONFIG) && !BuildConfig.PLAY_BUILD) {
-                    item(key = "spacer_camera") { Spacer(modifier = Modifier.height(16.dp)) }
-                    item(key = "camera_control") {
-                        NavigationButton(
-                            to = "camera_control",
-                            name = stringResource(R.string.camera_remote),
-                            description = stringResource(R.string.camera_control_description),
-                            title = stringResource(R.string.camera_control),
-                            navController = navController
-                        )
-                    }
-                }
+//                if (capabilities.contains(Capability.STEM_CONFIG) && !BuildConfig.PLAY_BUILD) {
+//                    item(key = "spacer_camera") { Spacer(modifier = Modifier.height(16.dp)) }
+//                    item(key = "camera_control") {
+//                        NavigationButton(
+//                            to = "camera_control",
+//                            name = stringResource(R.string.camera_remote),
+//                            description = stringResource(R.string.camera_control_description),
+//                            title = stringResource(R.string.camera_control),
+//                            navController = navController
+//                        )
+//                    }
+//                }
 
                 item(key = "upgrade_button") {
                     if (!state.isPremium) {
