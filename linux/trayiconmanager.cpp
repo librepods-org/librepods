@@ -8,6 +8,7 @@
 #include <QFont>
 #include <QColor>
 #include <QActionGroup>
+#include <QRegularExpression>
 
 using namespace AirpodsTrayApp::Enums;
 
@@ -34,7 +35,7 @@ void TrayIconManager::showNotification(const QString &title, const QString &mess
     trayIcon->showMessage(title, message, QSystemTrayIcon::Information, 3000);
 }
 
-void TrayIconManager::TrayIconManager::updateBatteryStatus(const QString &status)
+void TrayIconManager::updateBatteryStatus(const QString &status)
 {
     trayIcon->setToolTip(tr("Battery Status: ") + status);
     updateIconFromBattery(status);
@@ -52,6 +53,17 @@ void TrayIconManager::updateNoiseControlState(NoiseControlMode mode)
 void TrayIconManager::updateConversationalAwareness(bool enabled)
 {
     caToggleAction->setChecked(enabled);
+}
+
+void TrayIconManager::setAirPodsControlsEnabled(bool enabled)
+{
+    for (QAction *action : m_airPodsControlActions)
+    {
+        if (action)
+        {
+            action->setEnabled(enabled);
+        }
+    }
 }
 
 void TrayIconManager::setupMenuActions()
@@ -73,6 +85,7 @@ void TrayIconManager::setupMenuActions()
     caToggleAction = new QAction(tr("Toggle Conversational Awareness"), trayMenu);
     caToggleAction->setCheckable(true);
     trayMenu->addAction(caToggleAction);
+    m_airPodsControlActions.append(caToggleAction);
     connect(caToggleAction, &QAction::triggered, this, [this](bool checked)
             { emit conversationalAwarenessToggled(checked); });
 
@@ -93,9 +106,12 @@ void TrayIconManager::setupMenuActions()
         action->setData((int)option.second);
         noiseControlGroup->addAction(action);
         trayMenu->addAction(action);
+        m_airPodsControlActions.append(action);
         connect(action, &QAction::triggered, this, [this, mode = option.second]()
                 { emit noiseControlChanged(mode); });
     }
+
+    setAirPodsControlsEnabled(false);
 
     trayMenu->addSeparator();
 
@@ -113,16 +129,29 @@ void TrayIconManager::updateIconFromBattery(const QString &status)
 
     if (!status.isEmpty())
     {
-        // Parse the battery status string
-        QStringList parts = status.split(", ");
-        if (parts.size() >= 2) {
-            leftLevel = parts[0].split(": ")[1].replace("%", "").toInt();
-            rightLevel = parts[1].split(": ")[1].replace("%", "").toInt();
-            minLevel = (leftLevel == 0) ? rightLevel : (rightLevel == 0) ? leftLevel
-                                                                    : qMin(leftLevel, rightLevel);
-        } else if (parts.size() == 1) {
-            minLevel = parts[0].split(": ")[1].replace("%", "").toInt();
+        const QRegularExpression batteryPattern(QStringLiteral("(\\d+)%"));
+        QRegularExpressionMatchIterator iterator = batteryPattern.globalMatch(status);
+        QList<int> levels;
+        while (iterator.hasNext())
+        {
+            const QRegularExpressionMatch match = iterator.next();
+            levels.append(match.captured(1).toInt());
         }
+
+        if (!levels.isEmpty())
+        {
+            minLevel = levels.first();
+            for (int level : levels)
+            {
+                minLevel = qMin(minLevel, level);
+            }
+        }
+    }
+
+    if (status.isEmpty() || minLevel <= 0)
+    {
+        trayIcon->setIcon(QIcon(":/icons/assets/airpods.png"));
+        return;
     }
 
     QPixmap pixmap(32, 32);
@@ -143,4 +172,3 @@ void TrayIconManager::onTrayIconActivated(QSystemTrayIcon::ActivationReason reas
         emit trayClicked();
     }
 }
-

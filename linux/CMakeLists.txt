@@ -14,6 +14,7 @@ qt_standard_project_setup()
 # Translation files
 set(TS_FILES
     translations/librepods_tr.ts
+    translations/librepods_es.ts
 )
 
 qt_add_executable(librepods
@@ -100,6 +101,13 @@ install(FILES assets/me.kavishdevar.librepods.desktop
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
 install(FILES assets/librepods.svg
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
+install(FILES hearing-aid-adjustments.py
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/librepods")
+install(FILES
+    ../head-tracking/gestures.py
+    ../head-tracking/connection_manager.py
+    ../head-tracking/colors.py
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/librepods/head-tracking")
 
 # Translation support
 qt_add_translations(librepods

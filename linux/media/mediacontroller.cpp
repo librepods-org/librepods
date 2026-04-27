@@ -11,6 +11,15 @@
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 
+namespace {
+QString normalizeMacForAudioLookup(const QString &value)
+{
+  QString normalized = value;
+  normalized.remove(QRegularExpression(QStringLiteral("[^0-9A-Fa-f]")));
+  return normalized.toLower();
+}
+}
+
 MediaController::MediaController(QObject *parent) : QObject(parent) {
   m_pulseAudio = new PulseAudioController(this);
   if (!m_pulseAudio->initialize())
@@ -94,10 +103,13 @@ void MediaController::followMediaChanges() {
           });
 }
 
-bool MediaController::isActiveOutputDeviceAirPods() {
+bool MediaController::isActiveOutputDeviceAirPods() const {
   QString defaultSink = m_pulseAudio->getDefaultSink();
   LOG_DEBUG("Default sink: " << defaultSink);
-  return defaultSink.contains(connectedDeviceMacAddress);
+
+  const QString normalizedSink = normalizeMacForAudioLookup(defaultSink);
+  const QString normalizedMac = normalizeMacForAudioLookup(connectedDeviceMacAddress);
+  return !normalizedMac.isEmpty() && normalizedSink.contains(normalizedMac);
 }
 
 void MediaController::handleConversationalAwareness(const QByteArray &data) {
@@ -197,7 +209,19 @@ bool MediaController::restartWirePlumber() {
 }
 
 void MediaController::activateA2dpProfile() {
-  if (connectedDeviceMacAddress.isEmpty() || m_deviceOutputName.isEmpty()) {
+  if (connectedDeviceMacAddress.isEmpty()) {
+    LOG_WARN("Connected device MAC address is empty, cannot activate A2DP profile");
+    return;
+  }
+
+  // Card may have temporarily disappeared during BT reconnection — refresh if needed
+  if (m_deviceOutputName.isEmpty()) {
+    m_deviceOutputName = getAudioDeviceName();
+    if (!m_deviceOutputName.isEmpty())
+      LOG_INFO("Device output name refreshed: " << m_deviceOutputName);
+  }
+
+  if (m_deviceOutputName.isEmpty()) {
     LOG_WARN("Connected device MAC address or output name is empty, cannot activate A2DP profile");
     return;
   }
@@ -242,7 +266,7 @@ void MediaController::removeAudioOutputDevice() {
 }
 
 void MediaController::setConnectedDeviceMacAddress(const QString &macAddress) {
-  connectedDeviceMacAddress = macAddress;
+  connectedDeviceMacAddress = macAddress.trimmed();
   m_deviceOutputName = getAudioDeviceName();
   m_cachedA2dpProfile.clear();
   LOG_INFO("Device output name set to: " << m_deviceOutputName);

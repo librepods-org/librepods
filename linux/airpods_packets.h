@@ -238,6 +238,101 @@ namespace AirPodsPackets
         }
     }
 
+    // Case Charging Sounds (AirPods Pro 2 / AirPods 4 only)
+    namespace CaseChargingSounds
+    {
+        static QByteArray getPacket(bool enabled)
+        {
+            // 12 3A 00 01 00 08 [00=On, 01=Off]
+            QByteArray packet = QByteArray::fromHex("123A00010008");
+            packet.append(enabled ? static_cast<char>(0x00) : static_cast<char>(0x01));
+            return packet;
+        }
+    }
+
+    // Stem Long Press Configuration
+    // Bitmask: bit0=Off(0x01), bit1=ANC(0x02), bit2=Transparency(0x04), bit3=Adaptive(0x08)
+    // Min 2 bits must be set. Must be re-sent on every connection.
+    namespace StemLongPress
+    {
+        static const QByteArray HEADER = ControlCommand::HEADER + static_cast<char>(0x1A);
+        static const quint8 BIT_OFF          = 0x01;
+        static const quint8 BIT_ANC          = 0x02;
+        static const quint8 BIT_TRANSPARENCY = 0x04;
+        static const quint8 BIT_ADAPTIVE     = 0x08;
+
+        static QByteArray getPacket(quint8 modes)
+        {
+            return ControlCommand::createCommand(0x1A, modes);
+        }
+
+        inline std::optional<quint8> parseModes(const QByteArray &data)
+        {
+            if (!data.startsWith(HEADER) || data.size() < 8)
+                return std::nullopt;
+            return static_cast<quint8>(data.at(7));
+        }
+    }
+
+    // Customize Transparency Mode (per-bud EQ + parameters as IEEE 754 floats LE)
+    namespace CustomizeTransparency
+    {
+        static const QByteArray HEADER = QByteArray::fromHex("121800");
+
+        struct BudSettings {
+            float eq[8]              = {0,0,0,0,0,0,0,0}; // 0-100
+            float amplification      = 0.0f;  // 0-2
+            float tone               = 0.0f;  // 0-2
+            float conversationBoost  = 0.0f;  // 0 or 1
+            float ambientNoise       = 0.0f;  // 0-1
+        };
+
+        static QByteArray getPacket(bool enabled, const BudSettings &left, const BudSettings &right)
+        {
+            QByteArray packet = HEADER;
+
+            auto appendF = [&](float f) {
+                char bytes[4];
+                memcpy(bytes, &f, 4);
+                packet.append(bytes, 4);
+            };
+
+            appendF(enabled ? 1.0f : 0.0f);
+
+            for (const BudSettings *b : {&left, &right}) {
+                for (int i = 0; i < 8; i++) appendF(b->eq[i]);
+                appendF(b->amplification);
+                appendF(b->tone);
+                appendF(b->conversationBoost);
+                appendF(b->ambientNoise);
+            }
+
+            return packet;
+        }
+    }
+
+    // Headphone Accommodation (8-band EQ for Phone/Media, uint16 LE per band, triplicated)
+    namespace HeadphoneAccommodation
+    {
+        static QByteArray getPacket(bool phoneEnabled, bool mediaEnabled, const QList<int> &eq8)
+        {
+            QByteArray packet = QByteArray::fromHex("04000400530084000202");
+            packet.append(phoneEnabled  ? static_cast<char>(0x01) : static_cast<char>(0x02));
+            packet.append(mediaEnabled  ? static_cast<char>(0x01) : static_cast<char>(0x02));
+
+            QByteArray eqBytes;
+            for (int i = 0; i < 8; i++) {
+                quint16 v = static_cast<quint16>((i < eq8.size()) ? eq8[i] : 0);
+                eqBytes.append(static_cast<char>(v & 0xFF));
+                eqBytes.append(static_cast<char>((v >> 8) & 0xFF));
+            }
+            packet.append(eqBytes);
+            packet.append(eqBytes);
+            packet.append(eqBytes);
+            return packet;
+        }
+    }
+
     // Parsing Headers
     namespace Parse
     {

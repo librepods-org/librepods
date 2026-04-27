@@ -1,6 +1,16 @@
 #include "pulseaudiocontroller.h"
 #include "logger.h"
+#include <QRegularExpression>
 #include <QThread>
+
+namespace {
+QString normalizeMacForAudioLookup(const QString &value)
+{
+    QString normalized = value;
+    normalized.remove(QRegularExpression(QStringLiteral("[^0-9A-Fa-f]")));
+    return normalized.toLower();
+}
+}
 
 PulseAudioController::PulseAudioController(QObject *parent)
     : QObject(parent), m_mainloop(nullptr), m_context(nullptr), m_initialized(false)
@@ -198,12 +208,15 @@ QString PulseAudioController::getCardNameForDevice(const QString &macAddress)
 {
     if (!m_initialized) return QString();
 
+    const QString normalizedTargetMac = normalizeMacForAudioLookup(macAddress);
+    if (normalizedTargetMac.isEmpty()) return QString();
+
     struct CallbackData {
         QString cardName;
         QString targetMac;
         pa_threaded_mainloop *mainloop;
     } data;
-    data.targetMac = macAddress;
+    data.targetMac = normalizedTargetMac;
     data.mainloop = m_mainloop;
 
     auto callback = [](pa_context *c, const pa_card_info *info, int eol, void *userdata) {
@@ -216,7 +229,8 @@ QString PulseAudioController::getCardNameForDevice(const QString &macAddress)
         if (info)
         {
             QString name = QString::fromUtf8(info->name);
-            if (name.startsWith("bluez") && name.contains(d->targetMac))
+            const QString normalizedCardName = normalizeMacForAudioLookup(name);
+            if (name.startsWith("bluez") && normalizedCardName.contains(d->targetMac))
             {
                 d->cardName = name;
                 pa_threaded_mainloop_signal(d->mainloop, 0);

@@ -6,14 +6,20 @@ import QtQuick.Controls 2.15
 Control {
     id: root
 
+    signal activated(int index)
+
     // Properties
     property var model: ["Option 1", "Option 2"] // Default model
     property int currentIndex: 0
+    property color accentColor: palette.highlight
+    property color disabledBackgroundColor: "#eef1f5"
+    property color disabledSelectedColor: "#b9c4d2"
+    property color disabledTextColor: "#8b96a3"
 
     // Colors using system palette
-    readonly property color backgroundColor: palette.light
-    readonly property color selectedColor: palette.highlight
-    readonly property color textColor: palette.buttonText
+    readonly property color backgroundColor: root.enabled ? palette.light : root.disabledBackgroundColor
+    readonly property color selectedColor: root.enabled ? root.accentColor : root.disabledSelectedColor
+    readonly property color textColor: root.enabled ? palette.buttonText : root.disabledTextColor
     readonly property color selectedTextColor: palette.highlightedText
 
     // System palette
@@ -52,6 +58,7 @@ Control {
                 // Removed: width: (root.availableWidth - (root.model.length - 1) * root.padding) / root.model.length
                 height: root.availableHeight
                 focusPolicy: Qt.NoFocus // Let the root control handle focus
+                enabled: root.enabled
 
                 // Add explicit text color
                 contentItem: Text {
@@ -81,6 +88,7 @@ Control {
                 onClicked: {
                     if (root.currentIndex !== index) {
                         root.currentIndex = index;
+                        root.activated(index);
                     }
                 }
             }
@@ -92,23 +100,33 @@ Control {
         if (event.key === Qt.Key_Left) {
             if (root.currentIndex > 0) {
                 root.currentIndex--;
+                root.activated(root.currentIndex);
                 event.accepted = true;
             }
         } else if (event.key === Qt.Key_Right) {
             if (root.currentIndex < root.model.length - 1) {
                 root.currentIndex++;
+                root.activated(root.currentIndex);
                 event.accepted = true;
             }
         } else if (event.key === Qt.Key_Home) {
-            root.currentIndex = 0;
-            event.accepted = true;
+            if (root.currentIndex !== 0) {
+                root.currentIndex = 0;
+                root.activated(root.currentIndex);
+                event.accepted = true;
+            }
         } else if (event.key === Qt.Key_End) {
-            root.currentIndex = root.model.length - 1;
-            event.accepted = true;
+            const lastIndex = root.model.length - 1;
+            if (root.currentIndex !== lastIndex) {
+                root.currentIndex = lastIndex;
+                root.activated(root.currentIndex);
+                event.accepted = true;
+            }
         } else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
             const index = event.key - Qt.Key_1;
-            if (index <= root.model.length) {
+            if (index < root.model.length && root.currentIndex !== index) {
                 root.currentIndex = index;
+                root.activated(root.currentIndex);
                 event.accepted = true;
             }
         }
