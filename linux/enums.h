@@ -32,6 +32,7 @@ namespace AirpodsTrayApp
             AirPodsPro2USBC,
             AirPodsMaxLightning,
             AirPodsMaxUSBC,
+            AirPodsMax2,
             AirPods4,
             AirPods4ANC
         };
@@ -50,6 +51,7 @@ namespace AirpodsTrayApp
                 {"A2083", AirPodsModel::AirPodsPro},
                 {"A2096", AirPodsModel::AirPodsMaxLightning},
                 {"A3184", AirPodsModel::AirPodsMaxUSBC},
+                {"A3454", AirPodsModel::AirPodsMax2},
                 {"A2565", AirPodsModel::AirPods3},
                 {"A2564", AirPodsModel::AirPods3},
                 {"A3047", AirPodsModel::AirPodsPro2USBC},
@@ -85,6 +87,7 @@ namespace AirpodsTrayApp
                     return {"podpro.png", "podpro_case.png"};
                 case AirPodsModel::AirPodsMaxLightning:
                 case AirPodsModel::AirPodsMaxUSBC:
+                case AirPodsModel::AirPodsMax2:
                     return {"podmax.png", "max_case.png"};
                 default:
                     return {"pod.png", "pod_case.png"}; // Default icon for unknown models
@@ -97,6 +100,7 @@ namespace AirpodsTrayApp
             switch (model) {
                 case AirPodsModel::AirPodsMaxLightning:
                 case AirPodsModel::AirPodsMaxUSBC:
+                case AirPodsModel::AirPodsMax2:
                     return true;
                 default:
                     return false;

@@ -35,6 +35,7 @@ When scanning for BLE devices, the application looks for manufacturer data with 
 | 0x1B20      | AirPods 4th Gen (ANC)    |
 | 0x0A20      | AirPods Max              |
 | 0x1F20      | AirPods Max (USB-C)      |
+| 0x2D20      | AirPods Max 2nd Gen      |
 | 0x0E20      | AirPods Pro              |
 | 0x1420      | AirPods Pro 2nd Gen      |
 | 0x2420      | AirPods Pro 2nd Gen (USB-C) |
