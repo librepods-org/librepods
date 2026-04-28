@@ -423,22 +423,34 @@ public slots:
         LOG_INFO("System is waking up, starting ble scan");
         m_bleManager->startScan();
 
-        // Check if AirPods are already connected and activate A2DP profile
-        if (areAirpodsConnected() && m_deviceInfo && !m_deviceInfo->bluetoothAddress().isEmpty())
-        {
-            LOG_INFO("AirPods already connected after wake-up, re-activating A2DP profile");
-            mediaController->setConnectedDeviceMacAddress(m_deviceInfo->bluetoothAddress().replace(":", "_"));
+        // Defer the BlueZ connection check: BlueZ may not have updated its
+        // Connected property yet at the moment PrepareForSleep(false) fires,
+        // and acting on a stale "disconnected" reading would cleanup a device
+        // that's actually still fine. A re-check after a short delay also
+        // gives BlueZ a chance to emit its own disconnect signal, which would
+        // run the normal cleanup path before we get here.
+        QTimer::singleShot(1500, this, [this]() {
+            bool stillConnected = monitor->checkAlreadyConnectedDevices();
+            bool hadConnection = m_deviceInfo && !m_deviceInfo->bluetoothAddress().isEmpty();
 
-            // Always activate A2DP profile after system wake since the profile might have been lost
-            QTimer::singleShot(1000, this, [this]()
+            if (stillConnected && hadConnection)
             {
-                mediaController->activateA2dpProfile();
-                LOG_INFO("A2DP profile activation attempted after system wake-up");
-            });
-        }
+                LOG_INFO("AirPods still connected after wake-up, re-activating A2DP profile");
+                mediaController->setConnectedDeviceMacAddress(m_deviceInfo->bluetoothAddress().replace(":", "_"));
 
-        // Also check for already connected devices via BlueZ
-        monitor->checkAlreadyConnectedDevices();
+                // The A2DP profile may have been lost across the suspend cycle.
+                QTimer::singleShot(1000, this, [this]()
+                {
+                    mediaController->activateA2dpProfile();
+                    LOG_INFO("A2DP profile activation attempted after system wake-up");
+                });
+            }
+            else if (hadConnection)
+            {
+                LOG_INFO("AirPods not connected after wake-up, cleaning up stale state");
+                onDeviceDisconnected(QBluetoothAddress(m_deviceInfo->bluetoothAddress()));
+            }
+        });
     }
 
 private slots:
