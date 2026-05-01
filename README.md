@@ -82,7 +82,8 @@ LibrePods **may** require root depending on your device/OS and what features you
 - On **ColorOS/OxygenOS 16** and **Pixel devices on Android 16 QPR3** (with the latest Google Play system update), LibrePods does not need root for most features (except those requiring the VendorID hook mentioned above).
 - On other devices, LibrePods needs root because of a bug in the Android Bluetooth stack Fluoride/non-compliance of Apple with Bluetooth standards. You must have Xposed installed for the app to workaround this bug and connect to AirPods. [This issue is being tracked here](https://issuetracker.google.com/issues/371713238). Please do not comment on the issue thread. The issue has already been resolved and should be available in **Android 17** for all devices.
 
-> Important: The Xposed/LSPosed workaround is not guaranteed to work on all devices.
+> [!IMPORTANT]
+> This workaround with Xposed is not guaranteed to work on all devices.
 
 ### Troubleshooting steps for common errors
 - Ensure the correct scope is set in LSPosed/Vector.
