@@ -417,6 +417,25 @@ public slots:
             LOG_INFO("Stopping BLE scan before going to sleep");
             m_bleManager->stopScan();
         }
+
+        // Gracefully disconnect from the AirPods so they don't enter the
+        // aggressive "search for missing source" mode that drains the primary
+        // pod while the laptop is suspended. A hard radio kill (e.g. an
+        // rfkill-block sleep hook) leaves the link looking like a sudden
+        // out-of-range event to the pods; a clean L2CAP disconnect doesn't.
+        if (areAirpodsConnected() && m_deviceInfo && !m_deviceInfo->bluetoothAddress().isEmpty())
+        {
+            const QString address = m_deviceInfo->bluetoothAddress();
+            LOG_INFO("Sending graceful disconnect to AirPods before sleep: " << address);
+            socket->close();
+
+            QProcess process;
+            process.start("bluetoothctl", QStringList() << "disconnect" << address);
+            // Bounded wait — we don't hold a logind inhibitor, so blocking
+            // here only delays our own slot, not the suspend itself.
+            process.waitForFinished(2000);
+            LOG_INFO("Bluetoothctl disconnect output: " << process.readAllStandardOutput().trimmed());
+        }
     }
     void onSystemWakingUp()
     {
