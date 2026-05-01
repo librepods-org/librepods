@@ -76,18 +76,13 @@ https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 
 ### Root Requirement
 
-The app needs root because of a bug in the Android Bluetooth stack Fluoride/non-compliance of Apple with Bluetooth standards. You must have Xposed installed for the app to workaround this bug and connect to AirPods. 
+LibrePods **may** require root depending on your device/OS and what features you want access to:
 
-[https://issuetracker.google.com/issues/371713238](https://issuetracker.google.com/issues/371713238)
+- Features requiring the VendorID hook ([the features marked with an asterisk here](https://github.com/kavishdevar/librepods#key-features)) will always require root regardless of your device/OS.
+- On **ColorOS/OxygenOS 16** and **Pixel devices on Android 16 QPR3** (with the latest Google Play system update), LibrePods does not need root for most features (except those requiring the VendorID hook mentioned above).
+- On other devices, LibrePods needs root because of a bug in the Android Bluetooth stack Fluoride/non-compliance of Apple with Bluetooth standards. You must have Xposed installed for the app to workaround this bug and connect to AirPods. [This issue is being tracked here](https://issuetracker.google.com/issues/371713238). Please do not comment on the issue thread. The issue has already been resolved and should be available in **Android 17** for all devices.
 
-Please do not comment in the thread. The issue has already been resolved and should be available in Android 17 for all devices. 
-
-However, if you are using ColorOS/OxygenOS 16, Android 16 QPR3 on Pixel (ensure you're on the latest Play system update), you don't need root for most features.
-
-> [!IMPORTANT]
-> This workaround with Xposed is not guaranteed to work on all devices.
-
-Features requiring the VendorID hook will still require root. These features include customizing transparency mode, setting up hearing aid, and use Bluetooth Multipoint.
+> Important: The Xposed/LSPosed workaround is not guaranteed to work on all devices.
 
 ### Troubleshooting steps for common errors
 - Ensure the correct scope is set in LSPosed/Vector.
