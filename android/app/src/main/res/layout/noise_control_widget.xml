@@ -38,11 +38,9 @@
                 android:tint="@color/white" />
 
             <TextView
+                android:id="@+id/widget_off_button_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:autoSizeMaxTextSize="11sp"
-                android:autoSizeMinTextSize="7sp"
-                android:autoSizeTextType="uniform"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
@@ -76,11 +74,9 @@
                 android:tint="@color/white" />
 
             <TextView
+                android:id="@+id/widget_transparency_button_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:autoSizeMaxTextSize="11sp"
-                android:autoSizeMinTextSize="7sp"
-                android:autoSizeTextType="uniform"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
@@ -116,11 +112,9 @@
                 android:tint="@color/white" />
 
             <TextView
+                android:id="@+id/widget_adaptive_button_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:autoSizeMaxTextSize="11sp"
-                android:autoSizeMinTextSize="7sp"
-                android:autoSizeTextType="uniform"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
@@ -156,17 +150,15 @@
                 android:tint="@color/white" />
 
             <TextView
+                android:id="@+id/widget_anc_button_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:autoSizeMaxTextSize="11sp"
-                android:autoSizeMinTextSize="7sp"
-                android:autoSizeTextType="uniform"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:maxLines="1"
                 android:shadowColor="@color/black"
                 android:shadowRadius="12"
-                android:text="@string/noise_cancellation"
+                android:text="@string/widget_noise_cancellation"
                 android:textColor="@color/white"
                 android:textSize="11sp"
                 tools:ignore="NestedWeights" />
