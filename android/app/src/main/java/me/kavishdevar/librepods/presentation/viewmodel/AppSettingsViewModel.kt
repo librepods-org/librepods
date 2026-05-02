@@ -32,7 +32,9 @@ data class AppSettingsUiState(
     val cameraPackageError: String? = null,
     val vendorIdHook: Boolean = false,
     val isPremium: Boolean = false,
-    val connectionSuccessful: Boolean = false
+    val connectionSuccessful: Boolean = false,
+    val showBottomSheetPopup: Boolean = true,
+    val showIslandPopup: Boolean = true
 )
 
 class AppSettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -86,7 +88,9 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
                 conversationalAwarenessVolume = sharedPreferences.getInt("conversational_awareness_volume", 43).toFloat(),
                 cameraPackageValue = sharedPreferences.getString("custom_camera_package", "") ?: "",
                 vendorIdHook = xposedRemotePref.getBoolean("vendor_id_hook", false),
-                connectionSuccessful = sharedPreferences.getBoolean("connection_successful", false)
+                connectionSuccessful = sharedPreferences.getBoolean("connection_successful", false),
+                showBottomSheetPopup = sharedPreferences.getBoolean("show_bottom_sheet_popup", true),
+                showIslandPopup = sharedPreferences.getBoolean("show_island_popup", true)
             )
         }
     }
@@ -175,5 +179,15 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
     fun setVendorIdHook(enabled: Boolean) {
         xposedRemotePref.putBoolean("vendor_id_hook", enabled)
         _uiState.update { it.copy(vendorIdHook = enabled) }
+    }
+
+    fun setShowBottomSheetPopup(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean("show_bottom_sheet_popup", enabled) }
+        _uiState.update { it.copy(showBottomSheetPopup = enabled) }
+    }
+
+    fun setShowIslandPopup(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean("show_island_popup", enabled) }
+        _uiState.update { it.copy(showIslandPopup = enabled) }
     }
 }

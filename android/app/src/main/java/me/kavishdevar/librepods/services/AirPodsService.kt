@@ -1636,6 +1636,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     var popupShown = false
     fun showPopup(service: Service, name: String) {
+        if (!sharedPreferences.getBoolean("show_bottom_sheet_popup", true)) {
+            return
+        }
         if (!Settings.canDrawOverlays(service)) {
             Log.d(TAG, "No permission for SYSTEM_ALERT_WINDOW")
             return
@@ -1660,6 +1663,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         otherDeviceName: String? = null
     ) {
         Log.d(TAG, "Showing island window")
+        if (!sharedPreferences.getBoolean("show_island_popup", true)) {
+            return
+        }
         if (!Settings.canDrawOverlays(service)) {
             Log.d(TAG, "No permission for SYSTEM_ALERT_WINDOW")
             return

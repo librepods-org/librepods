@@ -158,6 +158,48 @@ fun AppSettingsScreen(
                 )
 
                 Text(
+                    text = stringResource(R.string.popup_animations), style = TextStyle(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor.copy(alpha = 0.6f),
+                        fontFamily = FontFamily(Font(R.font.sf_pro))
+                    ), modifier = Modifier.padding(16.dp, bottom = 2.dp, top = 24.dp)
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            backgroundColor, RoundedCornerShape(28.dp)
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
+                    StyledToggle(
+                        label = stringResource(R.string.show_bottom_sheet_popup),
+                        description = stringResource(R.string.show_bottom_sheet_popup_description),
+                        checked = state.showBottomSheetPopup,
+                        onCheckedChange = viewModel::setShowBottomSheetPopup,
+                        independent = false
+                    )
+
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = Color(0x40888888),
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+
+                    StyledToggle(
+                        label = stringResource(R.string.show_island_popup),
+                        description = stringResource(R.string.show_island_popup_description),
+                        checked = state.showIslandPopup,
+                        onCheckedChange = viewModel::setShowIslandPopup,
+                        independent = false
+                    )
+                }
+
+                Text(
                     text = stringResource(R.string.conversational_awareness), style = TextStyle(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
