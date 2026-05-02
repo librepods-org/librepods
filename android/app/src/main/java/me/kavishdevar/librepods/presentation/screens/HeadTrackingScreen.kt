@@ -197,7 +197,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navController: NavController
                     label = "Head Gestures",
                     checked = state.headGesturesEnabled,
                     onCheckedChange = { viewModel.setHeadGesturesEnabled(it) },
-                    enabled = state.isPremium,
+                    enabled = state.isPremium || state.headGesturesEnabled,
                     description = stringResource(R.string.head_gestures_details)
                 )
 
