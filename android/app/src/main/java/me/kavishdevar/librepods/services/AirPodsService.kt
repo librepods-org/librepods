@@ -1462,6 +1462,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 preferences.getBoolean(key, true)
 
             "head_gestures" -> config.headGestures = preferences.getBoolean(key, true)
+            "off_listening_mode" -> updateNoiseControlWidget()
             "disconnect_when_not_wearing" -> config.disconnectWhenNotWearing =
                 preferences.getBoolean(key, false)
 
