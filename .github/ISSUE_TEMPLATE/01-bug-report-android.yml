@@ -1,0 +1,101 @@
+name: Bug report (Android)
+description: Report a bug in the Android app
+labels: ["bug", "android"]
+title: "[Android] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much as you can.
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: "Find this in `Settings → About → Version` in the app, or in your phone's app info."
+      placeholder: "v0.2.5 (build 46)"
+    validations:
+      required: true
+  - type: dropdown
+    id: app-source
+    attributes:
+      label: App source
+      options:
+        - GitHub release (FOSS)
+        - Play Store
+        - Nightly build
+        - Built from source
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Manufacturer and model.
+      placeholder: "Google Pixel 8 Pro"
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Android / OS version
+      description: Include the OEM skin if relevant.
+      placeholder: "Android 16, OxygenOS 16, ColorOS 16, ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: root-method
+    attributes:
+      label: Root / hook method
+      options:
+        - No root (native L2CAP support)
+        - Magisk + Xposed (LSPosed)
+        - Magisk + btl2capfix
+        - KernelSU + Xposed (LSPosed)
+        - KernelSU + btl2capfix
+        - Other (describe in additional context)
+    validations:
+      required: true
+  - type: dropdown
+    id: airpods-model
+    attributes:
+      label: AirPods model
+      options:
+        - AirPods (1st gen)
+        - AirPods (2nd gen)
+        - AirPods (3rd gen)
+        - AirPods (4th gen)
+        - AirPods (4th gen) with ANC
+        - AirPods Pro (1st gen)
+        - AirPods Pro 2 (Lightning)
+        - AirPods Pro 2 (USB-C)
+        - AirPods Pro 3
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: AirPods firmware
+      description: Find this under `About` in the app once connected.
+      placeholder: "8454768"
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: Describe what you observed and what you expected. Include steps to reproduce if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Open the app, go to `Settings → Troubleshooting → Collect Logs`, and attach the resulting file here.
+        Without logs most bugs are very hard to diagnose.
+      placeholder: Paste log content or attach `librepods-logs.txt`
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Anything else that might help (screenshots, video, related issues, what you've already tried).
