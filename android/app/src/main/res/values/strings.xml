@@ -267,4 +267,5 @@
     <string name="app_enabled_in_xposed">App enabled in Xposed</string>
     <string name="subject">Subject</string>
     <string name="describe_your_issue">Describe your issue</string>
+    <string name="widget_noise_cancellation">ANC</string>
 </resources>
