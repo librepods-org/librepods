@@ -259,7 +259,15 @@ impl App {
                     app_settings_path.to_str().unwrap(),
                     settings
                 );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                if let Some(parent) = app_settings_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    error!("Failed to create settings directory: {}", e);
+                    return Task::none();
+                }
+                if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
+                    error!("Failed to write settings to {}: {}", app_settings_path.display(), e);
+                }
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
@@ -637,7 +645,15 @@ impl App {
                     app_settings_path.to_str().unwrap(),
                     settings
                 );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                if let Some(parent) = app_settings_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    error!("Failed to create settings directory: {}", e);
+                    return Task::none();
+                }
+                if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
+                    error!("Failed to write settings to {}: {}", app_settings_path.display(), e);
+                }
                 Task::none()
             }
             Message::StemControlChanged(is_enabled) => {
@@ -653,7 +669,15 @@ impl App {
                     app_settings_path.to_str().unwrap(),
                     settings
                 );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                if let Some(parent) = app_settings_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    error!("Failed to create settings directory: {}", e);
+                    return Task::none();
+                }
+                if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
+                    error!("Failed to write settings to {}: {}", app_settings_path.display(), e);
+                }
                 Task::none()
             }
         }
