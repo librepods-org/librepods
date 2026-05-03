@@ -31,6 +31,7 @@ pub fn start_ui(
     ui_rx: UnboundedReceiver<BluetoothUIMessage>,
     start_minimized: bool,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    tray_handle: Arc<RwLock<Option<ksni::Handle<crate::ui::tray::MyTray>>>>,
     // stem_control: Arc<AtomicBool>,
 ) -> iced::Result {
     let ui_rx = Arc::new(Mutex::new(ui_rx));
@@ -42,6 +43,7 @@ pub fn start_ui(
                 Arc::clone(&ui_rx),
                 start_minimized,
                 Arc::clone(&device_managers),
+                Arc::clone(&tray_handle),
                 // Arc::clone(&stem_control),
             )
         },
@@ -76,6 +78,7 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    tray_handle: Arc<RwLock<Option<ksni::Handle<crate::ui::tray::MyTray>>>>,
 }
 
 pub struct BluetoothState {
@@ -128,6 +131,7 @@ impl App {
         ui_rx: Arc<Mutex<UnboundedReceiver<BluetoothUIMessage>>>,
         start_minimized: bool,
         device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+        tray_handle: Arc<RwLock<Option<ksni::Handle<crate::ui::tray::MyTray>>>>,
         // stem_control: Arc<AtomicBool>,
     ) -> (Self, Task<Message>) {
         let (mut panes, first_pane) = pane_grid::State::new(Pane::Sidebar);
@@ -217,6 +221,7 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                tray_handle,
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -653,6 +658,12 @@ impl App {
                 }
                 if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
                     error!("Failed to write settings to {}: {}", app_settings_path.display(), e);
+                }
+                if let Some(handle) = self.tray_handle.blocking_read().as_ref() {
+                    let handle = handle.clone();
+                    tokio::spawn(async move {
+                        handle.update(|_| {}).await;
+                    });
                 }
                 Task::none()
             }

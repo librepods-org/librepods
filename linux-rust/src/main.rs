@@ -81,30 +81,34 @@ fn main() -> iced::Result {
 
     let device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>> =
         Arc::new(RwLock::new(HashMap::new()));
+    let tray_handle: Arc<RwLock<Option<ksni::Handle<MyTray>>>> =
+        Arc::new(RwLock::new(None));
 
     // Load stem_control initial value from settings JSON, then apply CLI override.
     if args.no_tray {
         // Run headless without UI
         info!("Running in headless mode (no GUI)");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async_main(ui_tx, device_managers)).unwrap();
+        rt.block_on(async_main(ui_tx, device_managers, tray_handle)).unwrap();
         Ok(())
     } else {
         // Run with UI
         let device_managers_clone = device_managers.clone();
+        let tray_handle_clone = tray_handle.clone();
         std::thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async_main(ui_tx, device_managers_clone))
+            rt.block_on(async_main(ui_tx, device_managers_clone, tray_handle_clone))
                 .unwrap();
         });
 
-        ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+        ui::window::start_ui(ui_rx, args.start_minimized, device_managers, tray_handle)
     }
 }
 
 async fn async_main(
     ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    shared_tray_handle: Arc<RwLock<Option<ksni::Handle<MyTray>>>>,
 ) -> bluer::Result<()> {
     let args = Args::parse();
 
@@ -146,6 +150,7 @@ async fn async_main(
             ui_tx: Some(ui_tx.clone()),
         };
         let handle = tray.spawn().await.unwrap();
+        *shared_tray_handle.write().await = Some(handle.clone());
         Some(handle)
     };
 
