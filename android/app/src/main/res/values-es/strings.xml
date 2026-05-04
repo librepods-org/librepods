@@ -210,4 +210,9 @@
     <string name="listening_mode_transparency_description">Deja entrar los sonidos externos</string>
     <string name="listening_mode_adaptive_description">Ajuste dinámico del ruido externo</string>
     <string name="listening_mode_noise_cancellation_description">Bloquea los sonidos externos</string>
+    <string name="popup_animations">Animaciones emergentes</string>
+    <string name="show_bottom_sheet_popup">Ventana emergente inferior</string>
+    <string name="show_bottom_sheet_popup_description">Muestra la ventana emergente estilo iOS en la parte inferior cuando los AirPods se conectan.</string>
+    <string name="show_island_popup">Ventana emergente Dynamic Island</string>
+    <string name="show_island_popup_description">Muestra la ventana emergente estilo Dynamic Island en la parte superior para eventos de conexión y traspaso.</string>
 </resources>
