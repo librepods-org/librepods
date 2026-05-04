@@ -180,18 +180,31 @@ private:
 public slots:
     Q_INVOKABLE void userConnect() {
         LOG_INFO("User-initiated connect");
-        connectToAirPods(true);
+        if (!m_lastKnownAddress.isEmpty()) {
+            LOG_INFO("Reconnecting to last known address: " << m_lastKnownAddress);
+            QProcess process;
+            process.start("bluetoothctl", QStringList() << "connect" << m_lastKnownAddress);
+            process.waitForFinished(5000);
+            LOG_INFO("Bluetoothctl connect: " << process.readAllStandardOutput().trimmed());
+            // After bluetoothctl connects, the BLE monitor will pick it up automatically
+        } else {
+            connectToAirPods(true);
+        }
     }
 
     Q_INVOKABLE void userDisconnect() {
         LOG_INFO("User-initiated disconnect");
+        // Save address before reset
+        if (!m_deviceInfo->bluetoothAddress().isEmpty()) {
+            m_lastKnownAddress = m_deviceInfo->bluetoothAddress();
+        }
         if (socket && socket->isOpen()) {
             socket->close();
             LOG_INFO("Socket closed");
         }
-        if (!m_deviceInfo->bluetoothAddress().isEmpty()) {
+        if (!m_lastKnownAddress.isEmpty()) {
             QProcess process;
-            process.start("bluetoothctl", QStringList() << "disconnect" << m_deviceInfo->bluetoothAddress());
+            process.start("bluetoothctl", QStringList() << "disconnect" << m_lastKnownAddress);
             process.waitForFinished(3000);
             LOG_INFO("Bluetoothctl disconnect: " << process.readAllStandardOutput().trimmed());
         }
@@ -1050,6 +1063,7 @@ signals:
 
 private:
     QBluetoothSocket *socket = nullptr;
+    QString m_lastKnownAddress;
     QBluetoothSocket *phoneSocket = nullptr;
     QByteArray lastBatteryStatus;
     QByteArray lastEarDetectionStatus;
