@@ -253,15 +253,11 @@ public slots:
 
         LOG_INFO("Applying listening mode config: 0x" << QString::number(bitmask, 16));
 
-        // Send ListeningModeConfigs packet (0x1A)
+        // Send only ListeningModeConfigs packet (0x1A)
+        // AllowOffOption (0x34) is firmware-managed read-only state;
+        // the AirPods derive it from the 0x1A bitmask automatically.
         QByteArray configPacket = AirPodsPackets::ListeningModeConfigs::getPacket(static_cast<quint8>(bitmask));
         writePacketToSocket(configPacket, "Listening mode config packet written: ");
-
-        // Send AllowOffOption packet (0x34) — always sent atomically with 0x1A
-        bool offEnabled = (bitmask & 0x01) != 0;
-        QByteArray offPacket = offEnabled ? AirPodsPackets::AllowOffOption::ENABLED
-                                          : AirPodsPackets::AllowOffOption::DISABLED;
-        writePacketToSocket(offPacket, "Allow off option packet written: ");
 
         // Update DeviceInfo and persist
         m_deviceInfo->setListeningModeConfig(bitmask);
