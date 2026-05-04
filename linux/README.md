@@ -129,6 +129,35 @@ systemctl --user enable --now mpris-proxy
   - View battery levels
   - Control playback
 
+
+## CLI Control
+
+`librepods-ctl` is a small command-line tool that lets you access LibrePods from the terminal or via scripts, as long as the main application is running.
+
+### Usage
+```bash
+librepods-ctl
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `noise:off` | Disable noise control |
+| `noise:anc` | Enable Active Noise Cancellation |
+| `noise:transparency` | Enable Transparency mode |
+| `noise:adaptive` | Enable Adaptive mode |
+
+### Example
+```bash
+# Enable ANC
+librepods-ctl noise:anc
+
+# Enable Transparency mode
+librepods-ctl noise:transparency
+```
+
+
 ## Hearing Aid
 
 To use hearing aid features, you need to have an audiogram. To enable/disable hearing aid, you can use the toggle in the main app. But, to adjust the settings and set the audiogram, you need to use a different script which is located in this folder as `hearing_aid.py`. You can run it with:

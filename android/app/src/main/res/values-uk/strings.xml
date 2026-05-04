@@ -34,7 +34,7 @@
     <string name="airpods_not_connected">AirPods не підключені</string>
     <string name="airpods_not_connected_description">Будь ласка, підключіть ваші AirPods, щоб отримати доступ до налаштувань.</string>
     <string name="back">Назад</string>
-    <string name="app_settings">Персоналізація</string>
+    <string name="customizations">Персоналізація</string>
     <string name="relative_conversational_awareness_volume">Відносна гучність</string>
     <string name="relative_conversational_awareness_volume_description">Зменшує до відсотка від поточної гучності, а не від максимальної.</string>
     <string name="conversational_awareness_pause_music">Призупинити Музику</string>
@@ -206,10 +206,6 @@
     <string name="environmental_noise">Навколишній Шум</string>
     <string name="reconnect_to_last_device">Перепідключитися до останнього підключеного пристрою</string>
     <string name="disconnect">Відʼєднатися</string>
-    <string name="support_me">Підтримати мене</string>
-    <string name="never_show_again">Ніколи не показувати знову</string>
-    <string name="support_dialog_description">Нещодавно я втратив свій лівий AirPod. Якщо LibrePods виявилися корисними для вас, розгляньте можливість підтримати мене на GitHub Sponsors, щоб я міг купити заміну та продовжити роботу над цим проектом — навіть невелика допомога має велике значення. Дякую за вашу підтримку!</string>
-    <string name="support_librepods">Підтримати LibrePods</string>
     <string name="listening_mode_off_description">Вимикає керування шумом</string>
     <string name="listening_mode_transparency_description">Пропускає зовнішні звуки</string>
     <string name="listening_mode_adaptive_description">Динамічно налаштовує зовнішній шум</string>

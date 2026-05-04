@@ -34,7 +34,7 @@
     <string name="airpods_not_connected">AirPods no conectados</string>
     <string name="airpods_not_connected_description">Por favor, conecta tus AirPods para acceder a los ajustes.</string>
     <string name="back">Atrás</string>
-    <string name="app_settings">Personalización</string>
+    <string name="customizations">Personalización</string>
     <string name="relative_conversational_awareness_volume">Volumen relativo</string>
     <string name="relative_conversational_awareness_volume_description">Reduce a un porcentaje del volumen actual en vez del volumen máximo.</string>
     <string name="conversational_awareness_pause_music">Pausar música</string>
@@ -169,7 +169,7 @@
     <string name="enter_enc_key_hex">Introducir 16-byte ENC_KEY como formato hexadecimal (32 caracteres):</string>
     <string name="must_be_32_hex_chars">Debe tener exactamente 32 caracteres hexadecimales</string>
     <string name="error_converting_hex">Error convirtiendo hex:</string>
-    <string name="found_offset_restart_bluetooth">Offset encontrado. Por favor, reinicie el proceso Bluetooth</string>
+    <string name="found_offset_restart_bluetooth">Por favor, reinicie el proceso Bluetooth</string>
     <string name="digital_assistant">Asistente Digital</string>
     <string name="on">Activado</string>
     <string name="camera_remote">Control Remoto de Cámara</string>
@@ -206,10 +206,6 @@
     <string name="environmental_noise">Ruido ambiental</string>
     <string name="reconnect_to_last_device">Reconectar al último dispositivo conectado</string>
     <string name="disconnect">Desconectar</string>
-    <string name="support_me">Apóyame</string>
-    <string name="never_show_again">No volver a mostrar</string>
-    <string name="support_dialog_description">Hace poco perdí mi AirPod izquierdo. Si LibrePods te ha resultado útil, considera apoyarme en GitHub Sponsors para que pueda comprar un reemplazo y seguir trabajando en este proyecto; incluso una pequeña donación es de gran ayuda. ¡Gracias por tu apoyo!</string>
-    <string name="support_librepods">Apoya a LibrePods</string>
     <string name="listening_mode_off_description">Desactiva la gestión del ruido</string>
     <string name="listening_mode_transparency_description">Deja entrar los sonidos externos</string>
     <string name="listening_mode_adaptive_description">Ajuste dinámico del ruido externo</string>

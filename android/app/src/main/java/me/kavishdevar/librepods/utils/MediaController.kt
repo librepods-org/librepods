@@ -171,8 +171,10 @@ object MediaController {
             }
 
             if (configs != null && !iPausedTheMedia) {
+                val localMac = ServiceManager.getService()?.localMac ?: return
+                if (localMac == "") return
                 ServiceManager.getService()?.aacpManager?.sendMediaInformataion(
-                    ServiceManager.getService()?.localMac ?: return,
+                    localMac,
                     isActive
                 )
                 Log.d("MediaController", "User changed media state themselves; will wait for ear detection pause before auto-play")

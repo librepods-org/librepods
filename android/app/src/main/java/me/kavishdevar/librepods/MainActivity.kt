@@ -20,6 +20,9 @@
 
 package me.kavishdevar.librepods
 
+// import me.kavishdevar.librepods.screens.Onboarding
+// import me.kavishdevar.librepods.utils.RadareOffsetFinder
+//import dagger.hilt.android.AndroidEntryPoint
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -27,13 +30,11 @@ import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
 import android.content.ServiceConnection
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -52,6 +53,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,6 +65,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
@@ -71,9 +74,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,12 +88,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -103,6 +107,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -112,44 +117,62 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import me.kavishdevar.librepods.composables.StyledIconButton
-import me.kavishdevar.librepods.constants.AirPodsNotifications
-import me.kavishdevar.librepods.screens.AccessibilitySettingsScreen
-import me.kavishdevar.librepods.screens.AdaptiveStrengthScreen
-import me.kavishdevar.librepods.screens.AirPodsSettingsScreen
-import me.kavishdevar.librepods.screens.AppSettingsScreen
-import me.kavishdevar.librepods.screens.CameraControlScreen
-import me.kavishdevar.librepods.screens.DebugScreen
-import me.kavishdevar.librepods.screens.HeadTrackingScreen
-import me.kavishdevar.librepods.screens.HearingAidAdjustmentsScreen
-import me.kavishdevar.librepods.screens.HearingAidScreen
-import me.kavishdevar.librepods.screens.HearingProtectionScreen
-import me.kavishdevar.librepods.screens.LongPress
-import me.kavishdevar.librepods.screens.Onboarding
-import me.kavishdevar.librepods.screens.OpenSourceLicensesScreen
-import me.kavishdevar.librepods.screens.RenameScreen
-import me.kavishdevar.librepods.screens.TransparencySettingsScreen
-import me.kavishdevar.librepods.screens.TroubleshootingScreen
-import me.kavishdevar.librepods.screens.UpdateHearingTestScreen
-import me.kavishdevar.librepods.screens.VersionScreen
+import dev.chrisbanes.haze.rememberHazeState
+import me.kavishdevar.librepods.data.AirPodsNotifications
+import me.kavishdevar.librepods.data.ControlCommandRepository
+import me.kavishdevar.librepods.presentation.components.AppInfoCard
+import me.kavishdevar.librepods.presentation.components.ConfirmationDialog
+import me.kavishdevar.librepods.presentation.components.DeviceInfoCard
+import me.kavishdevar.librepods.presentation.components.SelectItem
+import me.kavishdevar.librepods.presentation.components.StyledBottomSheet
+import me.kavishdevar.librepods.presentation.components.StyledButton
+import me.kavishdevar.librepods.presentation.components.StyledIconButton
+import me.kavishdevar.librepods.presentation.components.StyledInputField
+import me.kavishdevar.librepods.presentation.components.StyledSelectList
+import me.kavishdevar.librepods.presentation.screens.AccessibilitySettingsScreen
+import me.kavishdevar.librepods.presentation.screens.AdaptiveStrengthScreen
+import me.kavishdevar.librepods.presentation.screens.AirPodsSettingsScreen
+import me.kavishdevar.librepods.presentation.screens.AppSettingsScreen
+import me.kavishdevar.librepods.presentation.screens.CameraControlScreen
+import me.kavishdevar.librepods.presentation.screens.DebugScreen
+import me.kavishdevar.librepods.presentation.screens.HeadTrackingScreen
+import me.kavishdevar.librepods.presentation.screens.HearingAidAdjustmentsScreen
+import me.kavishdevar.librepods.presentation.screens.HearingAidScreen
+import me.kavishdevar.librepods.presentation.screens.HearingProtectionScreen
+import me.kavishdevar.librepods.presentation.screens.LongPress
+import me.kavishdevar.librepods.presentation.screens.OpenSourceLicensesScreen
+import me.kavishdevar.librepods.presentation.screens.PurchaseScreen
+import me.kavishdevar.librepods.presentation.screens.RenameScreen
+import me.kavishdevar.librepods.presentation.screens.TransparencySettingsScreen
+import me.kavishdevar.librepods.presentation.screens.TroubleshootingScreen
+import me.kavishdevar.librepods.presentation.screens.UpdateHearingTestScreen
+import me.kavishdevar.librepods.presentation.screens.VersionScreen
+import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
+import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
+import me.kavishdevar.librepods.presentation.viewmodel.AppSettingsViewModel
+import me.kavishdevar.librepods.presentation.viewmodel.PurchaseViewModel
 import me.kavishdevar.librepods.services.AirPodsService
-import me.kavishdevar.librepods.ui.theme.LibrePodsTheme
-import me.kavishdevar.librepods.utils.RadareOffsetFinder
-import kotlin.io.encoding.Base64
+import me.kavishdevar.librepods.utils.XposedState
+import me.kavishdevar.librepods.utils.isSupported
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 lateinit var serviceConnection: ServiceConnection
 lateinit var connectionStatusReceiver: BroadcastReceiver
 
+//@AndroidEntryPoint
 @ExperimentalMaterial3Api
 class MainActivity : ComponentActivity() {
     companion object {
         init {
-            System.loadLibrary("l2c_fcr_hook")
+            if (XposedState.isAvailable && XposedState.bluetoothScopeEnabled) {
+                System.loadLibrary("l2c_fcr_hook")
+            }
         }
     }
 
+    @ExperimentalHazeMaterialsApi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -159,8 +182,6 @@ class MainActivity : ComponentActivity() {
                 Main()
             }
         }
-
-        handleIncomingIntent(intent)
     }
 
     override fun onDestroy() {
@@ -195,82 +216,258 @@ class MainActivity : ComponentActivity() {
         }
         super.onStop()
     }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleIncomingIntent(intent)
-    }
-
-    private fun handleIncomingIntent(intent: Intent) {
-        val data: Uri? = intent.data
-
-        if (data != null && data.scheme == "librepods") {
-            when (data.host) {
-                "add-magic-keys" -> {
-                    val queryParams = data.queryParameterNames
-                    queryParams.forEach { param ->
-                        val value = data.getQueryParameter(param)
-                        Log.d("LibrePods", "Parameter: $param = $value")
-                    }
-
-                    handleAddMagicKeys(data)
-                }
-            }
-        }
-    }
-
-    private fun handleAddMagicKeys(uri: Uri) {
-        val sharedPreferences = getSharedPreferences("settings", MODE_PRIVATE)
-
-        val irkHex = uri.getQueryParameter("irk")
-        val encKeyHex = uri.getQueryParameter("enc_key")
-
-        try {
-            if (irkHex != null && validateHexInput(irkHex)) {
-                val irkBytes = hexStringToByteArray(irkHex)
-                val irkBase64 = Base64.encode(irkBytes)
-                sharedPreferences.edit {putString("IRK", irkBase64)}
-            }
-
-            if (encKeyHex != null && validateHexInput(encKeyHex)) {
-                val encKeyBytes = hexStringToByteArray(encKeyHex)
-                val encKeyBase64 = Base64.encode(encKeyBytes)
-                sharedPreferences.edit { putString("ENC_KEY", encKeyBase64)}
-            }
-
-            Toast.makeText(this, "Magic keys added successfully!", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error processing magic keys: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun validateHexInput(input: String): Boolean {
-        val hexPattern = Regex("^[0-9a-fA-F]{32}$")
-        return hexPattern.matches(input)
-    }
-
-    private fun hexStringToByteArray(hex: String): ByteArray {
-        val result = ByteArray(16)
-        for (i in 0 until 16) {
-            val hexByte = hex.substring(i * 2, i * 2 + 2)
-            result[i] = hexByte.toInt(16).toByte()
-        }
-        return result
-    }
 }
 
 @ExperimentalHazeMaterialsApi
 @SuppressLint("MissingPermission", "InlinedApi", "UnspecifiedRegisterReceiverFlag")
-@OptIn(ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun Main() {
-    val isConnected = remember { mutableStateOf(false) }
-    val isRemotelyConnected = remember { mutableStateOf(false) }
-    val hookAvailable = RadareOffsetFinder(LocalContext.current).isHookOffsetAvailable()
     val context = LocalContext.current
+    val sharedPreferences = context.getSharedPreferences("settings", MODE_PRIVATE)
+    if (!isSupported(sharedPreferences) && !XposedState.bluetoothScopeEnabled) {
+        val showDialog = remember { mutableStateOf(false) }
+        val showPlayBypassVisible = remember { mutableStateOf(false) }
+        val hazeState = rememberHazeState()
+        val backdrop = rememberLayerBackdrop()
+        val isDarkTheme = isSystemInDarkTheme()
+        val textColor = if (isDarkTheme) Color.White else Color.Black
+        val backgroundColor = if (isSystemInDarkTheme()) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+
+        val scrollState = rememberScrollState()
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .hazeSource(hazeState)
+                .layerBackdrop(backdrop)
+                .background(if (isDarkTheme) Color.Black else Color(0xFFF2F2F7)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column (
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement
+                    .spacedBy(16.dp)
+            ) {
+                Spacer(modifier = Modifier.height(48.dp))
+                Column(
+                    modifier = Modifier,
+                    verticalArrangement = Arrangement
+                        .spacedBy(16.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = stringResource(R.string.not_supported),
+                        style = TextStyle(
+                            fontFamily = FontFamily(Font(R.font.sf_pro)),
+                            fontWeight = FontWeight.SemiBold,
+                            color = textColor,
+                            fontSize = 28.sp,
+                            textAlign = TextAlign.Center
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(backgroundColor, RoundedCornerShape(28.dp))
+                            .clip(RoundedCornerShape(28.dp))
+                    ) {
+                        Text(
+                            text = stringResource(R.string.check_the_repository_for_more_info),
+                            style = TextStyle(
+                                fontFamily = FontFamily(Font(R.font.sf_pro)),
+                                fontWeight = FontWeight.Medium,
+                                color = if (isDarkTheme) Color.White else Color.Black,
+                                fontSize = 16.sp
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 16.dp)
+                        )
+                    }
+                    StyledButton(
+                        onClick = { showDialog.value = true },
+                        backdrop = rememberLayerBackdrop(),
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        isInteractive = false,
+                        surfaceColor = if (isDarkTheme) Color(0xFF862424) else Color(0xFFC94646)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.bypass_compatibility_check),
+                            style = TextStyle(
+                                fontFamily = FontFamily(Font(R.font.sf_pro)),
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White,
+                                fontSize = 16.sp
+                            ),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    DeviceInfoCard()
+                    AppInfoCard()
+                }
+                Spacer(modifier = Modifier.height(48.dp))
+            }
+        }
+
+        ConfirmationDialog(
+            showDialog = showDialog,
+            title = stringResource(R.string.bypass_compatibility_check),
+            message = stringResource(R.string.bypass_compatiblity_check_confirmation),
+            confirmText = stringResource(R.string.yes),
+            dismissText = stringResource(R.string.no),
+            onConfirm = {
+                showDialog.value = false
+                if (BuildConfig.PLAY_BUILD) {
+                    showPlayBypassVisible.value = true
+                } else {
+                    sharedPreferences.edit {
+                        putBoolean("bypass_device_check.v2", true)
+                    }
+                    val intent = Intent(context, MainActivity::class.java)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    context.startActivity(intent)
+                }
+            },
+            onDismiss = {
+                showDialog.value = false
+            },
+            backdrop = backdrop
+//            hazeState = hazeState
+        )
+
+        if (BuildConfig.PLAY_BUILD) {
+            StyledBottomSheet(
+                visible = showPlayBypassVisible.value,
+                onDismiss = {
+                    showPlayBypassVisible.value = false
+                    showDialog.value = true
+                },
+                backdrop = backdrop
+            ) { innerBackdrop, _ ->
+                val contentColor = if (isDarkTheme) Color.White else Color.Black
+
+                var acknowledged by remember { mutableStateOf(false) }
+                val inputState = rememberTextFieldState("")
+
+                val isValid = acknowledged && inputState.text.trim() == "OK"
+
+                val sfPro = FontFamily(Font(R.font.sf_pro))
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.bypass_compatibility_check),
+                        style = TextStyle(
+                            fontFamily = sfPro,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 18.sp,
+                            color = contentColor
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+
+                    Text(
+                        text = stringResource(R.string.compatibility_play_dialog_confirmation),
+                        style = TextStyle(
+                            fontFamily = sfPro,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            color = contentColor
+                        ),
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+
+                    StyledSelectList(
+                        items = listOf(
+                            SelectItem(
+                                name = stringResource(R.string.read_compatibility_requirements),
+                                selected = acknowledged,
+                                onClick = { acknowledged = !acknowledged }
+                            )
+                        )
+                    )
+
+                    val focusRequester = remember { FocusRequester() }
+                    val keyboardController = LocalSoftwareKeyboardController.current
+
+                    LaunchedEffect(Unit) {
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
+                    }
+
+                    StyledInputField(
+                        inputState = inputState,
+                        focusRequester = focusRequester,
+                        placeholder = stringResource(R.string.type_ok_to_continue, "OK")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        StyledButton(
+                            onClick = { showPlayBypassVisible.value = false },
+                            backdrop = innerBackdrop,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.no),
+                                style = TextStyle(
+                                    fontFamily = sfPro,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 14.sp,
+                                    color = contentColor
+                                )
+                            )
+                        }
+                        StyledButton(
+                            onClick =  {
+                                showPlayBypassVisible.value = false
+                                sharedPreferences.edit {
+                                    putBoolean("bypass_device_check.v2", true)
+                                    val intent = Intent(context, MainActivity::class.java)
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                    context.startActivity(intent)
+                                }
+                            },
+                            backdrop = innerBackdrop,
+                            isInteractive = isValid,
+                            modifier = Modifier.weight(1f),
+                            enabled = isValid,
+                            surfaceColor = if (isDarkTheme) Color(0xFF0091FF) else Color(0xFF0088FF)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.proceed),
+                                style = TextStyle(
+                                    fontFamily = sfPro,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 14.sp,
+                                    color = if (isValid) contentColor else contentColor.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        return
+    }
+
+    val isConnected = remember { mutableStateOf(false) }
+
     var canDrawOverlays by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
-    val overlaySkipped = remember { mutableStateOf(context.getSharedPreferences("settings", MODE_PRIVATE).getBoolean("overlay_permission_skipped", false)) }
+    val overlaySkipped = remember {
+        mutableStateOf(
+            context.getSharedPreferences("settings", MODE_PRIVATE)
+                .getBoolean("overlay_permission_skipped", false)
+        )
+    }
 
     val bluetoothPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         listOf(
@@ -297,7 +494,19 @@ fun Main() {
     val permissionState = rememberMultiplePermissionsState(
         permissions = allPermissions
     )
+
     val airPodsService = remember { mutableStateOf<AirPodsService?>(null) }
+
+    val airPodsViewModel = remember(airPodsService.value) {
+        airPodsService.value?.let { service ->
+            AirPodsViewModel(
+                service = service,
+                sharedPreferences = context.getSharedPreferences("settings", MODE_PRIVATE),
+                controlRepo = ControlCommandRepository(service.aacpManager),
+                appContext = context.applicationContext
+            )
+        }
+    }
 
     LaunchedEffect(Unit) {
         canDrawOverlays = Settings.canDrawOverlays(context)
@@ -308,16 +517,14 @@ fun Main() {
     }.all { it.status.isGranted }
 
     if (bluetoothPermissionsGranted && (canDrawOverlays || overlaySkipped.value)) {
-        val context = LocalContext.current
 
         val navController = rememberNavController()
 
-        Box (
-            modifier = Modifier
-                .fillMaxSize()
-        ){
+        Box(
+            modifier = Modifier.fillMaxSize()
+        ) {
             val backButtonBackdrop = rememberLayerBackdrop()
-            Box (
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(if (isSystemInDarkTheme()) Color.Black else Color(0xFFF2F2F7))
@@ -325,49 +532,37 @@ fun Main() {
             ) {
                 NavHost(
                     navController = navController,
-                    startDestination = if (hookAvailable) "settings" else "onboarding",
+                    startDestination = "settings",
                     enterTransition = {
                         slideInHorizontally(
-                            initialOffsetX = { it },
-                            animationSpec = tween(durationMillis = 300)
-                        ) // + fadeIn(animationSpec = tween(durationMillis = 300))
+                            initialOffsetX = { it }, animationSpec = tween(durationMillis = 300)
+                        )
                     },
                     exitTransition = {
                         slideOutHorizontally(
-                            targetOffsetX = { -it/4 },
-                            animationSpec = tween(durationMillis = 300)
-                        ) // + fadeOut(animationSpec = tween(durationMillis = 150))
+                            targetOffsetX = { -it / 4 }, animationSpec = tween(durationMillis = 300)
+                        )
                     },
                     popEnterTransition = {
                         slideInHorizontally(
-                            initialOffsetX = { -it/4 },
+                            initialOffsetX = { -it / 4 },
                             animationSpec = tween(durationMillis = 300)
-                        ) // + fadeIn(animationSpec = tween(durationMillis = 300))
+                        )
                     },
                     popExitTransition = {
                         slideOutHorizontally(
-                            targetOffsetX = { it },
-                            animationSpec = tween(durationMillis = 300)
-                        ) // + fadeOut(animationSpec = tween(durationMillis = 150))
-                    }
-                ) {
+                            targetOffsetX = { it }, animationSpec = tween(durationMillis = 300)
+                        )
+                    }) {
                     composable("settings") {
-                        if (airPodsService.value != null) {
-                            AirPodsSettingsScreen(
-                                dev = airPodsService.value?.device,
-                                service = airPodsService.value!!,
-                                navController = navController,
-                                isConnected = isConnected.value,
-                                isRemotelyConnected = isRemotelyConnected.value
-                            )
+                        if (airPodsViewModel != null) {
+                            AirPodsSettingsScreen(airPodsViewModel, navController)
                         } else {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                androidx.compose.material3.CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                CircularProgressIndicator()
                             }
                         }
                     }
@@ -375,87 +570,96 @@ fun Main() {
                         DebugScreen(navController = navController)
                     }
                     composable("long_press/{bud}") { navBackStackEntry ->
-                        LongPress(
-                            navController = navController,
-                            name = navBackStackEntry.arguments?.getString("bud")!!
+                        if (airPodsViewModel != null) LongPress(
+                            viewModel = airPodsViewModel,
+                            name = navBackStackEntry.arguments?.getString("bud")!!,
+                            navController = navController
                         )
                     }
                     composable("rename") {
-                        RenameScreen(navController)
+                        if (airPodsViewModel != null) RenameScreen(airPodsViewModel)
                     }
                     composable("app_settings") {
-                        AppSettingsScreen(navController)
+                        val appSettingsViewModel: AppSettingsViewModel = viewModel()
+                        AppSettingsScreen(navController, appSettingsViewModel)
                     }
                     composable("troubleshooting") {
                         TroubleshootingScreen(navController)
                     }
                     composable("head_tracking") {
-                        HeadTrackingScreen()
-                    }
-                    composable("onboarding") {
-                        Onboarding(navController, context)
+                        if (airPodsViewModel != null) HeadTrackingScreen(airPodsViewModel, navController)
                     }
                     composable("accessibility") {
-                        AccessibilitySettingsScreen(navController)
+                        if (airPodsViewModel != null) AccessibilitySettingsScreen(airPodsViewModel, navController)
                     }
                     composable("transparency_customization") {
-                        TransparencySettingsScreen(navController)
+                        if (airPodsViewModel != null) TransparencySettingsScreen(airPodsViewModel)
                     }
                     composable("hearing_aid") {
-                        HearingAidScreen(navController)
+                        if (airPodsViewModel != null) HearingAidScreen(airPodsViewModel, navController)
                     }
                     composable("hearing_aid_adjustments") {
-                        HearingAidAdjustmentsScreen(navController)
+                        if (airPodsViewModel != null) HearingAidAdjustmentsScreen(airPodsViewModel)
                     }
                     composable("adaptive_strength") {
-                        AdaptiveStrengthScreen(navController)
+                        if (airPodsViewModel != null) AdaptiveStrengthScreen(airPodsViewModel, navController)
                     }
                     composable("camera_control") {
-                        CameraControlScreen(navController)
+                        if (airPodsViewModel != null) CameraControlScreen(airPodsViewModel)
                     }
                     composable("open_source_licenses") {
                         OpenSourceLicensesScreen(navController)
                     }
                     composable("update_hearing_test") {
-                        UpdateHearingTestScreen(navController)
+                        if (airPodsViewModel != null) UpdateHearingTestScreen()
                     }
                     composable("version_info") {
-                        VersionScreen(navController)
+                        if (airPodsViewModel != null) VersionScreen(airPodsViewModel)
                     }
                     composable("hearing_protection") {
-                        HearingProtectionScreen(navController)
+                        if (airPodsViewModel != null) HearingProtectionScreen(airPodsViewModel, navController)
+                    }
+                    composable("purchase_screen") {
+                        val purchaseViewModel: PurchaseViewModel = viewModel()
+                        PurchaseScreen(purchaseViewModel, navController)
                     }
                 }
             }
 
-            val showBackButton = remember{ mutableStateOf(false) }
+            val showBackButton = remember { mutableStateOf(false) }
 
             LaunchedEffect(navController) {
                 navController.addOnDestinationChangedListener { _, destination, _ ->
-                    showBackButton.value = destination.route != "settings" && destination.route != "onboarding"
-                    Log.d("MainActivity", "Navigated to ${destination.route}, showBackButton: ${showBackButton.value}")
+                    showBackButton.value =
+                        destination.route != "settings" // && destination.route != "onboarding"
                 }
             }
 
             AnimatedVisibility(
                 visible = showBackButton.value,
-                enter = fadeIn(animationSpec = tween()) + scaleIn(initialScale = 0f, animationSpec = tween()),
-                exit = fadeOut(animationSpec = tween()) + scaleOut(targetScale = 0.5f, animationSpec = tween(100)),
+                enter = fadeIn(animationSpec = tween()) + scaleIn(
+                    initialScale = 0f,
+                    animationSpec = tween()
+                ),
+                exit = fadeOut(animationSpec = tween()) + scaleOut(
+                    targetScale = 0.5f,
+                    animationSpec = tween(100)
+                ),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(
-                        start = 8.dp,
-                        top = (LocalWindowInfo.current.containerSize.width * 0.05f).dp
+                        start = 8.dp, top = (LocalWindowInfo.current.containerSize.width * 0.05f).dp
                     )
             ) {
                 StyledIconButton(
-                        onClick = { navController.popBackStack() },
-                        icon = "􀯶",
-                        darkMode = isSystemInDarkTheme(),
-                        backdrop = backButtonBackdrop
-                    )
+                    onClick = { navController.popBackStack() },
+                    icon = "􀯶",
+                    backdrop = backButtonBackdrop
+                )
             }
         }
+
+        context.startForegroundService(Intent(context, AirPodsService::class.java))
 
         serviceConnection = remember {
             object : ServiceConnection {
@@ -470,19 +674,20 @@ fun Main() {
             }
         }
 
-        val serviceIntent = Intent(context, AirPodsService::class.java)
-        context.startForegroundService(serviceIntent)
-        context.bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+        context.bindService(
+            Intent(context, AirPodsService::class.java),
+            serviceConnection,
+            Context.BIND_AUTO_CREATE
+        )
 
-        if (airPodsService.value?.isConnectedLocally == true) {
+        if (airPodsService.value?.isConnected() == true) {
             isConnected.value = true
         }
     } else {
         PermissionsScreen(
             permissionState = permissionState,
             canDrawOverlays = canDrawOverlays,
-            onOverlaySettingsReturn = { canDrawOverlays = Settings.canDrawOverlays(context) }
-        )
+            onOverlaySettingsReturn = { canDrawOverlays = Settings.canDrawOverlays(context) })
     }
 }
 
@@ -507,13 +712,9 @@ fun PermissionsScreen(
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse scale"
+        initialValue = 1f, targetValue = 1.05f, animationSpec = infiniteRepeatable(
+            animation = tween(1000), repeatMode = RepeatMode.Reverse
+        ), label = "pulse scale"
     )
 
     Column(
@@ -521,18 +722,15 @@ fun PermissionsScreen(
             .fillMaxSize()
             .background(if (isDarkTheme) Color.Black else Color(0xFFF2F2F7))
             .padding(16.dp)
-            .verticalScroll(scrollState),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .verticalScroll(scrollState), horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(180.dp),
-            contentAlignment = Alignment.Center
+                .height(180.dp), contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "\uDBC2\uDEB7",
-                style = TextStyle(
+                text = "\uDBC2\uDEB7", style = TextStyle(
                     fontSize = 48.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily(Font(R.font.sf_pro)),
@@ -568,29 +766,25 @@ fun PermissionsScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Permission Required",
-            style = TextStyle(
+            text = "Permission Required", style = TextStyle(
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily(Font(R.font.sf_pro)),
                 color = textColor,
                 textAlign = TextAlign.Center
-            ),
-            modifier = Modifier.fillMaxWidth()
+            ), modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = stringResource(R.string.permissions_required),
-            style = TextStyle(
+            text = stringResource(R.string.permissions_required), style = TextStyle(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Normal,
                 fontFamily = FontFamily(Font(R.font.sf_pro)),
                 color = textColor.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
-            ),
-            modifier = Modifier.fillMaxWidth()
+            ), modifier = Modifier.fillMaxWidth()
         )
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -763,8 +957,7 @@ fun PermissionCard(
                         if (isGranted) accentColor.copy(alpha = 0.15f) else Color.Gray.copy(
                             alpha = 0.15f
                         )
-                    ),
-                contentAlignment = Alignment.Center
+                    ), contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
@@ -780,8 +973,7 @@ fun PermissionCard(
                     .padding(start = 16.dp)
             ) {
                 Text(
-                    text = title,
-                    style = TextStyle(
+                    text = title, style = TextStyle(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         fontFamily = FontFamily(Font(R.font.sf_pro)),
@@ -790,8 +982,7 @@ fun PermissionCard(
                 )
 
                 Text(
-                    text = description,
-                    style = TextStyle(
+                    text = description, style = TextStyle(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Normal,
                         fontFamily = FontFamily(Font(R.font.sf_pro)),
@@ -808,11 +999,8 @@ fun PermissionCard(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (isGranted) "✓" else "!",
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
+                    text = if (isGranted) "✓" else "!", style = TextStyle(
+                        fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White
                     )
                 )
             }

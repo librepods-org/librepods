@@ -1,13 +1,25 @@
+<p align="center">
+  <img src="https://img.shields.io/github/stars/kavishdevar/librepods?style=for-the-badge&logoColor=white" />
+  <img src="https://img.shields.io/github/license/kavishdevar/librepods?style=for-the-badge" />
+  <img src="https://img.shields.io/github/v/release/kavishdevar/librepods?style=for-the-badge&logoColor=white&label=Release" />
+  <img src="https://img.shields.io/github/downloads/kavishdevar/librepods/total?style=for-the-badge&label=Downloads" />
+  <img src="https://img.shields.io/github/issues/kavishdevar/librepods?style=for-the-badge" />
+
+  <a href="https://discord.gg/HhG4ycVum4">
+    <img src="https://img.shields.io/discord/1441416992027574375?style=for-the-badge&logoColor=white&color=5865F2&label=Discord" />
+  </a>
+</p>
+
 >[!IMPORTANT]
 Development paused due to lack of time until 17th May 2026 (JEE Advanced). PRs and issues might not be responded to until then.
 
 ![LibrePods Banner](./imgs/banner.png)
 
-## What is LibrePods?
+# What is LibrePods?
 
 LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get access to noise control modes, adaptive transparency, ear detection, hearing aid, customized transparency mode, battery status, and more - all the premium features you paid for but Apple locked to their ecosystem.
 
-## Device Compatibility
+# Device Compatibility
 
 | Status | Device                | Features                                                   |
 | ------ | --------------------- | ---------------------------------------------------------- |
@@ -18,7 +30,7 @@ LibrePods unlocks Apple's exclusive AirPods features on non-Apple devices. Get a
 
 Most features should work with any AirPods. Currently, I've only got AirPods Pro 2 to test with. But, I believe the protocol remains the same for all other AirPods (based on analysis of the bluetooth stack on macOS).
 
-## Key Features
+# Key Features
 
 - **Noise Control Modes**: Easily switch between noise control modes without having to reach out to your AirPods to long press
 - **Ear Detection**: Controls your music automatically when you put your AirPods in or take them out, and switch to phone speaker when you take them out
@@ -36,18 +48,18 @@ Most features should work with any AirPods. Currently, I've only got AirPods Pro
 
 &ast; Features marked with an asterisk require the VendorID to be change to that of Apple.
 
-## Platform Support
+# Platform Support
 
-### Linux
+## Linux
 for the old version see the [Linux README](./linux/README.md). (doesn't have many features, maintainer didn't have time to work on it)
 
 new version in development ([#241](https://github.com/kavishdevar/librepods/pull/241))
 
 ![new version](https://github.com/user-attachments/assets/86b3c871-89a8-4e49-861a-5119de1e1d28)
 
-### Android
+## Android
 
-#### Screenshots
+### Screenshots
 
 |                                                                                         |                                                    |                                                                              |
 | --------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -62,18 +74,18 @@ here's a very unprofessional demo video
 
 https://github.com/user-attachments/assets/43911243-0576-4093-8c55-89c1db5ea533
 
-#### Root Requirement
+### Root Requirement
 
-If you are using ColorOS/OxygenOS 16, you don't need root except for customizing transparency mode, setting up hearing aid, and use Bluetooth Multipoint. Changing ANC, conversational awareness, ear detection, and other customizations will work without root. For everyone else:
+LibrePods **may** require root depending on your device/OS and what features you want access to:
 
-> [!CAUTION]
-> **You must have a rooted device with Xposed to use LibrePods on Android.** This is due to a [bug in the Android Bluetooth stack](https://issuetracker.google.com/issues/371713238). Please upvote the issue by clicking the '+1' icon on the IssueTracker page. DO NOT leave a +1 comment - use the +1 button in the top right of the page next to the "Hotlists" field.  Leaving +1 comment spam makes it impossible for developers to engage in the necessary technical discussion to implement this fix, and will disincentivize the responsible Google developers from engaging.  I don't know a fix for Android versions <13 either. So, this needs a phone running A13+.
-> 
-> There are **no exceptions** to the root requirement until Google/your OEM figures out a fix.
+- Features requiring the VendorID hook ([the features marked with an asterisk here](https://github.com/kavishdevar/librepods#key-features)) will always require root regardless of your device/OS.
+- On **ColorOS/OxygenOS 16** and **Pixel devices on Android 16 QPR3** (with the latest Google Play system update), LibrePods does not need root for most features (except those requiring the VendorID hook mentioned above).
+- On other devices, LibrePods needs root because of a bug in the Android Bluetooth stack Fluoride/non-compliance of Apple with Bluetooth standards. You must have Xposed installed for the app to workaround this bug and connect to AirPods. [This issue is being tracked here](https://issuetracker.google.com/issues/371713238). Please do not comment on the issue thread. The issue has already been resolved and should be available in **Android 17** for all devices.
 
-Until then, you must xposed. I used to provide a non-xposed method too, where the module used overlayfs to replace the bluetooth library with a locally patched one, but that was broken due to how various devices handled overlayfs and a patched library. With xposed, you can also enable the DID hook enabling a few extra features.
+> [!IMPORTANT]
+> This workaround with Xposed is not guaranteed to work on all devices.
 
-#### Setup for OxygenOS/ColorOS 16 (Non-rooted)
+### Setup for OxygenOS/ColorOS 16 (Non-rooted)
 
 For multi-device audio switching to work properly on non-rooted OxygenOS 16, you need to inject your phone's Bluetooth MAC address into the app's settings. This is a one-time setup.
 
@@ -81,7 +93,7 @@ For multi-device audio switching to work properly on non-rooted OxygenOS 16, you
 > The `run-as` command only works with **debug builds** (e.g., the nightly APK from CI). If you installed a release build, reinstall with the debug APK first.
 
 1. **Get your phone's Bluetooth MAC address:**
-   - Go to Settings → About → Device Details → Bluetooth Address
+   - Go to Settings -> About -> Device Details -> Bluetooth Address
 
 2. **Inject the MAC address via adb:**
    ```bash
@@ -94,23 +106,12 @@ For multi-device audio switching to work properly on non-rooted OxygenOS 16, you
 > [!NOTE]
 > This is needed because non-rooted apps on SDK 36+ cannot access the system's `bluetooth_address` setting. Without this, audio source switching between devices won't work correctly, and the app will lose ANC/transparency control when you switch to another device.
 
-## Changing VendorID in the DID profile to that of Apple
+### Troubleshooting steps for common errors
+- Ensure the correct scope is set in LSPosed/Vector.
+- Ensure there is no root-hiding module preventing the hook from loading on the Bluetooth app.
+- Restart your phone after confirming the scope.
 
-Turns out, if you change the VendorID in DID Profile to that of Apple, you get access to several special features!
-
-You can do this on Linux by editing the DeviceID in `/etc/bluetooth/main.conf`. Add this line to the config file `DeviceID = bluetooth:004C:0000:0000`. For android you can enable the `act as Apple device` setting in the app's settings.
-
-### Multi-device Connectivity
-
-Upto two devices can be simultaneously connected to AirPods, for audio and control both. Seamless connection switching. The same notification shows up on Apple device when Android takes over the AirPods as if it were an Apple device ("Move to iPhone"). Android also shows a popup when the other device takes over.
-
-### Accessibility Settings and Hearing Aid
-
-Accessibility settings like customizing transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
-
-All hearing aid customizations can be done from Android (linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
-
-#### A few notes
+### A few notes
 
 - Due to recent AirPods' firmware upgrades, you must enable `Off listening mode` to switch to `Off`. This is because in this mode, loud sounds are not reduced.
 
@@ -120,7 +121,23 @@ All hearing aid customizations can be done from Android (linux soon), including 
 
 - If you want the AirPods icon and battery status to show in Android Settings app, install the app as a system app by using the root module.
 
-## Supporters
+# Changing VendorID in the DID profile to that of Apple
+
+Turns out, if you change the VendorID in DID Profile to that of Apple, you get access to several special features!
+
+You can do this on Linux by editing the DeviceID in `/etc/bluetooth/main.conf`. Add this line to the config file `DeviceID = bluetooth:004C:0000:0000`. For android you can enable the `act as Apple device` setting in the app's settings.
+
+## Multi-device Connectivity
+
+Upto two devices can be simultaneously connected to AirPods, for audio and control both. Seamless connection switching. The same notification shows up on Apple device when Android takes over the AirPods as if it were an Apple device ("Move to iPhone"). Android also shows a popup when the other device takes over.
+
+## Accessibility Settings and Hearing Aid
+
+Accessibility settings like customizing transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
+
+All hearing aid customizations can be done from Android (linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result.
+
+# Supporters
 
 A huge thank you to everyone supporting the project!
 - @davdroman
@@ -130,14 +147,40 @@ A huge thank you to everyone supporting the project!
 - @lunaroyster
 - @ressiwage
 
-## Special thanks
+# Special thanks
 - @tyalie for making the first documentation on the protocol! ([tyalie/AAP-Protocol-Definition](https://github.com/tyalie/AAP-Protocol-Defintion))
 - @rithvikvibhu and folks over at lagrangepoint for helping with the hearing aid feature ([gist](https://gist.github.com/rithvikvibhu/45e24bbe5ade30125f152383daf07016))
 - @devnoname120 for helping with the first root patch
 - @timgromeyer for making the first version of the linux app
 - @hackclub for hosting [High Seas](https://highseas.hackclub.com) and [Low Skies](https://low-skies.hackclub.com)!
 
-## Star History
+# Alternates for other platforms:
+- CAPod - A companion app for AirPods on Android. ([play store](https://play.google.com/store/apps/details?id=eu.darken.capod) | [source code](https://github.com/d4rken-org/capod)). Use this if you're using Android version 16 QPR3 or below and are not rooted.
+- MagicPods for Steam Deck ([website](https://magicpods.app/steamdeck/))
+- MagicPods - if you're looking for "LibrePods for Windows"  ([ms store](https://apps.microsoft.com/store/detail/9P6SKKFKSHKM) [installer](https://magicpods.app/installer/MagicPods.appinstaller) | [website](https://magicpods.app/))
+
+# Nightly/Development Builds
+
+Want to try the latest features before they're officially released? You can grab nightly builds from GitHub Actions:
+
+### Android
+1. Go to the [Actions tab](https://github.com/kavishdevar/librepods/actions/workflows/ci-android.yml)
+2. Click on the most recent successful workflow run
+3. Scroll down to **Artifacts** and download the **Debug APK** zip file
+4. Extract the zip and install the `.apk` on your device
+
+> [!NOTE]
+> You need to be signed in to GitHub to download artifacts. Nightly builds are debug-signed and may not auto-update. You may need to uninstall the stable version first.
+
+### Linux (Rust)
+1. Go to the [Actions tab](https://github.com/kavishdevar/librepods/actions/workflows/ci-linux-rust.yml)
+2. Click on the most recent successful workflow run
+3. Download the **librepods-x86_64.AppImage** or **librepods** binary from **Artifacts**
+
+> [!WARNING]
+> Nightly builds are unstable and may contain bugs. Use at your own risk.
+
+# Star History
 
 <a href="https://www.star-history.com/#kavishdevar/librepods&type=date&legend=top-left">
  <picture>

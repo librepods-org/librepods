@@ -1089,6 +1089,18 @@ int main(int argc, char *argv[]) {
                     trayApp->loadMainModule();
                 }
             }
+            else if (msg == "noise:off") {
+                trayApp->setNoiseControlModeInt(0);
+            }
+            else if (msg == "noise:anc") {
+                trayApp->setNoiseControlModeInt(1);
+            }
+            else if (msg == "noise:transparency") {
+                trayApp->setNoiseControlModeInt(2);
+            }
+            else if (msg == "noise:adaptive") {
+                trayApp->setNoiseControlModeInt(3);
+            }
             else
             {
                 LOG_ERROR("Unknown message received: " << msg);

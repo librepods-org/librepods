@@ -78,6 +78,16 @@ target_link_libraries(librepods
     PRIVATE Qt6::Quick Qt6::Widgets Qt6::Bluetooth Qt6::DBus OpenSSL::SSL OpenSSL::Crypto ${PULSEAUDIO_LIBRARIES}
 )
 
+qt_add_executable(librepods-ctl
+    librepods-ctl.cpp
+)
+target_link_libraries(librepods-ctl
+    PRIVATE Qt6::Core Qt6::Network
+)
+install(TARGETS librepods-ctl
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
 target_include_directories(librepods PRIVATE ${PULSEAUDIO_INCLUDE_DIRS})
 
 include(GNUInstallDirs)
@@ -88,8 +98,8 @@ install(TARGETS librepods
 )
 install(FILES assets/me.kavishdevar.librepods.desktop
     DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/applications")
-install(FILES assets/librepods.png
-    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/512x512/apps")
+install(FILES assets/librepods.svg
+    DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps")
 
 # Translation support
 qt_add_translations(librepods
