@@ -77,7 +77,6 @@ ApplicationWindow {
                     radius: 12
                     color: airPodsTrayApp.airpodsConnected ? "#30D158" : "#FF453A"
                     opacity: 0.8
-                    visible: !airPodsTrayApp.airpodsConnected
 
                     Label {
                         anchors.centerIn: parent
@@ -85,6 +84,24 @@ ApplicationWindow {
                         color: "white"
                         font.pixelSize: 12
                         font.weight: Font.Medium
+                    }
+                }
+
+                // Connect / Disconnect buttons
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 10
+
+                    Button {
+                        text: qsTr("Connect")
+                        visible: !airPodsTrayApp.airpodsConnected
+                        onClicked: airPodsTrayApp.userConnect()
+                    }
+
+                    Button {
+                        text: qsTr("Disconnect")
+                        visible: airPodsTrayApp.airpodsConnected
+                        onClicked: airPodsTrayApp.userDisconnect()
                     }
                 }
 

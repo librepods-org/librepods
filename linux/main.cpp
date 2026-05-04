@@ -178,6 +178,28 @@ private:
     }
 
 public slots:
+    Q_INVOKABLE void userConnect() {
+        LOG_INFO("User-initiated connect");
+        connectToAirPods(true);
+    }
+
+    Q_INVOKABLE void userDisconnect() {
+        LOG_INFO("User-initiated disconnect");
+        if (socket && socket->isOpen()) {
+            socket->close();
+            LOG_INFO("Socket closed");
+        }
+        if (!m_deviceInfo->bluetoothAddress().isEmpty()) {
+            QProcess process;
+            process.start("bluetoothctl", QStringList() << "disconnect" << m_deviceInfo->bluetoothAddress());
+            process.waitForFinished(3000);
+            LOG_INFO("Bluetoothctl disconnect: " << process.readAllStandardOutput().trimmed());
+        }
+        m_deviceInfo->reset();
+        emit airPodsStatusChanged();
+    }
+
+public slots:
     void connectToDevice(const QString &address) {
         LOG_INFO("Connecting to device with address: " << address);
         QBluetoothAddress btAddress(address);
