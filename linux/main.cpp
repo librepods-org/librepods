@@ -94,6 +94,9 @@ public:
         monitor->checkAlreadyConnectedDevices();
         LOG_INFO("AirPodsTrayApp initialized");
 
+        // Load last known BT address for reconnect button
+        m_lastKnownAddress = m_settings->value("lastKnownAddress", "").toString();
+
         QBluetoothLocalDevice localDevice;
 
         const QList<QBluetoothAddress> connectedDevices = localDevice.connectedDevices();
@@ -197,6 +200,7 @@ public slots:
         // Save address before reset
         if (!m_deviceInfo->bluetoothAddress().isEmpty()) {
             m_lastKnownAddress = m_deviceInfo->bluetoothAddress();
+            m_settings->setValue("lastKnownAddress", m_lastKnownAddress);
         }
         if (socket && socket->isOpen()) {
             socket->close();
@@ -729,6 +733,8 @@ private slots:
 
         localSocket->connectToService(device.address(), QBluetoothUuid("74ec2172-0bad-4d01-8f77-997b2be0722a"));
         m_deviceInfo->setBluetoothAddress(device.address().toString());
+        m_lastKnownAddress = device.address().toString();
+        m_settings->setValue("lastKnownAddress", m_lastKnownAddress);
         notifyAndroidDevice();
     }
 
