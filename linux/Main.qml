@@ -133,11 +133,11 @@ ApplicationWindow {
                     model: [qsTr("Off"), qsTr("Noise Cancellation"), qsTr("Transparency"), qsTr("Adaptive")]
                     currentIndex: airPodsTrayApp.deviceInfo.noiseControlMode
                     onCurrentIndexChanged: airPodsTrayApp.setNoiseControlModeInt(currentIndex)
-                    visible: airPodsTrayApp.airpodsConnected
+                    visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
                 }
 
                 Slider {
-                    visible: airPodsTrayApp.deviceInfo.adaptiveModeActive
+                    visible: airPodsTrayApp.deviceInfo.adaptiveModeActive && airPodsTrayApp.deviceInfo.hasAdaptive
                     from: 0
                     to: 100
                     stepSize: 1
@@ -159,7 +159,7 @@ ApplicationWindow {
                 }
 
                 Switch {
-                    visible: airPodsTrayApp.airpodsConnected
+                    visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
                     text: qsTr("Conversational Awareness")
                     checked: airPodsTrayApp.deviceInfo.conversationalAwareness
                     onCheckedChanged: airPodsTrayApp.setConversationalAwareness(checked)
@@ -242,15 +242,114 @@ ApplicationWindow {
                     }
 
                     Switch {
-                        visible: airPodsTrayApp.airpodsConnected
+                        visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
                         text: qsTr("One Bud ANC Mode")
                         checked: airPodsTrayApp.deviceInfo.oneBudANCMode
-                        onCheckedChanged: airPodsTrayApp.deviceInfo.oneBudANCMode = checked
+                        onCheckedChanged: airPodsTrayApp.setOneBudANCMode(checked)
 
                         ToolTip {
                             visible: parent.hovered
                             text: qsTr("Enable ANC when using one AirPod\n(More noise reduction, but uses more battery)")
                             delay: 500
+                        }
+                    }
+
+                    // Listening Mode Cycle Configuration
+                    Column {
+                        visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
+                        spacing: 5
+                        width: parent.width
+
+                        Label {
+                            text: qsTr("Press & Hold Noise Modes:")
+                            font.bold: true
+                        }
+
+                        CheckBox {
+                            text: qsTr("Off")
+                            checked: (airPodsTrayApp.deviceInfo.listeningModeConfig & 1) !== 0
+                            onClicked: {
+                                var mask = airPodsTrayApp.deviceInfo.listeningModeConfig;
+                                if (checked) mask |= 1; else mask &= ~1;
+                                airPodsTrayApp.applyListeningModeConfig(mask);
+                            }
+                        }
+
+                        CheckBox {
+                            text: qsTr("Noise Cancellation")
+                            checked: (airPodsTrayApp.deviceInfo.listeningModeConfig & 2) !== 0
+                            onClicked: {
+                                var mask = airPodsTrayApp.deviceInfo.listeningModeConfig;
+                                if (checked) mask |= 2; else mask &= ~2;
+                                airPodsTrayApp.applyListeningModeConfig(mask);
+                            }
+                        }
+
+                        CheckBox {
+                            text: qsTr("Transparency")
+                            checked: (airPodsTrayApp.deviceInfo.listeningModeConfig & 4) !== 0
+                            onClicked: {
+                                var mask = airPodsTrayApp.deviceInfo.listeningModeConfig;
+                                if (checked) mask |= 4; else mask &= ~4;
+                                airPodsTrayApp.applyListeningModeConfig(mask);
+                            }
+                        }
+
+                        CheckBox {
+                            visible: airPodsTrayApp.deviceInfo.hasAdaptive
+                            text: qsTr("Adaptive Transparency")
+                            checked: (airPodsTrayApp.deviceInfo.listeningModeConfig & 8) !== 0
+                            onClicked: {
+                                var mask = airPodsTrayApp.deviceInfo.listeningModeConfig;
+                                if (checked) mask |= 8; else mask &= ~8;
+                                airPodsTrayApp.applyListeningModeConfig(mask);
+                            }
+                        }
+                    }
+
+                    // Click-Hold Mode (per bud: Noise Control or Siri)
+                    Column {
+                        visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
+                        spacing: 5
+                        width: parent.width
+
+                        Label {
+                            text: qsTr("Long Press Action:")
+                            font.bold: true
+                        }
+
+                        Row {
+                            spacing: 10
+
+                            Label {
+                                text: qsTr("Right:")
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            ComboBox {
+                                model: [qsTr("Noise Control"), qsTr("Siri")]
+                                currentIndex: airPodsTrayApp.deviceInfo.clickHoldModeRight === 5 ? 1 : 0
+                                onActivated: {
+                                    var val = currentIndex === 1 ? 5 : 1;
+                                    airPodsTrayApp.applyClickHoldMode(val, airPodsTrayApp.deviceInfo.clickHoldModeLeft);
+                                }
+                            }
+                        }
+
+                        Row {
+                            spacing: 10
+
+                            Label {
+                                text: qsTr("Left:")
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                            ComboBox {
+                                model: [qsTr("Noise Control"), qsTr("Siri")]
+                                currentIndex: airPodsTrayApp.deviceInfo.clickHoldModeLeft === 5 ? 1 : 0
+                                onActivated: {
+                                    var val = currentIndex === 1 ? 5 : 1;
+                                    airPodsTrayApp.applyClickHoldMode(airPodsTrayApp.deviceInfo.clickHoldModeRight, val);
+                                }
+                            }
                         }
                     }
 

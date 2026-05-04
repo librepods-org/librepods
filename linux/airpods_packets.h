@@ -145,6 +145,38 @@ namespace AirPodsPackets
         inline std::optional<bool> parseState(const QByteArray &data) { return Type::parseState(data); }
     }
 
+    // Listening Mode Configs — configures which modes the stem long press cycles through
+    // Bitmask: Off=0x01, ANC=0x02, Transparency=0x04, Adaptive=0x08
+    namespace ListeningModeConfigs
+    {
+        static const QByteArray HEADER = ControlCommand::HEADER + static_cast<char>(0x1A);
+
+        static QByteArray getPacket(quint8 configBitmask)
+        {
+            return ControlCommand::createCommand(0x1A, configBitmask);
+        }
+
+        inline std::optional<quint8> parseConfig(const QByteArray &data)
+        {
+            auto val = ControlCommand::parseActive(data);
+            if (val) return static_cast<quint8>(val.value());
+            return std::nullopt;
+        }
+    }
+
+    // Click Hold Mode — what the stem long press does per bud
+    // data1 = right bud, data2 = left bud
+    // Values: 0x01 = Noise Control, 0x05 = Siri
+    namespace ClickHoldMode
+    {
+        static const QByteArray HEADER = ControlCommand::HEADER + static_cast<char>(0x16);
+
+        static QByteArray getPacket(quint8 rightBud, quint8 leftBud)
+        {
+            return ControlCommand::createCommand(0x16, rightBud, leftBud);
+        }
+    }
+
     // Connection Packets
     namespace Connection
     {

@@ -238,6 +238,48 @@ public slots:
         }
     }
 
+    void applyListeningModeConfig(int bitmask)
+    {
+        // Ensure at least 2 modes are selected (need at least 2 to cycle)
+        int modeCount = 0;
+        for (int i = 0; i < 4; i++) {
+            if (bitmask & (1 << i)) modeCount++;
+        }
+        if (modeCount < 2)
+        {
+            LOG_WARN("Listening mode config must have at least 2 modes selected");
+            return;
+        }
+
+        LOG_INFO("Applying listening mode config: 0x" << QString::number(bitmask, 16));
+
+        // Send ListeningModeConfigs packet (0x1A)
+        QByteArray configPacket = AirPodsPackets::ListeningModeConfigs::getPacket(static_cast<quint8>(bitmask));
+        writePacketToSocket(configPacket, "Listening mode config packet written: ");
+
+        // Send AllowOffOption packet (0x34) — always sent atomically with 0x1A
+        bool offEnabled = (bitmask & 0x01) != 0;
+        QByteArray offPacket = offEnabled ? AirPodsPackets::AllowOffOption::ENABLED
+                                          : AirPodsPackets::AllowOffOption::DISABLED;
+        writePacketToSocket(offPacket, "Allow off option packet written: ");
+
+        // Update DeviceInfo and persist
+        m_deviceInfo->setListeningModeConfig(bitmask);
+        m_deviceInfo->saveToSettings(*m_settings);
+    }
+
+    void applyClickHoldMode(int rightBud, int leftBud)
+    {
+        LOG_INFO("Applying click-hold mode: right=" << rightBud << " left=" << leftBud);
+        QByteArray packet = AirPodsPackets::ClickHoldMode::getPacket(
+            static_cast<quint8>(rightBud), static_cast<quint8>(leftBud));
+        writePacketToSocket(packet, "Click-hold mode packet written: ");
+
+        m_deviceInfo->setClickHoldModeRight(rightBud);
+        m_deviceInfo->setClickHoldModeLeft(leftBud);
+        m_deviceInfo->saveToSettings(*m_settings);
+    }
+
     void setRetryAttempts(int attempts)
     {
         if (m_retryAttempts != attempts)
@@ -745,12 +787,43 @@ private slots:
             }
             m_bleManager->stopScan();
             emit airPodsStatusChanged();
+
+            // Resend saved listening mode config and click-hold mode on reconnect
+            int savedConfig = m_deviceInfo->listeningModeConfig();
+            int savedRight = m_deviceInfo->clickHoldModeRight();
+            int savedLeft = m_deviceInfo->clickHoldModeLeft();
+            QTimer::singleShot(500, this, [this, savedConfig, savedRight, savedLeft]() {
+                if (savedConfig > 0) {
+                    applyListeningModeConfig(savedConfig);
+                }
+                if (savedRight > 0 || savedLeft > 0) {
+                    applyClickHoldMode(savedRight, savedLeft);
+                }
+            });
         }
         else if (data.startsWith(AirPodsPackets::OneBudANCMode::HEADER)) {
             if (auto value = AirPodsPackets::OneBudANCMode::parseState(data))
             {
                 m_deviceInfo->setOneBudANCMode(value.value());
                 LOG_INFO("One Bud ANC mode received: " << m_deviceInfo->oneBudANCMode());
+            }
+        }
+        // Listening Mode Configs (0x1A) — stem long press cycle bitmask
+        else if (data.size() == 11 && data.startsWith(AirPodsPackets::ListeningModeConfigs::HEADER))
+        {
+            if (auto value = AirPodsPackets::ListeningModeConfigs::parseConfig(data))
+            {
+                m_deviceInfo->setListeningModeConfig(value.value());
+                m_deviceInfo->saveToSettings(*m_settings);
+                LOG_INFO("Listening mode config received: 0x" << QString::number(value.value(), 16));
+            }
+        }
+        // Allow Off Option (0x34)
+        else if (data.startsWith(AirPodsPackets::AllowOffOption::HEADER))
+        {
+            if (auto value = AirPodsPackets::AllowOffOption::parseState(data))
+            {
+                LOG_INFO("Allow off option received: " << value.value());
             }
         }
         else

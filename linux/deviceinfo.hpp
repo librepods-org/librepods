@@ -29,6 +29,11 @@ class DeviceInfo : public QObject
     Q_PROPERTY(QString bluetoothAddress READ bluetoothAddress WRITE setBluetoothAddress NOTIFY bluetoothAddressChanged)
     Q_PROPERTY(QString magicAccIRK READ magicAccIRKHex CONSTANT)
     Q_PROPERTY(QString magicAccEncKey READ magicAccEncKeyHex CONSTANT)
+    Q_PROPERTY(int listeningModeConfig READ listeningModeConfig WRITE setListeningModeConfig NOTIFY listeningModeConfigChanged)
+    Q_PROPERTY(bool hasANC READ hasANC NOTIFY modelChanged)
+    Q_PROPERTY(bool hasAdaptive READ hasAdaptive NOTIFY modelChanged)
+    Q_PROPERTY(int clickHoldModeRight READ clickHoldModeRight WRITE setClickHoldModeRight NOTIFY clickHoldModeChanged)
+    Q_PROPERTY(int clickHoldModeLeft READ clickHoldModeLeft WRITE setClickHoldModeLeft NOTIFY clickHoldModeChanged)
 
 public:
     explicit DeviceInfo(QObject *parent = nullptr) : QObject(parent), m_battery(new Battery(this)), m_earDetection(new EarDetection(this)) {
@@ -120,6 +125,41 @@ public:
         }
     }
 
+    // Model capability flags
+    bool hasANC() const { return modelHasANC(m_model); }
+    bool hasAdaptive() const { return modelHasAdaptive(m_model); }
+
+    // Listening mode config (bitmask: Off=0x01, ANC=0x02, Transparency=0x04, Adaptive=0x08)
+    int listeningModeConfig() const { return m_listeningModeConfig; }
+    void setListeningModeConfig(int config)
+    {
+        if (m_listeningModeConfig != config)
+        {
+            m_listeningModeConfig = config;
+            emit listeningModeConfigChanged(config);
+        }
+    }
+
+    // Click-hold mode per bud (0x01 = Noise Control, 0x05 = Siri)
+    int clickHoldModeRight() const { return m_clickHoldModeRight; }
+    void setClickHoldModeRight(int mode)
+    {
+        if (m_clickHoldModeRight != mode)
+        {
+            m_clickHoldModeRight = mode;
+            emit clickHoldModeChanged();
+        }
+    }
+    int clickHoldModeLeft() const { return m_clickHoldModeLeft; }
+    void setClickHoldModeLeft(int mode)
+    {
+        if (m_clickHoldModeLeft != mode)
+        {
+            m_clickHoldModeLeft = mode;
+            emit clickHoldModeChanged();
+        }
+    }
+
     QByteArray magicAccIRK() const { return m_magicAccIRK; }
     void setMagicAccIRK(const QByteArray &irk) { m_magicAccIRK = irk; }
     QString magicAccIRKHex() const { return QString::fromUtf8(m_magicAccIRK.toHex()); }
@@ -171,6 +211,7 @@ public:
         setBluetoothAddress("");
         getEarDetection()->reset();
         setHearingAidEnabled(false);
+        // Don't reset listeningModeConfig or clickHoldMode — we want to resend them on reconnect
     }
 
     void saveToSettings(QSettings &settings)
@@ -181,6 +222,9 @@ public:
         settings.setValue("magicAccIRK", magicAccIRK());
         settings.setValue("magicAccEncKey", magicAccEncKey());
         settings.setValue("hearingAidEnabled", hearingAidEnabled());
+        settings.setValue("listeningModeConfig", listeningModeConfig());
+        settings.setValue("clickHoldModeRight", clickHoldModeRight());
+        settings.setValue("clickHoldModeLeft", clickHoldModeLeft());
         settings.endGroup();
     }
     void loadFromSettings(const QSettings &settings)
@@ -190,6 +234,9 @@ public:
         setMagicAccIRK(settings.value("DeviceInfo/magicAccIRK", QByteArray()).toByteArray());
         setMagicAccEncKey(settings.value("DeviceInfo/magicAccEncKey", QByteArray()).toByteArray());
         setHearingAidEnabled(settings.value("DeviceInfo/hearingAidEnabled", false).toBool());
+        setListeningModeConfig(settings.value("DeviceInfo/listeningModeConfig", 0x0E).toInt());
+        setClickHoldModeRight(settings.value("DeviceInfo/clickHoldModeRight", 0x01).toInt());
+        setClickHoldModeLeft(settings.value("DeviceInfo/clickHoldModeLeft", 0x01).toInt());
     }
 
     void updateBatteryStatus()
@@ -217,6 +264,8 @@ signals:
     void oneBudANCModeChanged(bool enabled);
     void modelChanged();
     void bluetoothAddressChanged(const QString &address);
+    void listeningModeConfigChanged(int config);
+    void clickHoldModeChanged();
 
 private:
     QString m_batteryStatus;
@@ -234,4 +283,7 @@ private:
     QString m_manufacturer;
     QString m_bluetoothAddress;
     EarDetection *m_earDetection;
+    int m_listeningModeConfig = 0x0E; // Default: ANC + Transparency + Adaptive (no Off)
+    int m_clickHoldModeRight = 0x01;  // Default: Noise Control
+    int m_clickHoldModeLeft = 0x01;   // Default: Noise Control
 };

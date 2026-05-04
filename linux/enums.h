@@ -103,5 +103,33 @@ namespace AirpodsTrayApp
             }
         }
 
+        // Returns true if the model supports Active Noise Cancellation
+        inline bool modelHasANC(AirPodsModel model) {
+            switch (model) {
+                case AirPodsModel::AirPods4ANC:
+                case AirPodsModel::AirPodsPro:
+                case AirPodsModel::AirPodsPro2Lightning:
+                case AirPodsModel::AirPodsPro2USBC:
+                case AirPodsModel::AirPodsMaxLightning:
+                case AirPodsModel::AirPodsMaxUSBC:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // Returns true if the model supports Adaptive Transparency
+        inline bool modelHasAdaptive(AirPodsModel model) {
+            switch (model) {
+                case AirPodsModel::AirPods4ANC:
+                case AirPodsModel::AirPodsPro2Lightning:
+                case AirPodsModel::AirPodsPro2USBC:
+                case AirPodsModel::AirPodsMaxUSBC:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
     }
 }
