@@ -787,19 +787,6 @@ private slots:
             }
             m_bleManager->stopScan();
             emit airPodsStatusChanged();
-
-            // Resend saved listening mode config and click-hold mode on reconnect
-            int savedConfig = m_deviceInfo->listeningModeConfig();
-            int savedRight = m_deviceInfo->clickHoldModeRight();
-            int savedLeft = m_deviceInfo->clickHoldModeLeft();
-            QTimer::singleShot(500, this, [this, savedConfig, savedRight, savedLeft]() {
-                if (savedConfig > 0) {
-                    applyListeningModeConfig(savedConfig);
-                }
-                if (savedRight > 0 || savedLeft > 0) {
-                    applyClickHoldMode(savedRight, savedLeft);
-                }
-            });
         }
         else if (data.startsWith(AirPodsPackets::OneBudANCMode::HEADER)) {
             if (auto value = AirPodsPackets::OneBudANCMode::parseState(data))
