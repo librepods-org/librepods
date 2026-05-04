@@ -258,7 +258,6 @@ ApplicationWindow {
                     Column {
                         visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
                         spacing: 5
-                        width: parent.width
 
                         Label {
                             text: qsTr("Press & Hold Noise Modes:")
@@ -311,7 +310,6 @@ ApplicationWindow {
                     Column {
                         visible: airPodsTrayApp.airpodsConnected && airPodsTrayApp.deviceInfo.hasANC
                         spacing: 5
-                        width: parent.width
 
                         Label {
                             text: qsTr("Long Press Action:")
