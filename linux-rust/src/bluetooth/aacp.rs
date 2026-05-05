@@ -717,8 +717,15 @@ impl AACPManager {
                 if let Some(mac) = state.airpods_mac
                     && let Some(device_data) = state.devices.get_mut(&mac.to_string())
                 {
+                    let existing_le_keys = match &device_data.information {
+                        Some(DeviceInformation::AirPods(existing)) => existing.le_keys.clone(),
+                        _ => AirPodsLEKeys { irk: String::new(), enc_key: String::new() },
+                    };
                     device_data.name = info.name.clone();
-                    device_data.information = Some(DeviceInformation::AirPods(info.clone()));
+                    device_data.information = Some(DeviceInformation::AirPods(AirPodsInformation {
+                        le_keys: existing_le_keys,
+                        ..info.clone()
+                    }));
                 }
                 let json = serde_json::to_string(&state.devices).unwrap();
                 if let Some(parent) = get_devices_path().parent()
