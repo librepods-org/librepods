@@ -22,9 +22,10 @@ A native Linux application to control your AirPods, with support for:
    # For Arch Linux / EndeavourOS
    sudo pacman -S qt6-base qt6-connectivity qt6-multimedia-ffmpeg qt6-multimedia
 
-   # For Debian
+   # For Debian / Ubuntu
    sudo apt-get install qt6-base-dev qt6-declarative-dev qt6-connectivity-dev qt6-multimedia-dev \
-        qml6-module-qtquick-controls qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
+        qml6-module-qtquick-controls qml6-module-qtquick-controls-fusion \
+        qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
         qml6-module-qtquick-window qml6-module-qtquick-layouts
 
     # For Fedora

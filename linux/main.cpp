@@ -6,6 +6,7 @@
 #include <QQmlContext>
 #include <QBluetoothLocalDevice>
 #include <QBluetoothSocket>
+#include <QQuickStyle>
 #include <QQuickWindow>
 #include <QLoggingCategory>
 #include <QThread>
@@ -1041,6 +1042,18 @@ int main(int argc, char *argv[]) {
         if (QString(argv[i]) == "--hide")
             hideOnStart = true;
     }
+
+    // Pick a QtQuick.Controls style that ships a QML implementation.
+    // QQuickStyleSpec::resolve() reads QGuiApplicationPrivate::styleOverride
+    // (populated from QT_STYLE_OVERRIDE) before QT_QUICK_CONTROLS_STYLE, so on
+    // systems where the configured widget style has no Quick Controls
+    // counterpart (e.g. Kvantum on Stylix-themed Linux desktops) QML loading
+    // crashes with `module "<style>" is not installed`. Calling setStyle()
+    // unconditionally takes the highest-precedence slot, which both bypasses
+    // the QT_STYLE_OVERRIDE leak and lets QT_QUICK_CONTROLS_STYLE win even
+    // when QT_STYLE_OVERRIDE is also set.
+    const QString quickStyle = qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE");
+    QQuickStyle::setStyle(quickStyle.isEmpty() ? QStringLiteral("Fusion") : quickStyle);
 
     QQmlApplicationEngine engine;
     qmlRegisterType<Battery>("me.kavishdevar.Battery", 1, 0, "Battery");
