@@ -10,7 +10,7 @@ use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
-use crate::utils::{get_app_settings_path, get_devices_path};
+use crate::utils::{get_app_settings_path, get_devices_path, get_preferences_path};
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -144,6 +144,10 @@ async fn async_main(
             battery_c: None,
             battery_c_status: None,
             connected: false,
+            connected_mac: std::fs::read_to_string(get_preferences_path())
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v.get("connected_mac").and_then(|m| m.as_str().map(String::from))),
             listening_mode: None,
             allow_off_option: None,
             command_tx: None,

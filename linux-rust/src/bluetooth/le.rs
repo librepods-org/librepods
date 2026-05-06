@@ -300,8 +300,12 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                         };
 
                                         if let Some(handle) = &tray_handle_clone {
+                                            let mac_clone = matched_airpods_mac.clone();
                                             handle
                                                 .update(|tray: &mut MyTray| {
+                                                    if tray.connected_mac.as_deref() != mac_clone.as_deref() {
+                                                        return;
+                                                    }
                                                     tray.battery_l = if left_byte == 0xff {
                                                         None
                                                     } else {

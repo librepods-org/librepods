@@ -20,6 +20,7 @@ pub struct MyTray {
     pub battery_c: Option<u8>,
     pub battery_c_status: Option<BatteryStatus>,
     pub connected: bool,
+    pub connected_mac: Option<String>,
     pub listening_mode: Option<u8>,
     pub allow_off_option: Option<u8>,
     pub command_tx: Option<UnboundedSender<(ControlCommandIdentifiers, Vec<u8>)>>,
@@ -108,7 +109,7 @@ impl ksni::Tray for MyTray {
     }
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::*;
-        let allow_off = self.allow_off_option == Some(0x01);
+        let allow_off = self.allow_off_option != Some(0x02);
         let options = if allow_off {
             vec![
                 ("Off", 0x01),

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
-use crate::utils::get_app_settings_path;
+use crate::utils::{get_app_settings_path, get_preferences_path};
 
 pub struct AirPodsDevice {
     pub mac_address: Address,
@@ -34,9 +34,21 @@ impl AirPodsDevice {
         // att_manager.connect(mac_address).await.expect("Failed to connect ATT");
 
         if let Some(handle) = &tray_handle {
+            let mac_str = mac_address.to_string();
+            let prefs_path = get_preferences_path();
+            let mut prefs = std::fs::read_to_string(&prefs_path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            prefs["connected_mac"] = serde_json::json!(mac_str);
+            if let Some(parent) = prefs_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&prefs_path, prefs.to_string());
             handle
                 .update(|tray: &mut MyTray| {
                     tray.connected = true;
+                    tray.connected_mac = Some(mac_str.clone());
                     tray.battery_headphone = None;
                     tray.battery_headphone_status = None;
                     tray.battery_l = None;
