@@ -58,6 +58,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
 
     let mut verified_macs: HashMap<Address, String> = HashMap::new();
     let mut failed_macs: HashSet<Address> = HashSet::new();
+    let mut listening_macs: HashSet<Address> = HashSet::new();
     let connecting_macs = Arc::new(Mutex::new(HashSet::<Address>::new()));
 
     let pattern = Pattern {
@@ -141,6 +142,10 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
             }
 
             if matched_airpods_mac.is_some() {
+                if listening_macs.contains(&addr) {
+                    continue;
+                }
+                listening_macs.insert(addr);
                 let mut events = dev.events().await?;
                 let tray_handle_clone = tray_handle.clone();
                 let connecting_macs_clone = Arc::clone(&connecting_macs);
