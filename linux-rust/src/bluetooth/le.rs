@@ -184,7 +184,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                 .get(matched_airpods_mac.as_ref().unwrap())
                                                 .and_then(|prefs| prefs.get("autoConnect"))
                                                 .copied()
-                                                .unwrap_or(true);
+                                                .unwrap_or(false);
                                             debug!(
                                                 "Auto-connect preference for {}: {}",
                                                 matched_airpods_mac.as_ref().unwrap(),
@@ -251,6 +251,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                         );
                                                     }
                                                 }
+                                            } else {
                                                 info!(
                                                     "Auto-connect is disabled for {}, not attempting to connect.",
                                                     matched_airpods_mac.as_ref().unwrap()
