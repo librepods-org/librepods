@@ -1317,6 +1317,11 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         sendToast(if (nowMuted) "Mic muted" else "Mic unmuted")
         if (nowMuted) startMutedReminder() else stopMutedReminder()
 
+        // Sync Teams' in-app mute UI by firing the Mute/Unmute action from its
+        // ongoing-call notification. Teams on Android skips the Telecom framework,
+        // so this notification-listener route is the only path that works.
+        TeamsNotifListener.setMuted(nowMuted)
+
         // Same confirmation tone as head gestures: confirm_no for mute, confirm_yes for unmute.
         initGestureDetector()
         gestureDetector?.audio?.playConfirmation(!nowMuted)
@@ -2270,6 +2275,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             if (!accepted) {
                 if (!audioManager.isMicrophoneMute) {
                     audioManager.setMicrophoneMute(true)
+                    TeamsNotifListener.setMuted(true)
                     sendToast("Mic muted")
                     Log.d(TAG, "Gesture mute: shake → muted")
                     startMutedReminder()
@@ -2277,6 +2283,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             } else {
                 if (audioManager.isMicrophoneMute) {
                     audioManager.setMicrophoneMute(false)
+                    TeamsNotifListener.setMuted(false)
                     sendToast("Mic unmuted")
                     Log.d(TAG, "Gesture unmute: nod → unmuted")
                     stopMutedReminder()

@@ -153,6 +153,7 @@ import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
 import me.kavishdevar.librepods.presentation.viewmodel.AppSettingsViewModel
 import me.kavishdevar.librepods.presentation.viewmodel.PurchaseViewModel
 import me.kavishdevar.librepods.services.AirPodsService
+import me.kavishdevar.librepods.services.TeamsNotifListener
 import me.kavishdevar.librepods.utils.XposedState
 import me.kavishdevar.librepods.utils.isSupported
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -694,6 +695,14 @@ fun PermissionsScreen(
 
     val basicPermissionsGranted = permissionState.permissions.all { it.status.isGranted }
 
+    var notifAccessGranted by remember { mutableStateOf(TeamsNotifListener.isAccessGranted(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            notifAccessGranted = TeamsNotifListener.isAccessGranted(context)
+        }
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f, targetValue = 1.05f, animationSpec = infiniteRepeatable(
@@ -819,10 +828,25 @@ fun PermissionsScreen(
             accentColor = accentColor
         )
 
+        PermissionCard(
+            title = "Notification Access",
+            description = "To sync mute state with Microsoft Teams",
+            icon = Icons.Default.Notifications,
+            isGranted = notifAccessGranted,
+            backgroundColor = backgroundColor,
+            textColor = textColor,
+            accentColor = accentColor
+        )
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Button(
-            onClick = { permissionState.launchMultiplePermissionRequest() },
+            onClick = {
+                permissionState.launchMultiplePermissionRequest()
+                if (!notifAccessGranted) {
+                    TeamsNotifListener.openAccessSettings(context)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(55.dp),
@@ -864,6 +888,30 @@ fun PermissionsScreen(
         ) {
             Text(
                 if (canDrawOverlays) "Overlay Permission Granted" else "Grant Overlay Permission",
+                style = TextStyle(
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily(Font(R.font.sf_pro)),
+                    color = Color.White
+                ),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = { TeamsNotifListener.openAccessSettings(context) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(55.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (notifAccessGranted) Color.Gray else accentColor
+            ),
+            enabled = !notifAccessGranted,
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                if (notifAccessGranted) "Notification Access Granted" else "Grant Notification Access",
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
