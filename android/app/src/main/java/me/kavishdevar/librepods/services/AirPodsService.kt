@@ -62,6 +62,7 @@ import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.util.TypedValue
+import android.view.KeyEvent
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
@@ -162,7 +163,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         var conversationalAwarenessPauseMusic: Boolean = false,
         var showPhoneBatteryInWidget: Boolean = true,
         var relativeConversationalAwarenessVolume: Boolean = true,
-        var headGestures: Boolean = true,
+        // Nod/shake answers/declines an incoming (ringing) call.
+        var headGesturesAnswerCall: Boolean = true,
+        // Shake mutes the mic and nod unmutes during an active call.
+        var headGesturesMuteCall: Boolean = true,
         var disconnectWhenNotWearing: Boolean = false,
         var conversationalAwarenessVolume: Int = 43,
         var qsClickBehavior: String = "cycle",
@@ -420,8 +424,12 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             initGestureDetector()
         } else {
             gestureDetector = null
-            config.headGestures = false
-            sharedPreferences.edit { putBoolean("head_gestures", false) }
+            config.headGesturesAnswerCall = false
+            config.headGesturesMuteCall = false
+            sharedPreferences.edit {
+                putBoolean("head_gestures_answer_call", false)
+                putBoolean("head_gestures_mute_call", false)
+            }
             Log.d(TAG, "Head gestures disabled as device is running Android 9 or below")
         }
 
@@ -600,7 +608,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         if (leAvailableForAudio) runBlocking {
                             takeOver("call")
                         }
-                        if (config.headGestures) {
+                        if (config.headGesturesAnswerCall) {
                             handleIncomingCall()
                         }
                     }
@@ -615,17 +623,55 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                             takeOver("call")
                         }
                         isInCall = true
+                        setupStemActions()
+                        if (config.headGesturesMuteCall) {
+                            handleActiveCall()
+                        }
                     }
 
                     TelephonyManager.CALL_STATE_IDLE -> {
                         isInCall = false
                         gestureDetector?.stopDetection()
+                        if (isHeadTrackingActive) stopHeadTracking()
+                        activeCallGestureLoopRunning = false
+                        stopMutedReminder()
+                        setupStemActions()
                     }
                 }
             }
         }
         if (checkSelfPermission("android.permission.READ_PHONE_STATE") == PackageManager.PERMISSION_GRANTED) {
             telephonyManager.registerTelephonyCallback(mainExecutor, phoneStateListener)
+        }
+
+        val sysAudioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        sysAudioManager.addOnModeChangedListener(mainExecutor) { mode ->
+            Log.d(TAG, "Audio mode changed: $mode")
+            if (mode == AudioManager.MODE_IN_COMMUNICATION) {
+                if (!isInCall && !isVoIPCallActive) {
+                    isVoIPCallActive = true
+                    Log.d(TAG, "VoIP call detected (audio mode IN_COMMUNICATION)")
+                    setupStemActions()
+                    if (config.headGesturesMuteCall) handleActiveCall()
+                }
+            } else {
+                if (isVoIPCallActive) {
+                    isVoIPCallActive = false
+                    Log.d(TAG, "VoIP call ended (audio mode changed to $mode)")
+                    gestureDetector?.stopDetection()
+                    if (isHeadTrackingActive) stopHeadTracking()
+                    activeCallGestureLoopRunning = false
+                    stopMutedReminder()
+                    setupStemActions()
+                }
+            }
+        }
+        // Catch a VoIP call already in progress when the listener registered
+        if (sysAudioManager.mode == AudioManager.MODE_IN_COMMUNICATION && !isInCall && !isVoIPCallActive) {
+            isVoIPCallActive = true
+            Log.d(TAG, "VoIP call already in progress at startup")
+            setupStemActions()
+            if (config.headGesturesMuteCall) handleActiveCall()
         }
 
         if (config.showPhoneBatteryInWidget) {
@@ -817,11 +863,23 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         val triplePressDefault = StemAction.defaultActions[StemPressType.TRIPLE_PRESS]
         val longPressDefault = StemAction.defaultActions[StemPressType.LONG_PRESS]
 
-        val singlePressCustomized =
+        // During an active call, force the mute-press type to be reported so we can
+        // intercept it for setMicrophoneMute. The end-call press type is left as
+        // non-customized so the OS / Bluetooth stack handles it natively (which
+        // works reliably for both telephony and VoIP).
+        val inCall = isInAnyCall()
+        val callConfig = aacpManager.getControlCommandStatus(
+            AACPManager.Companion.ControlCommandIdentifiers.CALL_MANAGEMENT_CONFIG
+        )?.value
+        val muteIsDoublePress = callConfig?.getOrNull(1) == 0x02.toByte()
+        val muteSinglePressInCall = inCall && !muteIsDoublePress
+        val muteDoublePressInCall = inCall && muteIsDoublePress
+
+        val singlePressCustomized = muteSinglePressInCall ||
             isCustomAction(config.leftSinglePressAction, singlePressDefault) || isCustomAction(
                 config.rightSinglePressAction, singlePressDefault
             ) || (cameraActive && config.cameraAction == StemPressType.SINGLE_PRESS)
-        val doublePressCustomized =
+        val doublePressCustomized = muteDoublePressInCall ||
             isCustomAction(config.leftDoublePressAction, doublePressDefault) || isCustomAction(
                 config.rightDoublePressAction, doublePressDefault
             )
@@ -836,7 +894,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         ) || (cameraActive && config.cameraAction == StemPressType.LONG_PRESS)
         Log.d(
             TAG,
-            "Setting up stem actions: Single Press Customized: $singlePressCustomized, Double Press Customized: $doublePressCustomized, Triple Press Customized: $triplePressCustomized, Long Press Customized: $longPressCustomized"
+            "Setting up stem actions: inCall=$inCall, Single=$singlePressCustomized, Double=$doublePressCustomized, Triple=$triplePressCustomized, Long=$longPressCustomized"
         )
         aacpManager.sendStemConfigPacket(
             singlePressCustomized,
@@ -844,6 +902,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             triplePressCustomized,
             longPressCustomized,
         )
+
     }
 
     @ExperimentalEncodingApi
@@ -1067,6 +1126,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
             @SuppressLint("NewApi")
             override fun onHeadTrackingReceived(headTracking: ByteArray) {
+                Log.d(TAG, "onHeadTrackingReceived: active=$isHeadTrackingActive len=${headTracking.size}")
                 if (isHeadTrackingActive) {
                     HeadTracking.processPacket(headTracking)
                     processHeadTrackingData(headTracking)
@@ -1092,6 +1152,11 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     "AirPodsParser",
                     "Stem press received: $stemPressType on $bud, cameraActive: $cameraActive, cameraAction: ${config.cameraAction}"
                 )
+
+                if (isInAnyCall() && handleCallStemPress(stemPressType)) {
+                    return
+                }
+
                 if (cameraActive && config.cameraAction != null && stemPressType == config.cameraAction) {
                     if (BuildConfig.FLAVOR == "xposed") {
                         Runtime.getRuntime().exec(arrayOf("su", "-c", "input keyevent 27"))
@@ -1185,12 +1250,6 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     private fun executeStemAction(action: StemAction) {
         when (action) {
-            StemAction.defaultActions[StemPressType.SINGLE_PRESS] -> {
-                Log.d(
-                    "AirPodsParser", "Default single press action: Play/Pause, not taking action."
-                )
-            }
-
             StemAction.PLAY_PAUSE -> MediaController.sendPlayPause()
             StemAction.PREVIOUS_TRACK -> MediaController.sendPreviousTrack()
             StemAction.NEXT_TRACK -> MediaController.sendNextTrack()
@@ -1214,7 +1273,53 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     setPackage(packageName)
                 })
             }
+
+            StemAction.MUTE_CALL -> toggleMicMute()
         }
+    }
+
+    /**
+     * Handles a stem press during an active call. Returns true if the press was
+     * the configured mute press type and was handled here; false otherwise (the
+     * caller should fall through to normal stem-action handling).
+     *
+     * The end-call press type is intentionally NOT handled here so the OS / AirPods
+     * native HFP behavior can end the call (which works for both telephony and VoIP).
+     */
+    private fun handleCallStemPress(pressType: StemPressType): Boolean {
+        // CALL_MANAGEMENT_CONFIG byte[1]: 0x02 = mute on double press (flipped), 0x03 = mute on single press (default)
+        val callConfig = aacpManager.getControlCommandStatus(
+            AACPManager.Companion.ControlCommandIdentifiers.CALL_MANAGEMENT_CONFIG
+        )?.value
+        val muteIsDoublePress = callConfig?.getOrNull(1) == 0x02.toByte()
+        val isMutePress = (pressType == StemPressType.SINGLE_PRESS && !muteIsDoublePress) ||
+            (pressType == StemPressType.DOUBLE_PRESS && muteIsDoublePress)
+        Log.d(TAG, "Call stem press: $pressType, muteIsDoublePress=$muteIsDoublePress, isMutePress=$isMutePress")
+        if (isMutePress) {
+            toggleMicMute()
+            return true
+        }
+        return false
+    }
+
+    private fun toggleMicMute() {
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        val wasMuted = audioManager.isMicrophoneMute
+        val nowMuted = !wasMuted
+
+        // Hardware-level system mic mute. Cuts mic input at the audio HAL so the
+        // other party hears silence even if the VoIP app's own UI shows "unmuted".
+        // (Teams maintains its own UI state but the actual audio is silenced.)
+        audioManager.setMicrophoneMute(nowMuted)
+        val actualAfter = audioManager.isMicrophoneMute
+        Log.d(TAG, "toggleMicMute: setMicrophoneMute($nowMuted) -> isMicrophoneMute=$actualAfter (was=$wasMuted)")
+
+        sendToast(if (nowMuted) "Mic muted" else "Mic unmuted")
+        if (nowMuted) startMutedReminder() else stopMutedReminder()
+
+        // Same confirmation tone as head gestures: confirm_no for mute, confirm_yes for unmute.
+        initGestureDetector()
+        gestureDetector?.audio?.playConfirmation(!nowMuted)
     }
 
     private fun processEarDetectionChange(earDetection: ByteArray) {
@@ -1353,7 +1458,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             relativeConversationalAwarenessVolume = sharedPreferences.getBoolean(
                 "relative_conversational_awareness_volume", true
             ),
-            headGestures = sharedPreferences.getBoolean("head_gestures", true),
+            headGesturesAnswerCall = sharedPreferences.getBoolean("head_gestures_answer_call", true),
+            headGesturesMuteCall = sharedPreferences.getBoolean("head_gestures_mute_call", true),
             disconnectWhenNotWearing = sharedPreferences.getBoolean(
                 "disconnect_when_not_wearing", false
             ),
@@ -1469,7 +1575,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             "relative_conversational_awareness_volume" -> config.relativeConversationalAwarenessVolume =
                 preferences.getBoolean(key, true)
 
-            "head_gestures" -> config.headGestures = preferences.getBoolean(key, true)
+            "head_gestures_answer_call" -> config.headGesturesAnswerCall = preferences.getBoolean(key, true)
+            "head_gestures_mute_call" -> config.headGesturesMuteCall = preferences.getBoolean(key, true)
             "disconnect_when_not_wearing" -> config.disconnectWhenNotWearing =
                 preferences.getBoolean(key, false)
 
@@ -1633,7 +1740,14 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     private var gestureDetector: GestureDetector? = null
     private var isInCall = false
+    private var isVoIPCallActive = false
     private var callNumber: String? = null
+
+    private fun isInAnyCall(): Boolean {
+        if (isInCall || isVoIPCallActive) return true
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        return audioManager.mode == AudioManager.MODE_IN_COMMUNICATION
+    }
 
     private fun initGestureDetector() {
         if (gestureDetector == null) {
@@ -2093,7 +2207,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     fun handleIncomingCall() {
         if (isInCall) return
-        if (config.headGestures) {
+        if (config.headGesturesAnswerCall) {
             initGestureDetector()
             startHeadTracking()
             gestureDetector?.startDetection { accepted ->
@@ -2109,8 +2223,77 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         }
     }
 
+    private var activeCallGestureLoopRunning = false
+    private var mutedReminderJob: kotlinx.coroutines.Job? = null
+
+    private fun startMutedReminder() {
+        mutedReminderJob?.cancel()
+        mutedReminderJob = CoroutineScope(Dispatchers.Default).launch {
+            while (true) {
+                delay(15_000)
+                val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+                if (isInAnyCall() && audioManager.isMicrophoneMute) {
+                    gestureDetector?.audio?.playMuteReminder()
+                    Log.d(TAG, "Mute reminder beep played")
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopMutedReminder() {
+        mutedReminderJob?.cancel()
+        mutedReminderJob = null
+    }
+
+    fun handleActiveCall() {
+        if (activeCallGestureLoopRunning) {
+            Log.d(TAG, "handleActiveCall: already running, skip")
+            return
+        }
+        Log.d(TAG, "handleActiveCall: starting head gesture loop for call mute/unmute")
+        initGestureDetector()
+        // Force-stop any pre-existing detection (e.g. left over from the test screen)
+        // so we re-start with our own callback wired to toggleMicMute / rejectCall.
+        gestureDetector?.stopDetection(doNotStop = true)
+        startHeadTracking()
+        activeCallGestureLoopRunning = true
+        startActiveCallGestureLoop()
+    }
+
+    private fun startActiveCallGestureLoop() {
+        gestureDetector?.startDetection(doNotStop = true) { accepted ->
+            Log.d(TAG, "Active-call gesture detected: accepted=$accepted, inAnyCall=${isInAnyCall()}")
+            if (!isInAnyCall()) return@startDetection
+            val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+            if (!accepted) {
+                if (!audioManager.isMicrophoneMute) {
+                    audioManager.setMicrophoneMute(true)
+                    sendToast("Mic muted")
+                    Log.d(TAG, "Gesture mute: shake → muted")
+                    startMutedReminder()
+                }
+            } else {
+                if (audioManager.isMicrophoneMute) {
+                    audioManager.setMicrophoneMute(false)
+                    sendToast("Mic unmuted")
+                    Log.d(TAG, "Gesture unmute: nod → unmuted")
+                    stopMutedReminder()
+                }
+            }
+            if (isInAnyCall()) {
+                startActiveCallGestureLoop()
+            }
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun testHeadGestures(): Boolean {
+        // Stop any stale detection (e.g. from a previous test where stopDetection was never
+        // called because doNotStop=true and the screen closed via stopHeadTracking only).
+        // Without this, isRunning stays true and startDetection returns immediately.
+        gestureDetector?.stopDetection(doNotStop = true)
         return suspendCancellableCoroutine { continuation ->
             gestureDetector?.startDetection(doNotStop = true) { accepted ->
                 if (continuation.isActive) {
@@ -2150,11 +2333,14 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     private fun rejectCall() {
+        Log.d(TAG, "rejectCall called")
+        var telecomEnded = false
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
                 if (checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
-                    telecomManager.endCall() // TODO: Switch to InCallService (needs CDM association)
+                    telecomEnded = telecomManager.endCall() // TODO: Switch to InCallService (needs CDM association)
+                    Log.d(TAG, "telecomManager.endCall() returned $telecomEnded")
                 }
             } else {
                 val telephonyService = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
@@ -2165,14 +2351,23 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 val endCallMethod = telephonyInterface.javaClass.getDeclaredMethod("endCall")
                 endCallMethod.invoke(telephonyInterface)
             }
-
-            sendToast("Call rejected via head gesture")
         } catch (e: Exception) {
-            e.printStackTrace()
-            sendToast("Failed to reject call: ${e.message}")
-        } finally {
-            islandWindow?.close()
+            Log.w(TAG, "telecomManager.endCall failed: ${e.message}")
         }
+
+        // For VoIP calls (Teams/Zoom/Meet), telecomManager.endCall() returns false
+        // because the call isn't owned by the system telecom stack. Fall back to
+        // a HEADSETHOOK media key event — many VoIP apps treat that as end-call.
+        if (!telecomEnded) {
+            val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HEADSETHOOK))
+            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_HEADSETHOOK))
+            Log.d(TAG, "rejectCall: dispatched HEADSETHOOK as VoIP end-call fallback")
+            sendToast("End call (VoIP)")
+        } else {
+            sendToast("Call ended")
+        }
+        islandWindow?.close()
     }
 
     fun sendToast(message: String) {
@@ -2185,6 +2380,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     fun processHeadTrackingData(data: ByteArray) {
         val horizontal = ByteBuffer.wrap(data, 51, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
         val vertical = ByteBuffer.wrap(data, 53, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
+        Log.d(TAG, "headData h=$horizontal v=$vertical detector=${gestureDetector != null} running=${gestureDetector?.isRunning}")
         try {
             gestureDetector?.processHeadOrientation(horizontal, vertical)
         } catch (e: Exception) {
