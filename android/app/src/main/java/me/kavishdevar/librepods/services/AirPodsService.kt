@@ -163,6 +163,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         var conversationalAwarenessPauseMusic: Boolean = false,
         var showPhoneBatteryInWidget: Boolean = true,
         var relativeConversationalAwarenessVolume: Boolean = true,
+        // Master switch — when false, all head gesture features are disabled.
+        var headGesturesEnabled: Boolean = true,
         // Nod/shake answers/declines an incoming (ringing) call.
         var headGesturesAnswerCall: Boolean = true,
         // Shake mutes the mic and nod unmutes during an active call.
@@ -424,9 +426,11 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             initGestureDetector()
         } else {
             gestureDetector = null
+            config.headGesturesEnabled = false
             config.headGesturesAnswerCall = false
             config.headGesturesMuteCall = false
             sharedPreferences.edit {
+                putBoolean("head_gestures_enabled", false)
                 putBoolean("head_gestures_answer_call", false)
                 putBoolean("head_gestures_mute_call", false)
             }
@@ -608,7 +612,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         if (leAvailableForAudio) runBlocking {
                             takeOver("call")
                         }
-                        if (config.headGesturesAnswerCall) {
+                        if (config.headGesturesEnabled && config.headGesturesAnswerCall) {
                             handleIncomingCall()
                         }
                     }
@@ -624,7 +628,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         }
                         isInCall = true
                         setupStemActions()
-                        if (config.headGesturesMuteCall) {
+                        if (config.headGesturesEnabled && config.headGesturesMuteCall) {
                             handleActiveCall()
                         }
                     }
@@ -652,7 +656,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     isVoIPCallActive = true
                     Log.d(TAG, "VoIP call detected (audio mode IN_COMMUNICATION)")
                     setupStemActions()
-                    if (config.headGesturesMuteCall) handleActiveCall()
+                    if (config.headGesturesEnabled && config.headGesturesMuteCall) handleActiveCall()
                 }
             } else {
                 if (isVoIPCallActive) {
@@ -671,7 +675,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             isVoIPCallActive = true
             Log.d(TAG, "VoIP call already in progress at startup")
             setupStemActions()
-            if (config.headGesturesMuteCall) handleActiveCall()
+            if (config.headGesturesEnabled && config.headGesturesMuteCall) handleActiveCall()
         }
 
         if (config.showPhoneBatteryInWidget) {
@@ -863,23 +867,18 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         val triplePressDefault = StemAction.defaultActions[StemPressType.TRIPLE_PRESS]
         val longPressDefault = StemAction.defaultActions[StemPressType.LONG_PRESS]
 
-        // During an active call, force the mute-press type to be reported so we can
-        // intercept it for setMicrophoneMute. The end-call press type is left as
-        // non-customized so the OS / Bluetooth stack handles it natively (which
-        // works reliably for both telephony and VoIP).
+        // During an active call, force both single and double press to be reported
+        // so we can intercept them: the mute press for setMicrophoneMute() and the
+        // end-call press for rejectCall(). The firmware's native HFP CHUP works for
+        // telephony but Teams (and other non-Telecom VoIP apps) ignore it, so we
+        // must route end-call through rejectCall() ourselves.
         val inCall = isInAnyCall()
-        val callConfig = aacpManager.getControlCommandStatus(
-            AACPManager.Companion.ControlCommandIdentifiers.CALL_MANAGEMENT_CONFIG
-        )?.value
-        val muteIsDoublePress = callConfig?.getOrNull(1) == 0x02.toByte()
-        val muteSinglePressInCall = inCall && !muteIsDoublePress
-        val muteDoublePressInCall = inCall && muteIsDoublePress
 
-        val singlePressCustomized = muteSinglePressInCall ||
+        val singlePressCustomized = inCall ||
             isCustomAction(config.leftSinglePressAction, singlePressDefault) || isCustomAction(
                 config.rightSinglePressAction, singlePressDefault
             ) || (cameraActive && config.cameraAction == StemPressType.SINGLE_PRESS)
-        val doublePressCustomized = muteDoublePressInCall ||
+        val doublePressCustomized = inCall ||
             isCustomAction(config.leftDoublePressAction, doublePressDefault) || isCustomAction(
                 config.rightDoublePressAction, doublePressDefault
             )
@@ -1280,11 +1279,13 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     /**
      * Handles a stem press during an active call. Returns true if the press was
-     * the configured mute press type and was handled here; false otherwise (the
-     * caller should fall through to normal stem-action handling).
+     * consumed (mute or end-call); false otherwise (caller falls through to normal
+     * stem-action handling).
      *
-     * The end-call press type is intentionally NOT handled here so the OS / AirPods
-     * native HFP behavior can end the call (which works for both telephony and VoIP).
+     * Both single and double press are forced customized during calls by
+     * setupStemActions(), so the firmware no longer handles end-call natively via
+     * HFP CHUP. We intercept both presses here and route end-call to rejectCall(),
+     * which handles Teams and other VoIP apps that ignore HFP CHUP.
      */
     private fun handleCallStemPress(pressType: StemPressType): Boolean {
         // CALL_MANAGEMENT_CONFIG byte[1]: 0x02 = mute on double press (flipped), 0x03 = mute on single press (default)
@@ -1294,9 +1295,14 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         val muteIsDoublePress = callConfig?.getOrNull(1) == 0x02.toByte()
         val isMutePress = (pressType == StemPressType.SINGLE_PRESS && !muteIsDoublePress) ||
             (pressType == StemPressType.DOUBLE_PRESS && muteIsDoublePress)
-        Log.d(TAG, "Call stem press: $pressType, muteIsDoublePress=$muteIsDoublePress, isMutePress=$isMutePress")
+        val isEndCallPress = (pressType == StemPressType.DOUBLE_PRESS && !muteIsDoublePress) ||
+            (pressType == StemPressType.SINGLE_PRESS && muteIsDoublePress)
         if (isMutePress) {
             toggleMicMute()
+            return true
+        }
+        if (isEndCallPress) {
+            rejectCall()
             return true
         }
         return false
@@ -1463,6 +1469,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             relativeConversationalAwarenessVolume = sharedPreferences.getBoolean(
                 "relative_conversational_awareness_volume", true
             ),
+            headGesturesEnabled = sharedPreferences.getBoolean("head_gestures_enabled", true),
             headGesturesAnswerCall = sharedPreferences.getBoolean("head_gestures_answer_call", true),
             headGesturesMuteCall = sharedPreferences.getBoolean("head_gestures_mute_call", true),
             disconnectWhenNotWearing = sharedPreferences.getBoolean(
@@ -1580,6 +1587,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             "relative_conversational_awareness_volume" -> config.relativeConversationalAwarenessVolume =
                 preferences.getBoolean(key, true)
 
+            "head_gestures_enabled" -> config.headGesturesEnabled = preferences.getBoolean(key, true)
             "head_gestures_answer_call" -> config.headGesturesAnswerCall = preferences.getBoolean(key, true)
             "head_gestures_mute_call" -> config.headGesturesMuteCall = preferences.getBoolean(key, true)
             "disconnect_when_not_wearing" -> config.disconnectWhenNotWearing =
@@ -2212,7 +2220,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     fun handleIncomingCall() {
         if (isInCall) return
-        if (config.headGesturesAnswerCall) {
+        if (config.headGesturesEnabled && config.headGesturesAnswerCall) {
             initGestureDetector()
             startHeadTracking()
             gestureDetector?.startDetection { accepted ->
@@ -2363,14 +2371,21 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         }
 
         // For VoIP calls (Teams/Zoom/Meet), telecomManager.endCall() returns false
-        // because the call isn't owned by the system telecom stack. Fall back to
-        // a HEADSETHOOK media key event — many VoIP apps treat that as end-call.
+        // because the call isn't owned by the system telecom stack. Try Teams'
+        // own Hang up notification action first; fall back to a HEADSETHOOK media
+        // key event for other VoIP apps.
         if (!telecomEnded) {
-            val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
-            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HEADSETHOOK))
-            audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_HEADSETHOOK))
-            Log.d(TAG, "rejectCall: dispatched HEADSETHOOK as VoIP end-call fallback")
-            sendToast("End call (VoIP)")
+            val teamsHandled = TeamsNotifListener.hangUp()
+            if (teamsHandled) {
+                Log.d(TAG, "rejectCall: ended via Teams notification action")
+                sendToast("Teams call ended")
+            } else {
+                val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+                audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_HEADSETHOOK))
+                audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_HEADSETHOOK))
+                Log.d(TAG, "rejectCall: dispatched HEADSETHOOK as VoIP end-call fallback")
+                sendToast("End call (VoIP)")
+            }
         } else {
             sendToast("Call ended")
         }

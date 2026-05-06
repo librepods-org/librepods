@@ -390,8 +390,9 @@ fun AirPodsSettingsScreen(viewModel: AirPodsViewModel, navController: NavControl
                             to = "head_tracking",
                             name = stringResource(R.string.head_gestures),
                             navController = navController,
-                            currentState = if (sharedPreferences.getBoolean("head_gestures_answer_call", true)
-                                || sharedPreferences.getBoolean("head_gestures_mute_call", true)
+                            currentState = if (sharedPreferences.getBoolean("head_gestures_enabled", true) &&
+                                (sharedPreferences.getBoolean("head_gestures_answer_call", true)
+                                || sharedPreferences.getBoolean("head_gestures_mute_call", true))
                             ) stringResource(R.string.on) else stringResource(R.string.off)
                         )
                     }

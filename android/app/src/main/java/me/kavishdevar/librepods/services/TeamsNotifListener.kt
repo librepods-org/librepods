@@ -1,5 +1,5 @@
 /*
-    LibrePods - AirPods liberated from Apple’s ecosystem
+    LibrePods - AirPods liberated from Apple's ecosystem
     Copyright (C) 2025 LibrePods contributors
 
     This program is free software: you can redistribute it and/or modify
@@ -28,8 +28,8 @@ import android.util.Log
 /**
  * Watches the ongoing-call notification posted by Microsoft Teams (and a few
  * variants) and caches the action PendingIntents. AirPodsService can then call
- * [setMuted] to fire the right one — Teams reacts as if the user tapped the
- * Mute / Unmute button in the notification, which keeps its in-app UI in sync.
+ * [setMuted] / [hangUp] to fire the right one — Teams reacts as if the user
+ * tapped the button in the notification, keeping its in-app UI in sync.
  *
  * Requires the user to grant Notification access (Settings → Apps → Special
  * access → Notification access). Use [isAccessGranted] / [openAccessSettings]
@@ -48,6 +48,7 @@ class TeamsNotifListener : NotificationListenerService() {
 
         @Volatile private var muteAction: Notification.Action? = null
         @Volatile private var unmuteAction: Notification.Action? = null
+        @Volatile private var hangUpAction: Notification.Action? = null
         @Volatile private var lastSeenKey: String? = null
 
         fun isAccessGranted(context: Context): Boolean {
@@ -67,7 +68,7 @@ class TeamsNotifListener : NotificationListenerService() {
         fun setMuted(muted: Boolean): Boolean {
             val action = if (muted) muteAction else unmuteAction
             if (action == null) {
-                Log.d(TAG, "setMuted($muted): no cached action (muteAction=${muteAction != null}, unmuteAction=${unmuteAction != null})")
+                Log.d(TAG, "setMuted($muted): no cached action")
                 return false
             }
             return try {
@@ -76,6 +77,21 @@ class TeamsNotifListener : NotificationListenerService() {
                 true
             } catch (t: Throwable) {
                 Log.w(TAG, "setMuted($muted) failed: ${t.message}")
+                false
+            }
+        }
+
+        fun hangUp(): Boolean {
+            val action = hangUpAction ?: run {
+                Log.d(TAG, "hangUp(): no cached action")
+                return false
+            }
+            return try {
+                action.actionIntent.send()
+                Log.d(TAG, "hangUp(): fired ${action.title}")
+                true
+            } catch (t: Throwable) {
+                Log.w(TAG, "hangUp() failed: ${t.message}")
                 false
             }
         }
@@ -102,6 +118,7 @@ class TeamsNotifListener : NotificationListenerService() {
             Log.d(TAG, "Call notification removed; clearing cached actions")
             muteAction = null
             unmuteAction = null
+            hangUpAction = null
             lastSeenKey = null
         }
     }
@@ -113,6 +130,7 @@ class TeamsNotifListener : NotificationListenerService() {
 
         var foundMute: Notification.Action? = null
         var foundUnmute: Notification.Action? = null
+        var foundHangUp: Notification.Action? = null
         for (a in actions) {
             val title = a.title?.toString().orEmpty()
             val lower = title.lowercase()
@@ -121,17 +139,20 @@ class TeamsNotifListener : NotificationListenerService() {
                 foundUnmute = a
             } else if (lower.contains("mute") || lower.contains("muet") || lower.contains("silenc") || lower.contains("stumm")) {
                 foundMute = a
+            } else if (lower.contains("hang") || lower.contains("end call") || lower.contains("colgar") ||
+                lower.contains("raccrocher") || lower.contains("auflegen") || lower.contains("finalizar")) {
+                foundHangUp = a
             }
         }
 
-        if (foundMute != null || foundUnmute != null) {
+        if (foundMute != null || foundUnmute != null || foundHangUp != null) {
             muteAction = foundMute ?: muteAction
             unmuteAction = foundUnmute ?: unmuteAction
+            hangUpAction = foundHangUp ?: hangUpAction
             lastSeenKey = sbn.key
             Log.d(
                 TAG,
-                "Cached actions from ${sbn.packageName}: mute=${foundMute?.title}, unmute=${foundUnmute?.title}, " +
-                    "all=${actions.joinToString { it.title?.toString().orEmpty() }}"
+                "Cached actions from ${sbn.packageName}: mute=${foundMute?.title}, unmute=${foundUnmute?.title}, hangUp=${foundHangUp?.title}"
             )
         }
     }

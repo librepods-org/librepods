@@ -74,6 +74,7 @@ data class AirPodsUiState(
     val version3: String = "",
 
     val headTrackingActive: Boolean = false,
+    val headGesturesEnabled: Boolean = true,
     val headGesturesAnswerCall: Boolean = true,
     val headGesturesMuteCall: Boolean = true,
 
@@ -178,6 +179,7 @@ class AirPodsViewModel(
                         ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG,
                         false
                     )
+                    setHeadGesturesEnabled(false)
                     setHeadGesturesAnswerCall(false)
                     setHeadGesturesMuteCall(false)
                 }
@@ -342,6 +344,7 @@ class AirPodsViewModel(
             sharedPreferences.getBoolean("automatic_ear_detection", true)
         val automaticConnectionEnabled =
             sharedPreferences.getBoolean("automatic_connection_ctrl_cmd", true)
+        val headGesturesEnabled = sharedPreferences.getBoolean("head_gestures_enabled", true)
         val headGesturesAnswerCall = sharedPreferences.getBoolean("head_gestures_answer_call", true)
         val headGesturesMuteCall = sharedPreferences.getBoolean("head_gestures_mute_call", true)
         val leftAction = StemAction.valueOf(
@@ -366,6 +369,7 @@ class AirPodsViewModel(
                 offListeningMode = offListeningModeEnabled,
                 automaticEarDetectionEnabled = automaticEarDetectionEnabled,
                 automaticConnectionEnabled = automaticConnectionEnabled,
+                headGesturesEnabled = headGesturesEnabled,
                 headGesturesAnswerCall = headGesturesAnswerCall,
                 headGesturesMuteCall = headGesturesMuteCall,
                 leftAction = leftAction,
@@ -382,6 +386,13 @@ class AirPodsViewModel(
         setControlCommandBoolean(ControlCommandIdentifiers.ALLOW_OFF_OPTION, enabled)
         _uiState.update {
             it.copy(offListeningMode = enabled)
+        }
+    }
+
+    fun setHeadGesturesEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean("head_gestures_enabled", enabled) }
+        _uiState.update {
+            it.copy(headGesturesEnabled = enabled)
         }
     }
 

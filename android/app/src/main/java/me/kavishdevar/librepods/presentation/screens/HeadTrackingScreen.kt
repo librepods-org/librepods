@@ -194,10 +194,18 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navController: NavController
                 }
 
                 StyledToggle(
+                    label = "Head gestures",
+                    checked = state.headGesturesEnabled,
+                    onCheckedChange = { viewModel.setHeadGesturesEnabled(it) },
+                    enabled = state.isPremium || state.headGesturesEnabled,
+                    description = "Master switch for all head gesture features."
+                )
+
+                StyledToggle(
                     label = "Answer/decline incoming calls",
                     checked = state.headGesturesAnswerCall,
                     onCheckedChange = { viewModel.setHeadGesturesAnswerCall(it) },
-                    enabled = state.isPremium || state.headGesturesAnswerCall,
+                    enabled = state.headGesturesEnabled && (state.isPremium || state.headGesturesAnswerCall),
                     description = "Nod to answer an incoming call, shake your head to decline."
                 )
 
@@ -205,7 +213,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navController: NavController
                     label = "Mute/unmute during a call",
                     checked = state.headGesturesMuteCall,
                     onCheckedChange = { viewModel.setHeadGesturesMuteCall(it) },
-                    enabled = state.isPremium || state.headGesturesMuteCall,
+                    enabled = state.headGesturesEnabled && (state.isPremium || state.headGesturesMuteCall),
                     description = "Shake your head during an active call to mute the mic, nod to unmute."
                 )
 
