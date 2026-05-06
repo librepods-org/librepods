@@ -242,20 +242,20 @@
     <string name="settings">Settings</string>
     <string name="requires_xposed">requires xposed</string>
     <string name="bypass_compatibility_check">Bypass compatibility check</string>
-    <string name="bypass_compatiblity_check_confirmation">Are you sure your device is supported natively/you have Xposed module enabled?</string>
+    <string name="bypass_compatiblity_check_confirmation">Your device is not supported. If you bypass this check, the app will most likely not work, and the developers cannot fix this. Do not report problems caused by bypassing on GitHub or Discord. Continue only if you have root with an Xposed framework, or if you fully understand the app may not work.</string>
     <string name="not_supported">Not supported</string>
     <string name="check_the_repository_for_more_info">
-        Many devices are not supported due to limitations in the Android Bluetooth stack.
-        \nOn these devices, root access with an Xposed framework is required for full functionality.
-        \n\nThis limitation has been addressed in newer Android versions. The following device configurations can run the app natively:
-        \n• Google Pixel® running Android 16 March update and later with the lateset Play system update
-        \n• Google Pixel® running 17 Beta 3 and above
-        \n• OnePlus devices running OxygenOS 16 or later
-        \n• Oppo devices running ColorOS 16 or later
-        \n\nFor details, see the project documentation.</string>
+        Your device is not on the list of natively supported configurations. This is a limitation of the Android Bluetooth stack on your device, not something LibrePods can fix.
+        \n\nNatively supported configurations:
+        \n• Google Pixel® running Android 16 March update or later, with the latest Play system update
+        \n• Google Pixel® running Android 17 Beta 3 or later
+        \n• OnePlus devices on OxygenOS 16 or later
+        \n• Oppo devices on ColorOS 16 or later
+        \n\nIf your device is not listed, you need root access with an Xposed framework for the app to work.
+        \n\nYou can bypass this screen, but on unsupported devices the app will most likely not function. Please do not open issues on GitHub or ask in Discord about this. There is nothing the developers can do.</string>
     <string name="name_your_own_price">(Name your own price)</string>
     <string name="compatibility_play_dialog_confirmation">
-        This device may not be supported due to platform limitations and requires an Xposed framework. Tick the checkbox below and type OK to continue.
+        Your device is not on the supported list. It requires root with an Xposed framework to work. If you bypass this check on an unsupported device, the app will most likely fail and the developers cannot help. Do not report problems caused by bypassing on GitHub or Discord. Tick the checkbox and type OK to confirm you understand.
     </string>
     <string name="type_ok_to_continue">Type "%s" to continue</string>
     <string name="proceed">Proceed</string>
