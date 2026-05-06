@@ -33,22 +33,55 @@ jobs:
           distribution: zulu
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-      - name: Decode keystore
-        run: echo "${{ secrets.RELEASE_KEYSTORE_FILE }}" | base64 --decode > android/release.keystore
+      - name: Prepare signing config
+        env:
+          RELEASE_KEYSTORE_FILE: ${{ secrets.RELEASE_KEYSTORE_FILE }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          store_password="${RELEASE_STORE_PASSWORD:-}"
+          key_alias="${RELEASE_KEY_ALIAS:-}"
+          key_password="${RELEASE_KEY_PASSWORD:-}"
+
+          if [ -n "${RELEASE_KEYSTORE_FILE:-}" ] &&
+             [ -n "$store_password" ] &&
+             [ -n "$key_alias" ] &&
+             [ -n "$key_password" ] &&
+             echo "$RELEASE_KEYSTORE_FILE" | base64 --decode > android/release.keystore &&
+             keytool -list -keystore android/release.keystore -storepass "$store_password" -alias "$key_alias" >/dev/null 2>&1; then
+            echo "Using release signing key from repository secrets"
+          else
+            echo "Release signing secrets are missing or invalid; generating disposable CI signing key"
+            rm -f android/release.keystore
+            store_password="ci-release-password"
+            key_alias="ci-release-key"
+            key_password="ci-release-password"
+            keytool -genkeypair \
+              -keystore android/release.keystore \
+              -storepass "$store_password" \
+              -alias "$key_alias" \
+              -keypass "$key_password" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=LibrePods CI, OU=CI, O=LibrePods, L=CI, S=CI, C=US"
+          fi
+
+          cat <<EOF > android/local.properties
+          RELEASE_STORE_FILE=../release.keystore
+          RELEASE_STORE_PASSWORD=$store_password
+          RELEASE_KEY_ALIAS=$key_alias
+          RELEASE_KEY_PASSWORD=$key_password
+          EOF
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       - name: Accept Licenses
         run: yes | sdkmanager --licenses
       - name: Install NDK
         run: sdkmanager "ndk;30.0.14904198"
-      - name: Create local.properties
-        run: |
-          cat <<EOF > android/local.properties
-          RELEASE_STORE_FILE=../release.keystore
-          RELEASE_STORE_PASSWORD=${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}
-          EOF
       - name: Build
         run: ./gradlew packageReleaseArtifacts
         working-directory: android

@@ -23,4 +23,3 @@ The data is in this order:
 - Serial number (Right Bud)
 - Version (?) (I have `8454371`)
 - A few more bytes, I don't know what they are
-

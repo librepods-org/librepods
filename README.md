@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/github/v/release/kavishdevar/librepods?style=for-the-badge&logoColor=white&label=Release" />
   <img src="https://img.shields.io/github/downloads/kavishdevar/librepods/total?style=for-the-badge&label=Downloads" />
   <img src="https://img.shields.io/github/issues/kavishdevar/librepods?style=for-the-badge" />
-  
+
   <a href="https://discord.gg/HhG4ycVum4">
     <img src="https://img.shields.io/discord/1441416992027574375?style=for-the-badge&logoColor=white&color=5865F2&label=Discord" />
   </a>
@@ -85,6 +85,27 @@ LibrePods **may** require root depending on your device/OS and what features you
 > [!IMPORTANT]
 > This workaround with Xposed is not guaranteed to work on all devices.
 
+### Setup for OxygenOS/ColorOS 16 (Non-rooted)
+
+For multi-device audio switching to work properly on non-rooted OxygenOS 16, you need to inject your phone's Bluetooth MAC address into the app's settings. This is a one-time setup.
+
+> [!IMPORTANT]
+> The `run-as` command only works with **debug builds** (e.g., the nightly APK from CI). If you installed a release build, reinstall with the debug APK first.
+
+1. **Get your phone's Bluetooth MAC address:**
+   - Go to Settings -> About -> Device Details -> Bluetooth Address
+
+2. **Inject the MAC address via adb:**
+   ```bash
+   adb shell "run-as me.kavishdevar.librepods sed -i 's|<string name=\"self_mac_address\"></string>|<string name=\"self_mac_address\">XX:XX:XX:XX:XX:XX</string>|' shared_prefs/settings.xml"
+   ```
+   Replace `XX:XX:XX:XX:XX:XX` with your actual Bluetooth MAC address (e.g., `AC:C0:48:67:E6:EA`)
+
+3. **Restart the app** for the changes to take effect
+
+> [!NOTE]
+> This is needed because non-rooted apps on SDK 36+ cannot access the system's `bluetooth_address` setting. Without this, audio source switching between devices won't work correctly, and the app will lose ANC/transparency control when you switch to another device.
+
 ### Troubleshooting steps for common errors
 - Ensure the correct scope is set in LSPosed/Vector.
 - Ensure there is no root-hiding module preventing the hook from loading on the Bluetooth app.
@@ -114,7 +135,7 @@ Upto two devices can be simultaneously connected to AirPods, for audio and contr
 
 Accessibility settings like customizing transparency mode (amplification, balance, tone, conversation boost, and ambient noise reduction), and loud sound reduction can be configured.
 
-All hearing aid customizations can be done from Android (linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result. 
+All hearing aid customizations can be done from Android (linux soon), including setting the audiogram result. The app doesn't provide a way to take a hearing test because it requires much more precision. It is much better to use an already available audiogram result.
 
 # Supporters
 

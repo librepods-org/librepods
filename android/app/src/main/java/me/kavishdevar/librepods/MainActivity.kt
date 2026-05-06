@@ -74,6 +74,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -185,14 +186,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         try {
-            unbindService(serviceConnection)
-            Log.d("MainActivity", "Unbound service")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error while unbinding service: $e")
-        }
-        try {
-            unregisterReceiver(connectionStatusReceiver)
-            Log.d("MainActivity", "Unregistered receiver")
+            if (::connectionStatusReceiver.isInitialized) {
+                unregisterReceiver(connectionStatusReceiver)
+                Log.d("MainActivity", "Unregistered receiver")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unregistering receiver: $e")
         }
@@ -202,14 +199,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         try {
-            unbindService(serviceConnection)
-            Log.d("MainActivity", "Unbound service")
+            if (::serviceConnection.isInitialized) {
+                unbindService(serviceConnection)
+                Log.d("MainActivity", "Unbound service")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unbinding service: $e")
         }
         try {
-            unregisterReceiver(connectionStatusReceiver)
-            Log.d("MainActivity", "Unregistered receiver")
+            if (::connectionStatusReceiver.isInitialized) {
+                unregisterReceiver(connectionStatusReceiver)
+                Log.d("MainActivity", "Unregistered receiver")
+            }
         } catch (e: Exception) {
             Log.e("MainActivity", "Error while unregistering receiver: $e")
         }
@@ -511,7 +512,11 @@ fun Main() {
         canDrawOverlays = Settings.canDrawOverlays(context)
     }
 
-    if (permissionState.allPermissionsGranted && (canDrawOverlays || overlaySkipped.value)) {
+    val bluetoothPermissionsGranted = permissionState.permissions.filter {
+        it.permission.contains("BLUETOOTH") || it.permission.contains("LOCATION")
+    }.all { it.status.isGranted }
+
+    if (bluetoothPermissionsGranted && (canDrawOverlays || overlaySkipped.value)) {
 
         val navController = rememberNavController()
 
@@ -550,7 +555,16 @@ fun Main() {
                         )
                     }) {
                     composable("settings") {
-                        if (airPodsViewModel != null) AirPodsSettingsScreen(airPodsViewModel, navController)
+                        if (airPodsViewModel != null) {
+                            AirPodsSettingsScreen(airPodsViewModel, navController)
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        }
                     }
                     composable("debug") {
                         DebugScreen(navController = navController)
@@ -692,7 +706,9 @@ fun PermissionsScreen(
 
     val scrollState = rememberScrollState()
 
-    val basicPermissionsGranted = permissionState.permissions.all { it.status.isGranted }
+    val basicPermissionsGranted = permissionState.permissions.filter {
+        it.permission.contains("BLUETOOTH") || it.permission.contains("LOCATION")
+    }.all { it.status.isGranted }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
