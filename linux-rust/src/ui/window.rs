@@ -871,12 +871,16 @@ impl App {
                                             match state {
                                                 DeviceState::AirPods(state) => {
                                                     device_managers.get(id).and_then(|managers| {
-                                                        managers.get_aacp().map(|aacp_manager| airpods_view(
-                                                                    id,
-                                                                    &devices_list,
-                                                                    state,
-                                                                    aacp_manager.clone()
-                                                                ))
+                                                        managers.get_aacp().map(|aacp_manager| {
+                                                            let view = airpods_view(
+                                                                id,
+                                                                &devices_list,
+                                                                state,
+                                                                aacp_manager.clone(),
+                                                            );
+                                                            container(scrollable(view).height(Length::Fill))
+                                                                .height(Length::Fill)
+                                                        })
                                                     })
                                                 }
                                                 _ => None,
@@ -893,7 +897,9 @@ impl App {
                                         if let Some(DeviceState::Nothing(state)) = device_state {
                                             if let Some(device_managers) = device_managers.get(id) {
                                                 if let Some(att_manager) = device_managers.get_att() {
-                                                    nothing_view(id, &devices_list, state, att_manager.clone())
+                                                let view = nothing_view(id, &devices_list, state, att_manager.clone());
+                                                container(scrollable(view).height(Length::Fill))
+                                                    .height(Length::Fill)
                                                 } else {
                                                     error!("No ATT manager found for Nothing device {}", id);
                                                     container(

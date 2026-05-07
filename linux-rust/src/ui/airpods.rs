@@ -520,7 +520,7 @@ pub fn airpods_view<'a>(
     ])
     .padding(20)
     .center_x(Length::Fill)
-    .height(Length::Fill)
+    .height(Length::Shrink)
 }
 
 fn run_async_in_thread<F>(fut: F)
