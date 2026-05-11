@@ -1,5 +1,5 @@
 name: Bug report (Linux)
-description: Report a bug in the Linux client
+description: Report a bug in the Linux program
 labels: ["bug", "linux"]
 title: "[Linux] "
 body:
@@ -17,12 +17,10 @@ body:
   - type: dropdown
     id: variant
     attributes:
-      label: Client variant
+      label: Variant
       options:
-        - linux-rust (Tauri)
-        - linux (Qt)
-        - Built from source
-        - Not sure
+        - Rust rewrite (`linux-rust` branch)
+        - QT version (NOT MAINTAINED! issues will be closed)
     validations:
       required: true
   - type: input
@@ -36,19 +34,17 @@ body:
     id: desktop
     attributes:
       label: Desktop environment / compositor
-      placeholder: "GNOME 47 (Wayland), KDE 6, Hyprland, ..."
+      placeholder: "GNOME 47 (Wayland), KDE 6 (X11), Hyprland, ..."
     validations:
       required: true
   - type: dropdown
     id: install-method
     attributes:
-      label: Install method
+      label: Install method (only official sources)
       options:
-        - Built from source
-        - AUR
-        - Pre-built binary from releases
+        - Built from source (`nix` or otherwise)
+        - Pre-built binary
         - AppImage
-        - Flatpak
         - Other
     validations:
       required: true
@@ -80,7 +76,7 @@ body:
     id: logs
     attributes:
       label: Logs and stderr
-      description: Run the app from a terminal and paste any output. Include relevant `journalctl --user -e` snippets if there is a crash.
+      description: Run the app from a terminal with `--debug` and paste the output.
   - type: textarea
     id: extra
     attributes:
