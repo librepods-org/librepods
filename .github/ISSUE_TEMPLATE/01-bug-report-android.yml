@@ -49,10 +49,8 @@ body:
       label: Root / hook method
       options:
         - No root (native L2CAP support)
-        - Magisk + Xposed (LSPosed)
-        - Magisk + btl2capfix
-        - KernelSU + Xposed (LSPosed)
-        - KernelSU + btl2capfix
+        - Magisk + Xposed
+        - KernelSU + Xposed
         - Other (describe in additional context)
     validations:
       required: true
@@ -91,9 +89,21 @@ body:
     attributes:
       label: Logs
       description: |
-        Open the app, go to `Settings → Troubleshooting → Collect Logs`, and attach the resulting file here.
-        Without logs most bugs are very hard to diagnose.
-      placeholder: Paste log content or attach `librepods-logs.txt`
+        If you are rooted, give the app root access, open the app, go to `Settings → Troubleshooting → Collect Logs`, and attach the resulting file here.
+        Without logs most bugs are very hard to diagnose. If you are not, follow these instructions:
+        
+        (Needs access to a computer, and USB/Wireless Debugging under developer options enabled)
+        Get the uid: Linux/Mac: `adb shell dumpsys package me.kavishdevar.librepods | grep uid`
+        Start logs: `adb logcat --uid=<uid>,1002 >> librepods-logs.txt` (1002 is for bluetooth)
+        
+        Steps for proper logs
+        - force close the app
+        - turn off bluetooth
+        - start logs
+        - open the app
+        - turn on bluetooth and connect
+
+      placeholder: Paste log content or attach the file
   - type: textarea
     id: extra
     attributes:
