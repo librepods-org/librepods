@@ -5,7 +5,7 @@ use iced::border::Radius;
 use iced::overlay::menu;
 use iced::widget::combo_box;
 use iced::widget::text_input;
-use iced::widget::{Space, column, container, row, text};
+use iced::widget::{Space, column, container, row, scrollable, text};
 use iced::{Background, Border, Length, Theme};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -158,7 +158,7 @@ pub fn nothing_view<'a>(
         style
     });
 
-    container(column![
+    let content = container(column![
         noise_control_mode,
         Space::new().height(Length::from(20)),
         container(information_col)
@@ -174,8 +174,10 @@ pub fn nothing_view<'a>(
             .padding(20)
     ])
     .padding(20)
-    .center_x(Length::Fill)
-    .height(Length::Shrink)
+    .center_x(Length::Fill);
+
+    container(scrollable(content).height(Length::Fill))
+        .height(Length::Fill)
 }
 
 fn run_async_in_thread<F>(fut: F)
