@@ -10,7 +10,7 @@ use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
-use crate::utils::{get_app_settings_path, get_devices_path};
+use crate::utils::{get_devices_path};
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -19,10 +19,9 @@ use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use dbus::message::MatchRule;
 use devices::airpods::AirPodsDevice;
 use ksni::TrayMethods;
-use log::{debug, info, warn};
+use log::{info, warn};
 use std::collections::HashMap;
 use std::env;
-use std::sync::atomic::{AtomicBool};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::unbounded_channel;
@@ -154,9 +153,10 @@ async fn async_main(
     adapter.set_powered(true).await?;
 
     let le_tray_clone = tray_handle.clone();
+    let le_ui_tx = ui_tx.clone();
     tokio::spawn(async move {
         info!("Starting LE monitor...");
-        if let Err(e) = start_le_monitor(le_tray_clone).await {
+        if let Err(e) = start_le_monitor(le_tray_clone, le_ui_tx).await {
             log::error!("LE monitor error: {}", e);
         }
     });

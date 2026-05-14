@@ -5,7 +5,7 @@ use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
-    Space, button, column, combo_box, container, row, rule, text, text_input, toggler,
+    Space, button, column, combo_box, container, row, rule, slider, text, text_input, toggler,
 };
 use iced::{Background, Border, Center, Color, Length, Padding, Theme};
 use log::error;
@@ -63,10 +63,9 @@ pub fn airpods_view<'a>(
                         run_async_in_thread({
                             let new_name = new_name.clone();
                             async move {
-                                aacp_manager
-                                    .send_rename_packet(&new_name)
-                                    .await
-                                    .expect("Failed to send rename packet");
+                                if let Err(e) = aacp_manager.send_rename_packet(&new_name).await {
+                                    log::error!("Failed to send rename packet: {}", e);
+                                }
                             }
                         });
                         let mut state = state.clone();
@@ -114,13 +113,15 @@ pub fn airpods_view<'a>(
                             let aacp_manager = aacp_manager.clone();
                             let selected_mode_c = selected_mode.clone();
                             run_async_in_thread(async move {
-                                aacp_manager
+                                if let Err(e) = aacp_manager
                                     .send_control_command(
                                         ControlCommandIdentifiers::ListeningMode,
                                         &[selected_mode_c.to_byte()],
                                     )
                                     .await
-                                    .expect("Failed to send Noise Control Mode command");
+                                {
+                                    log::error!("Failed to send Noise Control Mode command: {}", e);
+                                }
                             });
                             let mut state = state_clone.clone();
                             state.noise_control_mode = selected_mode.clone();
@@ -225,10 +226,12 @@ pub fn airpods_view<'a>(
                                     let mac = mac.clone();
                                     run_async_in_thread(
                                         async move {
-                                            aacp_manager.send_control_command(
+                                            if let Err(e) = aacp_manager.send_control_command(
                                                 ControlCommandIdentifiers::AdaptiveVolumeConfig,
                                                 if is_enabled { &[0x01] } else { &[0x02] }
-                                            ).await.expect("Failed to send Personalized Volume command");
+                                            ).await {
+                                                log::error!("Failed to send Personalized Volume command: {}", e);
+                                            }
                                         }
                                     );
                                     let mut state = state.clone();
@@ -255,6 +258,7 @@ pub fn airpods_view<'a>(
                 ),
                 {
                     let aacp_manager_conv_detect = aacp_manager.clone();
+                    let mac_audio_clone = mac_audio.clone();
                     row![
                         column![
                             text("Conversation Awareness").size(16),
@@ -271,21 +275,69 @@ pub fn airpods_view<'a>(
                                 let aacp_manager = aacp_manager_conv_detect.clone();
                                 run_async_in_thread(
                                     async move {
-                                        aacp_manager.send_control_command(
+                                        if let Err(e) = aacp_manager.send_control_command(
                                             ControlCommandIdentifiers::ConversationDetectConfig,
                                             if is_enabled { &[0x01] } else { &[0x02] }
-                                        ).await.expect("Failed to send Conversation Awareness command");
+                                        ).await {
+                                            log::error!("Failed to send Conversation Awareness command: {}", e);
+                                        }
                                     }
                                 );
                                 let mut state = state.clone();
                                 state.conversation_awareness_enabled = is_enabled;
-                                Message::StateChanged(mac_audio.to_string(), DeviceState::AirPods(state))
+                                Message::StateChanged(mac_audio_clone.to_string(), DeviceState::AirPods(state))
                             })
                         .spacing(0)
                         .size(20)
                     ]
                     .align_y(Center)
                     .spacing(8)
+                },
+                rule::horizontal(1).style(
+                    |theme: &Theme| {
+                        rule::Style {
+                            color: theme.palette().text.scale_alpha(0.2),
+                            radius: Radius::from(12),
+                            fill_mode: FillMode::Full,
+                            snap: false
+                        }
+                    }
+                ),
+                {
+                    let aacp_manager_anc = aacp_manager.clone();
+                    let mac = mac_audio.clone();
+                    let state_clone = state.clone();
+                    column![
+                        row![
+                            column![
+                                text("Adaptive Audio Intensity").size(16),
+                                text("Adjust the level of noise cancellation in Adaptive mode.").size(12).style(
+                                    |theme: &Theme| {
+                                        let mut style = text::Style::default();
+                                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                        style
+                                    }
+                                ).width(Length::Fill),
+                            ].width(Length::Fill),
+                            text(format!("{}%", state.auto_anc_strength)).size(16),
+                        ].align_y(Center),
+                        slider(0..=100, state.auto_anc_strength, move |value| {
+                            let aacp_manager = aacp_manager_anc.clone();
+                            let mac = mac.clone();
+                            run_async_in_thread(async move {
+                                if let Err(e) = aacp_manager.send_control_command(
+                                    ControlCommandIdentifiers::AutoAncStrength,
+                                    &[value]
+                                ).await {
+                                    log::error!("Failed to send Auto ANC Strength command: {}", e);
+                                }
+                            });
+                            let mut state = state_clone.clone();
+                            state.auto_anc_strength = value;
+                            Message::StateChanged(mac, DeviceState::AirPods(state))
+                        })
+                        .step(1)
+                    ].spacing(4)
                 }
             ]
                 .spacing(4)
@@ -328,10 +380,12 @@ pub fn airpods_view<'a>(
                     let aacp_manager = aacp_manager_olm.clone();
                     run_async_in_thread(
                         async move {
-                            aacp_manager.send_control_command(
+                            if let Err(e) = aacp_manager.send_control_command(
                                 ControlCommandIdentifiers::AllowOffOption,
                                 if is_enabled { &[0x01] } else { &[0x02] }
-                            ).await.expect("Failed to send Off Listening Mode command");
+                            ).await {
+                                log::error!("Failed to send Off Listening Mode command: {}", e);
+                            }
                         }
                     );
                     let mut state = state.clone();

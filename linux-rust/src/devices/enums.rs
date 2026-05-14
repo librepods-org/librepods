@@ -57,7 +57,56 @@ pub struct AirPodsState {
     pub conversation_awareness_enabled: bool,
     pub personalized_volume_enabled: bool,
     pub allow_off_mode: bool,
+    pub auto_anc_strength: u8,
     pub battery: Vec<BatteryInfo>,
+}
+
+impl AirPodsState {
+    pub fn update_battery(&mut self, battery_info: &[BatteryInfo]) {
+        for b in battery_info {
+            if let Some(existing) = self.battery.iter_mut().find(|e| e.component == b.component) {
+                *existing = b.clone();
+            } else {
+                self.battery.push(b.clone());
+            }
+        }
+    }
+
+    pub fn is_case_open(&self) -> bool {
+        // Case component is 0x08. Status 4 means Disconnected (Case Closed/Off)
+        self.battery.iter().any(|b| b.component as u8 == 0x08 && b.status as u8 != 4)
+    }
+
+    pub fn get_battery_levels(&self) -> (Option<u8>, Option<u8>, Option<u8>) {
+        let mut l = None;
+        let mut r = None;
+        let mut c = None;
+        for b in &self.battery {
+            match b.component as u8 {
+                0x04 => l = Some(b.level),
+                0x02 => r = Some(b.level),
+                0x08 => c = Some(b.level),
+                _ => {}
+            }
+        }
+        (l, r, c)
+    }
+
+    pub fn get_charging_statuses(&self) -> (bool, bool, bool) {
+        let mut l = false;
+        let mut r = false;
+        let mut c = false;
+        for b in &self.battery {
+            let is_charging = b.status as u8 == 1;
+            match b.component as u8 {
+                0x04 => l = is_charging,
+                0x02 => r = is_charging,
+                0x08 => c = is_charging,
+                _ => {}
+            }
+        }
+        (l, r, c)
+    }
 }
 
 #[derive(Clone, Debug)]

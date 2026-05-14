@@ -24,7 +24,7 @@ pub struct NothingDevice {
 impl NothingDevice {
     pub async fn new(
         mac_address: Address,
-        ui_tx: mpsc::UnboundedSender<BluetoothUIMessage>,
+        _ui_tx: mpsc::UnboundedSender<BluetoothUIMessage>,
     ) -> Self {
         let mut att_manager = ATTManager::new();
         att_manager

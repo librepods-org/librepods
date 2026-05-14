@@ -143,8 +143,8 @@ impl MediaController {
                     .ear_detection_status
                     .contains(&EarDetectionStatus::InEar)
                 {
-                    info!("Media playback started but buds not in ear, skipping takeover");
-                    continue;
+                    info!("Media playback started but buds not in ear, skipping takeover (BYPASSED)");
+                    // continue;
                 }
                 info!("Media playback started, taking ownership and activating a2dp");
                 let _ = control_tx.send((

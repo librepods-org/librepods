@@ -495,9 +495,13 @@ impl AACPManager {
     }
 
     pub async fn receive_packet(&self, packet: &[u8]) {
-        if !packet.starts_with(&HEADER_BYTES) {
+        if packet.len() < 5 {
+            return;
+        }
+        
+        if !packet.starts_with(&[0x04, 0x00, 0x04, 0x00]) && !packet.starts_with(&[0x01, 0x00, 0x04, 0x00]) {
             debug!(
-                "Received packet does not start with expected header: {}",
+                "Received packet with unknown header: {}",
                 hex::encode(packet)
             );
             return;
@@ -509,6 +513,7 @@ impl AACPManager {
 
         let opcode = packet[4];
         let payload = &packet[4..];
+        debug!("Processing packet opcode={:#04x} len={}", opcode, payload.len());
 
         match opcode {
             opcodes::BATTERY_INFO => {
@@ -633,6 +638,7 @@ impl AACPManager {
                         EarDetectionStatus::OutOfEar
                     }
                 });
+                debug!("Received Ear Detection: {:?}", statuses);
                 let mut state = self.state.lock().await;
                 state.old_ear_detection_status = state.ear_detection_status.clone();
                 state.ear_detection_status = statuses.clone();
@@ -917,13 +923,20 @@ impl AACPManager {
             opcodes::EQ_DATA => {
                 debug!("Received EQ Data");
             }
-            _ => debug!("Received unknown packet with opcode {:#04x}", opcode),
+            _ => debug!("Received packet with header {} opcode {:#04x}, payload: {}", hex::encode(&packet[..4]), opcode, hex::encode(payload)),
         }
     }
 
     pub async fn send_notification_request(&self) -> Result<()> {
         let opcode = [opcodes::REQUEST_NOTIFICATIONS, 0x00];
         let data = [0xFF, 0xFF, 0xFF, 0xFF];
+        let packet = [opcode.as_slice(), data.as_slice()].concat();
+        self.send_data_packet(&packet).await
+    }
+
+    pub async fn send_battery_request(&self) -> Result<()> {
+        let opcode = [opcodes::BATTERY_INFO, 0x00];
+        let data = [0x00]; // Request current battery status
         let packet = [opcode.as_slice(), data.as_slice()].concat();
         self.send_data_packet(&packet).await
     }
@@ -1212,7 +1225,7 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
             Ok(n) => {
                 let data = &buf[..n];
-                debug!("Received {} bytes: {}", n, hex::encode(data));
+                debug!("Received raw {} bytes: {}", n, hex::encode(data));
                 manager.receive_packet(data).await;
             }
             Err(e) => {

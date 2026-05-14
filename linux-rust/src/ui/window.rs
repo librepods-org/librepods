@@ -19,10 +19,9 @@ use iced::widget::{
     Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
     text_input, toggler
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
-use log::{debug, error};
+use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings};
+use log::{debug, error, info};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
@@ -76,6 +75,24 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    show_popup: bool,
+
+    // Popup State
+    popup_window: Option<window::Id>,
+    popup_frame: usize,
+    popup_last_tick: Option<std::time::Instant>,
+    popup_suppressed_until: Option<std::time::Instant>,
+    is_in_ear: bool,
+    popup_mac: Option<String>,
+    popup_battery_l: Option<u8>,
+    popup_battery_r: Option<u8>,
+    popup_battery_c: Option<u8>,
+    popup_charging_l: bool,
+    popup_charging_r: bool,
+    popup_charging_c: bool,
+    popup_name: String,
+    main_window: Option<window::Id>,
+    animation_frames: Arc<Vec<iced::widget::image::Handle>>,
 }
 
 pub struct BluetoothState {
@@ -108,6 +125,9 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    ShowPopupChanged(bool),
+    Tick,
+    ClosePopup,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -142,7 +162,7 @@ impl App {
         } else {
             let mut settings = window::Settings::default();
             settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+            settings.icon = window::icon::from_file("assets/icon.png").ok();
             let (id, open) = window::open(settings);
             (Some(id), open.map(Message::WindowOpened))
         };
@@ -166,6 +186,11 @@ impl App {
             .and_then(|v| v.get("stem_control").cloned())
             .and_then(|s| serde_json::from_value(s).ok())
             .unwrap_or(false);
+        let show_popup = settings
+            .clone()
+            .and_then(|v| v.get("show_popup").cloned())
+            .and_then(|s| serde_json::from_value(s).ok())
+            .unwrap_or(true);
 
         let bluetooth_state = BluetoothState::new();
 
@@ -177,9 +202,25 @@ impl App {
         // ]);
 
         let device_states = HashMap::new();
+
+        let mut frames = Vec::new();
+        for i in 1..=180 {
+            frames.push(iced::widget::image::Handle::from_path(format!("assets/animations/popup/frame_{:03}.png", i)));
+        }        let ui_rx_clone = Arc::clone(&ui_rx);
+        let (main_window, tasks) = if start_minimized {
+            (None, vec![Task::perform(wait_for_message(ui_rx_clone), |msg| msg)])
+        } else {
+            let (id, open) = window::open(window::Settings {
+                size: Size::new(800.0, 600.0),
+                ..Default::default()
+            });
+            (Some(id), vec![Task::perform(wait_for_message(ui_rx_clone), |msg| msg), open.map(Message::WindowOpened)])
+        };
+
         (
             Self {
-                window,
+                window: main_window,
+                main_window,
                 panes,
                 selected_tab: Tab::Device("none".to_string()),
                 theme_state: combo_box::State::new(vec![
@@ -217,6 +258,21 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                show_popup,
+                popup_window: None,
+                popup_frame: 0,
+                popup_last_tick: None,
+                popup_suppressed_until: None,
+                is_in_ear: false,
+                popup_mac: None,
+                popup_battery_l: None,
+                popup_battery_r: None,
+                popup_battery_c: None,
+                popup_charging_l: false,
+                popup_charging_r: false,
+                popup_charging_c: false,
+                popup_name: "AirPods".to_string(),
+                animation_frames: Arc::new(frames),
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -229,12 +285,22 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::WindowOpened(id) => {
-                self.window = Some(id);
+                if self.window.is_none() {
+                    self.window = Some(id);
+                } else if self.main_window.is_none() {
+                    self.main_window = Some(id);
+                }
                 Task::none()
             }
             Message::WindowClosed(id) => {
                 if self.window == Some(id) {
                     self.window = None;
+                }
+                if self.main_window == Some(id) {
+                    self.main_window = None;
+                }
+                if self.popup_window == Some(id) {
+                    self.popup_window = None;
                 }
                 Task::none()
             }
@@ -253,6 +319,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_popup": self.show_popup,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -274,14 +341,14 @@ impl App {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
                         debug!("Opening main window...");
-                        if let Some(window_id) = self.window {
+                        if let Some(window_id) = self.main_window {
                             Task::batch(vec![window::gain_focus(window_id), wait_task])
                         } else {
                             let mut settings = window::Settings::default();
                             settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+                            settings.icon = window::icon::from_file("assets/icon.png").ok();
                             let (new_window_task, open_task) = window::open(settings);
-                            self.window = Some(new_window_task);
+                            self.main_window = Some(new_window_task);
                             Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
                         }
                     }
@@ -382,6 +449,13 @@ impl App {
                                         status.identifier == ControlCommandIdentifiers::AllowOffOption &&
                                         matches!(status.value.as_slice(), [0x01])
                                     }),
+                                    auto_anc_strength: state.control_command_status_list.iter().find_map(|status| {
+                                        if status.identifier == ControlCommandIdentifiers::AutoAncStrength {
+                                            status.value.first().copied()
+                                        } else {
+                                            None
+                                        }
+                                    }).unwrap_or(50),
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -403,7 +477,49 @@ impl App {
                             _ => {}
                         }
 
-                        Task::batch(vec![wait_task])
+                        // Trigger popup on device connection (most reliable path)
+                        let mut tasks = vec![wait_task];
+                        if self.show_popup && self.popup_window.is_none() {
+                            let now = std::time::Instant::now();
+                            let is_suppressed = self.popup_suppressed_until.map(|until| now < until).unwrap_or(false);
+                            if !is_suppressed {
+                                info!("Triggering popup on device connect for {}", mac);
+                                let device_name = {
+                                    let devices_json = std::fs::read_to_string(get_devices_path())
+                                        .unwrap_or_else(|e| {
+                                            error!("Failed to read devices file: {}", e);
+                                            "{}".to_string()
+                                        });
+                                    let devices_list: HashMap<String, DeviceData> =
+                                        serde_json::from_str(&devices_json).unwrap_or_else(|e| {
+                                            error!("Deserialization failed: {}", e);
+                                            HashMap::new()
+                                        });
+                                    devices_list.get(&mac).map(|d| d.name.clone()).unwrap_or_else(|| "AirPods".to_string())
+                                };
+                                self.popup_mac = Some(mac.clone());
+                                self.popup_name = device_name;
+                                self.popup_battery_l = None;
+                                self.popup_battery_r = None;
+                                self.popup_battery_c = None;
+                                self.popup_charging_l = false;
+                                self.popup_charging_r = false;
+                                self.popup_charging_c = false;
+                                self.popup_frame = 0;
+                                self.popup_last_tick = Some(std::time::Instant::now());
+
+                                let mut settings = window::Settings::default();
+                                settings.size = Size::new(400.0, 300.0);
+                                settings.decorations = false;
+                                settings.transparent = true;
+                                settings.level = window::Level::AlwaysOnTop;
+
+                                let (id, open) = window::open(settings);
+                                self.popup_window = Some(id);
+                                tasks.push(open.map(Message::WindowOpened));
+                            }
+                        }
+                        Task::batch(tasks)
                     }
                     BluetoothUIMessage::DeviceDisconnected(mac) => {
                         let ui_rx = Arc::clone(&self.ui_rx);
@@ -415,12 +531,21 @@ impl App {
                             .retain(|device| device != &mac);
 
                         self.device_states.remove(&mac);
+                        self.is_in_ear = false;
+                        self.popup_suppressed_until = None;
 
                         if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac) {
                             self.selected_tab = Tab::Device("none".to_string());
                         }
 
-                        Task::batch(vec![wait_task])
+                        let mut tasks = vec![wait_task];
+                        if let Some(id) = self.main_window {
+                            info!("Closing main window due to disconnect.");
+                            self.main_window = None;
+                            tasks.push(window::close(id));
+                        }
+
+                        Task::batch(tasks)
                     }
                     BluetoothUIMessage::AACPUIEvent(mac, event) => {
                         let ui_rx = Arc::clone(&self.ui_rx);
@@ -505,6 +630,14 @@ impl App {
                                         });
                                     }
                                 }
+                                ControlCommandIdentifiers::AutoAncStrength => {
+                                    let strength = status.value.first().copied().unwrap_or(50);
+                                    if let Some(DeviceState::AirPods(state)) =
+                                        self.device_states.get_mut(&mac)
+                                    {
+                                        state.auto_anc_strength = strength;
+                                    }
+                                }
                                 _ => {
                                     debug!("Unhandled Control Command Status: {:?}", status);
                                 }
@@ -513,8 +646,94 @@ impl App {
                                 if let Some(DeviceState::AirPods(state)) =
                                     self.device_states.get_mut(&mac)
                                 {
-                                    state.battery = battery_info;
-                                    debug!("Updated battery info for {}: {:?}", mac, state.battery);
+                                    let old_case_open = state.is_case_open();
+                                    state.update_battery(&battery_info);
+                                    let new_case_open = state.is_case_open();
+                                    
+                                    debug!("Battery update for {}: Case open: {} -> {}", mac, old_case_open, new_case_open);
+
+                                     // Trigger popup if case is open and setting is enabled
+                                     let now = std::time::Instant::now();
+                                     let is_suppressed = self.popup_suppressed_until.map(|until| now < until).unwrap_or(false);
+
+                                     // Reset suppression if case is closed
+                                     if !new_case_open && old_case_open {
+                                         self.popup_suppressed_until = None;
+                                     }
+
+                                     let mut tasks = vec![wait_task];
+
+                                     if self.show_popup && new_case_open && self.popup_window.is_none() && !is_suppressed && !self.is_in_ear {
+                                         info!("Triggering popup for {} (Case is open)", mac);
+                                         let (bl, br, bc) = state.get_battery_levels();
+                                         let (cl, cr, cc) = state.get_charging_statuses();
+                                         
+                                         self.popup_mac = Some(mac.clone());
+                                         self.popup_name = state.device_name.clone();
+                                         self.popup_battery_l = bl;
+                                         self.popup_battery_r = br;
+                                         self.popup_battery_c = bc;
+                                         self.popup_charging_l = cl;
+                                         self.popup_charging_r = cr;
+                                         self.popup_charging_c = cc;
+                                         self.popup_frame = 0;
+                                         self.popup_last_tick = Some(std::time::Instant::now());
+
+                                         let mut settings = window::Settings::default();
+                                         settings.size = Size::new(400.0, 300.0);
+                                         settings.decorations = false;
+                                         settings.transparent = true;
+                                         settings.level = window::Level::AlwaysOnTop;
+                                         
+                                         let (id, open) = window::open(settings);
+                                         self.popup_window = Some(id);
+                                         tasks.push(open.map(Message::WindowOpened));
+                                     }
+
+                                     // Smart Open Main Window: If in ear and case just closed
+                                     if self.is_in_ear && !new_case_open && old_case_open && self.main_window.is_none() {
+                                         info!("AirPods in ear and case closed, opening main window.");
+                                         let mut settings = window::Settings::default();
+                                         settings.size = Size::new(800.0, 600.0);
+                                         settings.icon = window::icon::from_file("assets/icon.png").ok();
+                                         let (id, open) = window::open(settings);
+                                         self.main_window = Some(id);
+                                         tasks.push(open.map(Message::WindowOpened));
+                                     }
+                                    
+                                    // Update popup data if it's already open
+                                    if let Some(_popup_id) = self.popup_window {
+                                        if self.popup_mac.as_ref() == Some(&mac) {
+                                            let (bl, br, bc) = state.get_battery_levels();
+                                            let (cl, cr, cc) = state.get_charging_statuses();
+                                            self.popup_battery_l = bl;
+                                            self.popup_battery_r = br;
+                                            self.popup_battery_c = bc;
+                                            self.popup_charging_l = cl;
+                                            self.popup_charging_r = cr;
+                                            self.popup_charging_c = cc;
+                                            // Reset timer so popup stays visible after battery update
+                                            self.popup_last_tick = Some(std::time::Instant::now());
+                                            info!("Updated popup battery: L={:?} R={:?} C={:?}", bl, br, bc);
+                                        }
+                                    }
+
+                                    return Task::batch(tasks);
+                                }
+                            }
+                            AACPEvent::EarDetection(_, new_status) => {
+                                debug!("UI received EarDetection status for {}: {:?}", mac, new_status);
+                                use crate::bluetooth::aacp::EarDetectionStatus;
+                                self.is_in_ear = new_status.iter().any(|s| *s == EarDetectionStatus::InEar);
+
+                                // Close popup if any bud is in ear
+                                if self.popup_window.is_some() && self.is_in_ear {
+                                    info!("AirPods detected in ear, closing popup.");
+                                    if let Some(id) = self.popup_window {
+                                        self.popup_window = None;
+                                        self.popup_suppressed_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+                                        return Task::batch(vec![wait_task, window::close(id)]);
+                                    }
                                 }
                             }
                             _ => {}
@@ -532,6 +751,61 @@ impl App {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
                         Task::batch(vec![wait_task])
+                    }
+                    BluetoothUIMessage::ShowPopup { mac, battery_l, battery_r, battery_c, charging_l, charging_r, charging_c } => {
+                        let ui_rx = Arc::clone(&self.ui_rx);
+                        let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
+
+                        let now = std::time::Instant::now();
+                        let is_suppressed = self.popup_suppressed_until.map(|until| now < until).unwrap_or(false);
+
+                        if !self.show_popup || self.popup_window.is_some() || is_suppressed {
+                            return Task::batch(vec![wait_task]);
+                        }
+
+                        self.popup_mac = Some(mac.clone());
+                        self.popup_name = {
+                            let devices_json = std::fs::read_to_string(get_devices_path())
+                                .unwrap_or_else(|e| {
+                                    error!("Failed to read devices file: {}", e);
+                                    "{}".to_string()
+                                });
+                            let devices_list: HashMap<String, DeviceData> =
+                                serde_json::from_str(&devices_json).unwrap_or_else(|e| {
+                                    error!("Deserialization failed: {}", e);
+                                    HashMap::new()
+                                });
+                            devices_list.get(&mac).map(|d| d.name.clone()).unwrap_or_else(|| "AirPods".to_string())
+                        };
+                        self.popup_battery_l = battery_l;
+                        self.popup_battery_r = battery_r;
+                        self.popup_battery_c = battery_c;
+                        self.popup_charging_l = charging_l;
+                        self.popup_charging_r = charging_r;
+                        self.popup_charging_c = charging_c;
+
+                        if self.popup_window.is_some() && battery_l.is_none() && battery_r.is_none() && battery_c.is_none() {
+                            let id = self.popup_window.take().unwrap();
+                            return window::close(id);
+                        }
+
+                        if self.popup_window.is_none() {
+                            info!("Opening new popup window...");
+                            let mut settings = window::Settings::default();
+                            settings.size = Size::new(400.0, 300.0);
+                            settings.decorations = false;
+                            settings.transparent = true;
+                            settings.level = window::Level::AlwaysOnTop;
+                            
+                            let (id, open) = window::open(settings);
+                            self.popup_window = Some(id);
+                            self.popup_frame = 0;
+                            self.popup_last_tick = Some(std::time::Instant::now());
+                            Task::batch(vec![wait_task, open.map(Message::WindowOpened)])
+                        } else {
+                            self.popup_last_tick = Some(std::time::Instant::now());
+                            Task::batch(vec![wait_task])
+                        }
                     }
                 }
             }
@@ -631,6 +905,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_popup": self.show_popup,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -647,6 +922,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_popup": self.show_popup,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -656,10 +932,61 @@ impl App {
                 std::fs::write(app_settings_path, settings.to_string()).ok();
                 Task::none()
             }
+            Message::ShowPopupChanged(is_enabled) => {
+                self.show_popup = is_enabled;
+                let app_settings_path = get_app_settings_path();
+                let settings = serde_json::json!({
+                    "theme": self.selected_theme,
+                    "tray_text_mode": self.tray_text_mode,
+                    "stem_control": self.stem_control,
+                    "show_popup": self.show_popup,
+                });
+                debug!(
+                    "Writing settings to {}: {}",
+                    app_settings_path.to_str().unwrap(),
+                    settings
+                );
+                std::fs::write(app_settings_path, settings.to_string()).ok();
+                Task::none()
+            }
+            Message::Tick => {
+                self.popup_frame = (self.popup_frame + 1) % self.animation_frames.len();
+                // Close popup if it has been open for 20 seconds without any update
+                if let Some(last_tick) = self.popup_last_tick {
+                    if last_tick.elapsed().as_secs() > 10 {
+                        if let Some(id) = self.popup_window {
+                            self.popup_window = None;
+                            return window::close(id);
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::ClosePopup => {
+                if let Some(id) = self.popup_window {
+                    self.popup_window = None;
+                    return window::close(id);
+                }
+                Task::none()
+            }
         }
     }
 
     fn view(&self, _id: window::Id) -> Element<'_, Message> {
+        if Some(_id) == self.popup_window {
+            return crate::ui::popup::popup_view(
+                self.popup_name.clone(),
+                self.popup_frame,
+                self.animation_frames.clone(),
+                self.popup_battery_l,
+                self.popup_battery_r,
+                self.popup_battery_c,
+                self.popup_charging_l,
+                self.popup_charging_r,
+                self.popup_charging_c,
+            );
+        }
+
         let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
             error!("Failed to read devices file: {}", e);
             "{}".to_string()
@@ -698,21 +1025,22 @@ impl App {
                                                     level, if charging {"\u{1002E6}"} else {""}
                                                 )
                                             } else {
-                                                let left  = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let right = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let case  = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let left_charging = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let right_charging = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let case_charging = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
+                                                let format_batt = |comp: BatteryComponent| -> String {
+                                                    let batt = b.iter().find(|x| x.component == comp);
+                                                    match batt {
+                                                        Some(x) if x.status != BatteryStatus::Disconnected => {
+                                                            let charging = if x.status == BatteryStatus::Charging { "\u{1002E6}" } else { "" };
+                                                            format!("{}%{}", x.level, charging)
+                                                        }
+                                                        _ => "--%".to_string()
+                                                    }
+                                                };
+                                                
                                                 format!(
-                                                    "\u{1018E5} {}%{} \u{1018E8} {}%{} \u{100E6C} {}%{}",
-                                                    left, if left_charging {"\u{1002E6}"} else {""}, right, if right_charging {"\u{1002E6}"} else {""}, case, if case_charging {"\u{1002E6}"} else {""}
+                                                    "\u{1018E5} {} \u{1018E8} {} \u{100E6C} {}",
+                                                    format_batt(BatteryComponent::Left),
+                                                    format_batt(BatteryComponent::Right),
+                                                    format_batt(BatteryComponent::Case)
                                                 )
                                             }
                                         }
@@ -1115,12 +1443,51 @@ impl App {
                                 stem_control_toggle
                             ]
                             .spacing(12);
+                            
+                            let show_popup_toggle = container(
+                                row![
+                                    column![
+                                        text("Show AirPods Pop-up").size(16),
+                                        text("Show a 3D animation and battery levels when AirPods case is opened nearby.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(self.show_popup)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::ShowPopupChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                ]
+                                .align_y(Center)
+                                .spacing(12)
+                            )
+                            .padding(Padding {
+                                top: 5.0,
+                                bottom: 5.0,
+                                left: 18.0,
+                                right: 18.0,
+                            })
+                            .style(|theme: &Theme| {
+                                let mut style = container::Style::default();
+                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                let mut border = Border::default();
+                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                style.border = border.rounded(16);
+                                style
+                            });
 
                             container(
                                 column![
                                     appearance_settings_col,
                                     Space::new().height(Length::from(20)),
                                     tray_text_mode_toggle,
+                                    Space::new().height(Length::from(20)),
+                                    show_popup_toggle,
                                     Space::new().height(Length::from(20)),
                                     controls_settings_col,
                                 ]
@@ -1301,7 +1668,13 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        window::close_events().map(Message::WindowClosed)
+        let mut subs = vec![
+            window::close_events().map(Message::WindowClosed)
+        ];
+        if self.popup_window.is_some() {
+            subs.push(iced::time::every(std::time::Duration::from_millis(33)).map(|_| Message::Tick));
+        }
+        Subscription::batch(subs)
     }
 }
 
