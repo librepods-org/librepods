@@ -1,4 +1,4 @@
-name: Linux Build & Release
+name: Linux CI (Rust)
 
 on:
   push:
