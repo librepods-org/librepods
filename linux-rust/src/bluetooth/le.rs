@@ -14,6 +14,7 @@ use serde_json;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 fn decrypt(key: &[u8; 16], data: &[u8; 16]) -> [u8; 16] {
@@ -46,12 +47,12 @@ fn verify_rpa(addr: &str, irk: &[u8; 16]) -> bool {
     hash == computed_hash
 }
 
-pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> bluer::Result<()> {
+pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>, ui_tx: tokio::sync::mpsc::UnboundedSender<crate::ui::messages::BluetoothUIMessage>) -> bluer::Result<()> {
     let session = Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
 
-    let all_devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
+    let mut all_devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
@@ -122,6 +123,52 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                     }
                 }
 
+                if found_mac.is_none() {
+                    // Try reloading devices once to see if keys were recently added
+                    let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|_| "{}".to_string());
+                    all_devices = serde_json::from_str(&devices_json).unwrap_or_default();
+                    
+                    for (mac, info) in &all_devices {
+                        if let Some(DeviceInformation::AirPods(airpods_info)) = &info.information {
+                            if !airpods_info.le_keys.irk.is_empty() {
+                                let irk_bytes = hex::decode(&airpods_info.le_keys.irk).unwrap_or_default();
+                                if irk_bytes.len() == 16 {
+                                    let mut irk = [0u8; 16];
+                                    irk.copy_from_slice(&irk_bytes);
+                                    if verify_rpa(&addr.to_string(), &irk) {
+                                        info!("LE Monitor matched AirPods (cached): {} (MAC: {})", mac, addr);
+                                        found_mac = Some(mac.clone());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if found_mac.is_none() {
+                    // Try reloading devices once to see if keys were recently added
+                    let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|_| "{}".to_string());
+                    all_devices = serde_json::from_str(&devices_json).unwrap_or_default();
+                    
+                    for (mac, info) in &all_devices {
+                        if let Some(DeviceInformation::AirPods(airpods_info)) = &info.information {
+                            if !airpods_info.le_keys.irk.is_empty() {
+                                let irk_bytes = hex::decode(&airpods_info.le_keys.irk).unwrap_or_default();
+                                if irk_bytes.len() == 16 {
+                                    let mut irk = [0u8; 16];
+                                    irk.copy_from_slice(&irk_bytes);
+                                    if verify_rpa(&addr.to_string(), &irk) {
+                                        info!("LE Monitor matched AirPods: {} (MAC: {})", mac, addr);
+                                        found_mac = Some(mac.clone());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if let Some(mac) = found_mac {
                     matched_airpods_mac = Some(mac);
                 } else {
@@ -144,7 +191,9 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                 let mut events = dev.events().await?;
                 let tray_handle_clone = tray_handle.clone();
                 let connecting_macs_clone = Arc::clone(&connecting_macs);
+                let ui_tx_clone = ui_tx.clone();
                 tokio::spawn(async move {
+                    let mut last_popup_sent: Option<Instant> = None;
                     while let Some(ev) = events.next().await {
                         match ev {
                             bluer::DeviceEvent::PropertyChanged(prop) => {
@@ -335,6 +384,26 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                 })
                                                 .await;
                                         }
+
+                                         let now = Instant::now();
+                                         let is_throttled = last_popup_sent.map(|t| now.duration_since(t) < Duration::from_secs(10)).unwrap_or(false);
+                                         
+                                         if case_byte != 0xff && !is_throttled {
+                                             info!("Sending ShowPopup message to UI for {}", matched_airpods_mac.as_ref().unwrap());
+                                             let _ = ui_tx_clone.send(crate::ui::messages::BluetoothUIMessage::ShowPopup {
+                                                 mac: matched_airpods_mac.as_ref().unwrap().clone(),
+                                                 battery_l: if left_byte == 0xff { None } else { Some(left_battery as u8) },
+                                                 battery_r: if right_byte == 0xff { None } else { Some(right_battery as u8) },
+                                                 battery_c: if case_byte == 0xff { None } else { Some(case_battery as u8) },
+                                                 charging_l: left_charging,
+                                                 charging_r: right_charging,
+                                                 charging_c: case_charging,
+                                             });
+                                             last_popup_sent = Some(now);
+                                         } else if case_byte != 0xff {
+                                             debug!("Throttling ShowPopup message for {}", matched_airpods_mac.as_ref().unwrap());
+                                         }
+
 
                                         debug!(
                                             "Battery status: Left: {}, Right: {}, Case: {}, InEar: L:{} R:{}",

@@ -30,8 +30,9 @@ impl AirPodsDevice {
         let mut aacp_manager = AACPManager::new();
         aacp_manager.connect(mac_address).await;
 
-        // let mut att_manager = ATTManager::new();
-        // att_manager.connect(mac_address).await.expect("Failed to connect ATT");
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (command_tx, mut command_rx) = tokio::sync::mpsc::unbounded_channel();
+        aacp_manager.set_event_channel(tx).await;
 
         if let Some(handle) = &tray_handle {
             handle
@@ -81,6 +82,20 @@ impl AirPodsDevice {
             error!("Failed to request proximity keys: {}", e);
         }
 
+        sleep(Duration::from_millis(300)).await;
+
+        // Claim ownership so AirPods send us BatteryInfo and EarDetection events
+        info!("Claiming ownership of AirPods connection");
+        if let Err(e) = aacp_manager
+            .send_control_command(
+                crate::bluetooth::aacp::ControlCommandIdentifiers::OwnsConnection,
+                &[0x01],
+            )
+            .await
+        {
+            error!("Failed to claim ownership: {}", e);
+        }
+
         let app_settings_path = get_app_settings_path();
         let settings = std::fs::read_to_string(&app_settings_path)
             .ok()
@@ -123,10 +138,6 @@ impl AirPodsDevice {
             local_mac.clone(),
         )));
         let mc_clone = media_controller.clone();
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let (command_tx, mut command_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        aacp_manager.set_event_channel(tx).await;
         if let Some(handle) = &tray_handle {
             handle
                 .update(|tray: &mut MyTray| tray.command_tx = Some(command_tx.clone()))
