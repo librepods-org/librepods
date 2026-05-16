@@ -1,0 +1,75 @@
+name: Update flake.lock
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  # pull-requests: write
+
+concurrency:
+  group: update-flake-lock
+  cancel-in-progress: false
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: linux/rust
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v17
+
+      - name: Update flake lockfile
+        run: nix flake update
+
+      - name: Detect lockfile changes
+        id: lockfile
+        run: |
+          if git diff --quiet -- flake.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate flake (no builds)
+        if: steps.lockfile.outputs.changed == 'true'
+        run: nix flake check --no-build
+
+      - name: Build default package
+        if: steps.lockfile.outputs.changed == 'true'
+        run: nix build .#default
+
+      - name: Commit and push lockfile changes
+        if: steps.lockfile.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.lock
+          git commit -m "chore(nix): update flake.lock"
+          git push origin "HEAD:${TARGET_BRANCH}"
+
+      # - name: Open pull request with lockfile changes
+      #   if: steps.lockfile.outputs.changed == 'true'
+      #   uses: peter-evans/create-pull-request@v7
+      #   with:
+      #     branch: ci/weekly-flake-lock
+      #     base: ${{ env.TARGET_BRANCH }}
+      #     delete-branch: true
+      #     commit-message: "chore(nix): update flake.lock"
+      #     title: "chore(nix): update flake.lock"
+      #     body: |
+      #       Automated weekly flake input update.
+      #
+      #       This PR was created by `.github/workflows/ci-nix-flake-update.yml`.
+      #     labels: |
+      #       dependencies
+      #       nix
