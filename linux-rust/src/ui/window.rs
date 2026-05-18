@@ -875,7 +875,7 @@ impl App {
                                                                     id,
                                                                     &devices_list,
                                                                     state,
-                                                                    aacp_manager.clone()
+                                                                    aacp_manager.clone(),
                                                                 ))
                                                     })
                                                 }
