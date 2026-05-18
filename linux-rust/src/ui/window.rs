@@ -76,6 +76,8 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    show_serials: bool,
+    show_device_info: bool,
 }
 
 pub struct BluetoothState {
@@ -108,6 +110,8 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    ToggleSerialVisibility,
+    ToggleDeviceInfo,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -217,6 +221,8 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                show_serials: false,
+                show_device_info: false,
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -656,6 +662,17 @@ impl App {
                 std::fs::write(app_settings_path, settings.to_string()).ok();
                 Task::none()
             }
+            Message::ToggleSerialVisibility => {
+                self.show_serials = !self.show_serials;
+                Task::none()
+            }
+            Message::ToggleDeviceInfo => {
+                self.show_device_info = !self.show_device_info;
+                if !self.show_device_info {
+                    self.show_serials = false;
+                }
+                Task::none()
+            }
         }
     }
 
@@ -876,6 +893,8 @@ impl App {
                                                                     &devices_list,
                                                                     state,
                                                                     aacp_manager.clone(),
+                                                                    self.show_serials,
+                                                                    self.show_device_info,
                                                                 ))
                                                     })
                                                 }
@@ -893,7 +912,7 @@ impl App {
                                         if let Some(DeviceState::Nothing(state)) = device_state {
                                             if let Some(device_managers) = device_managers.get(id) {
                                                 if let Some(att_manager) = device_managers.get_att() {
-                                                    nothing_view(id, &devices_list, state, att_manager.clone())
+                                                    nothing_view(id, &devices_list, state, att_manager.clone(), self.show_serials, self.show_device_info)
                                                 } else {
                                                     error!("No ATT manager found for Nothing device {}", id);
                                                     container(

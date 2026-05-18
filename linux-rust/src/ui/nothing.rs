@@ -5,7 +5,7 @@ use iced::border::Radius;
 use iced::overlay::menu;
 use iced::widget::combo_box;
 use iced::widget::text_input;
-use iced::widget::{Space, column, container, row, scrollable, text};
+use iced::widget::{Space, button, column, container, row, scrollable, text};
 use iced::{Background, Border, Length, Theme};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,37 +17,75 @@ pub fn nothing_view<'a>(
     devices_list: &HashMap<String, DeviceData>,
     state: &'a NothingState,
     att_manager: Arc<ATTManager>,
+    show_serials: bool,
+    show_device_info: bool,
 ) -> iced::widget::Container<'a, Message> {
     let mut information_col = iced::widget::column![];
     let mac = mac.to_string();
     if let Some(device) = devices_list.get(mac.as_str())
         && let Some(DeviceInformation::Nothing(ref nothing_info)) = device.information
     {
-        information_col = information_col
-            .push(text("Device Information").size(18).style(|theme: &Theme| {
-                let mut style = text::Style::default();
-                style.color = Some(theme.palette().primary);
-                style
-            }))
-            .push(Space::new().height(iced::Length::from(10)))
-            .push(iced::widget::row![
-                text("Serial Number").size(16).style(|theme: &Theme| {
+        let chevron = if show_device_info { "\u{25be}" } else { "\u{25b8}" };
+        let header = button(
+            row![
+                text(format!("{} Device Information", chevron)).size(18).style(|theme: &Theme| {
                     let mut style = text::Style::default();
-                    style.color = Some(theme.palette().text);
+                    style.color = Some(theme.palette().primary);
                     style
                 }),
-                Space::new().width(Length::Fill),
-                text(nothing_info.serial_number.clone()).size(16)
-            ])
-            .push(iced::widget::row![
-                text("Firmware Version").size(16).style(|theme: &Theme| {
-                    let mut style = text::Style::default();
-                    style.color = Some(theme.palette().text);
-                    style
-                }),
-                Space::new().width(Length::Fill),
-                text(nothing_info.firmware_version.clone()).size(16)
-            ]);
+            ]
+            .align_y(iced::Alignment::Center)
+        )
+        .style(|_theme: &Theme, _status| {
+            let mut style = button::Style::default();
+            style.background = Some(Background::Color(iced::Color::TRANSPARENT));
+            style.text_color = iced::Color::TRANSPARENT;
+            style
+        })
+        .padding(0)
+        .on_press(Message::ToggleDeviceInfo);
+
+        if show_device_info {
+            let eye_icon = if show_serials { "\u{1f441}" } else { "\u{25c9}" };
+            let serial_text = if show_serials { nothing_info.serial_number.clone() } else { "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string() };
+
+            information_col = information_col
+                .push(header)
+                .push(Space::new().height(iced::Length::from(10)))
+                .push(iced::widget::row![
+                    text("Serial Number").size(16).style(|theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text);
+                        style
+                    }),
+                    Space::new().width(Length::Fill),
+                    button(
+                        row![
+                            text(serial_text).size(16),
+                            text(eye_icon).size(14),
+                        ].spacing(6).align_y(iced::Alignment::Center)
+                    )
+                    .style(|theme: &Theme, _status| {
+                        let mut style = button::Style::default();
+                        style.text_color = theme.palette().text;
+                        style.background = Some(Background::Color(iced::Color::TRANSPARENT));
+                        style
+                    })
+                    .padding(0)
+                    .on_press(Message::ToggleSerialVisibility)
+                ])
+                .push(iced::widget::row![
+                    text("Firmware Version").size(16).style(|theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text);
+                        style
+                    }),
+                    Space::new().width(Length::Fill),
+                    text(nothing_info.firmware_version.clone()).size(16)
+                ]);
+        } else {
+            information_col = information_col.push(header);
+        }
     }
 
     let noise_control_mode = container(

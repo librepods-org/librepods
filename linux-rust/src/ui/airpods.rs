@@ -22,6 +22,8 @@ pub fn airpods_view<'a>(
     devices_list: &HashMap<String, DeviceData>,
     state: &'a AirPodsState,
     aacp_manager: Arc<AACPManager>,
+    show_serials: bool,
+    show_device_info: bool,
     // att_manager: Arc<ATTManager>
 ) -> iced::widget::Container<'a, Message> {
     let mac = mac.to_string();
@@ -365,140 +367,175 @@ pub fn airpods_view<'a>(
     let mut information_col = column![];
     if let Some(device) = devices_list.get(mac_information.as_str()) {
         if let Some(DeviceInformation::AirPods(ref airpods_info)) = device.information {
-            let info_rows = column![
+            let chevron = if show_device_info { "\u{25be}" } else { "\u{25b8}" };
+            let header = button(
                 row![
-                    text("Model Number").size(16).style(|theme: &Theme| {
+                    text(format!("{} Device Information", chevron)).size(18).style(|theme: &Theme| {
                         let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
+                        style.color = Some(theme.palette().primary);
                         style
                     }),
-                    Space::new().width(Length::Fill),
-                    text(airpods_info.model_number.clone()).size(16)
-                ],
-                row![
-                    text("Manufacturer").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    text(airpods_info.manufacturer.clone()).size(16)
-                ],
-                row![
-                    text("Serial Number").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    button(text(airpods_info.serial_number.clone()).size(16))
-                        .style(|theme: &Theme, _status| {
-                            let mut style = Style::default();
-                            style.text_color = theme.palette().text;
-                            style.background = Some(Background::Color(Color::TRANSPARENT));
-                            style
-                        })
-                        .padding(0)
-                        .on_press(Message::CopyToClipboard(airpods_info.serial_number.clone()))
-                ],
-                row![
-                    text("Left Serial Number").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    button(text(airpods_info.left_serial_number.clone()).size(16))
-                        .style(|theme: &Theme, _status| {
-                            let mut style = Style::default();
-                            style.text_color = theme.palette().text;
-                            style.background = Some(Background::Color(Color::TRANSPARENT));
-                            style
-                        })
-                        .padding(0)
-                        .on_press(Message::CopyToClipboard(
-                            airpods_info.left_serial_number.clone()
-                        ))
-                ],
-                row![
-                    text("Right Serial Number").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    button(text(airpods_info.right_serial_number.clone()).size(16))
-                        .style(|theme: &Theme, _status| {
-                            let mut style = Style::default();
-                            style.text_color = theme.palette().text;
-                            style.background = Some(Background::Color(Color::TRANSPARENT));
-                            style
-                        })
-                        .padding(0)
-                        .on_press(Message::CopyToClipboard(
-                            airpods_info.right_serial_number.clone()
-                        ))
-                ],
-                row![
-                    text("Version 1").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    text(airpods_info.version1.clone()).size(16)
-                ],
-                row![
-                    text("Version 2").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    text(airpods_info.version2.clone()).size(16)
-                ],
-                row![
-                    text("Version 3").size(16).style(|theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text);
-                        style
-                    }),
-                    Space::new().width(Length::Fill),
-                    text(airpods_info.version3.clone()).size(16)
                 ]
-            ]
-            .spacing(4)
-            .padding(8);
+                .align_y(iced::Alignment::Center)
+            )
+            .style(|_theme: &Theme, _status| {
+                let mut style = Style::default();
+                style.background = Some(Background::Color(Color::TRANSPARENT));
+                style.text_color = Color::TRANSPARENT;
+                style
+            })
+            .padding(Padding {
+                top: 5.0,
+                bottom: 5.0,
+                left: 18.0,
+                right: 18.0,
+            })
+            .on_press(Message::ToggleDeviceInfo);
 
-            information_col = column![
-                container(text("Device Information").size(18).style(|theme: &Theme| {
-                    let mut style = text::Style::default();
-                    style.color = Some(theme.palette().primary);
-                    style
-                }))
-                .padding(Padding {
-                    top: 5.0,
-                    bottom: 5.0,
-                    left: 18.0,
-                    right: 18.0,
-                }),
-                container(info_rows)
-                    .padding(Padding {
-                        top: 5.0,
-                        bottom: 5.0,
-                        left: 10.0,
-                        right: 10.0,
-                    })
-                    .style(|theme: &Theme| {
-                        let mut style = container::Style::default();
-                        style.background =
-                            Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                        let mut border = Border::default();
-                        border.color = theme.palette().primary.scale_alpha(0.5);
-                        style.border = border.rounded(16);
-                        style
-                    })
-            ];
+            if show_device_info {
+                let serial_display = |serial: String| -> String {
+                    if show_serials { serial } else { "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}".to_string() }
+                };
+                let eye_icon = if show_serials { "\u{1f441}" } else { "\u{25c9}" };
+
+                let info_rows = column![
+                    row![
+                        text("Model Number").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        text(airpods_info.model_number.clone()).size(16)
+                    ],
+                    row![
+                        text("Manufacturer").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        text(airpods_info.manufacturer.clone()).size(16)
+                    ],
+                    row![
+                        text("Serial Number").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        button(
+                            row![
+                                text(serial_display(airpods_info.serial_number.clone())).size(16),
+                                text(eye_icon).size(14),
+                            ].spacing(6).align_y(iced::Alignment::Center)
+                        )
+                            .style(|theme: &Theme, _status| {
+                                let mut style = Style::default();
+                                style.text_color = theme.palette().text;
+                                style.background = Some(Background::Color(Color::TRANSPARENT));
+                                style
+                            })
+                            .padding(0)
+                            .on_press(Message::ToggleSerialVisibility)
+                    ],
+                    row![
+                        text("Left Serial Number").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        button(
+                            row![
+                                text(serial_display(airpods_info.left_serial_number.clone())).size(16),
+                                text(eye_icon).size(14),
+                            ].spacing(6).align_y(iced::Alignment::Center)
+                        )
+                            .style(|theme: &Theme, _status| {
+                                let mut style = Style::default();
+                                style.text_color = theme.palette().text;
+                                style.background = Some(Background::Color(Color::TRANSPARENT));
+                                style
+                            })
+                            .padding(0)
+                            .on_press(Message::ToggleSerialVisibility)
+                    ],
+                    row![
+                        text("Right Serial Number").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        button(
+                            row![
+                                text(serial_display(airpods_info.right_serial_number.clone())).size(16),
+                                text(eye_icon).size(14),
+                            ].spacing(6).align_y(iced::Alignment::Center)
+                        )
+                            .style(|theme: &Theme, _status| {
+                                let mut style = Style::default();
+                                style.text_color = theme.palette().text;
+                                style.background = Some(Background::Color(Color::TRANSPARENT));
+                                style
+                            })
+                            .padding(0)
+                            .on_press(Message::ToggleSerialVisibility)
+                    ],
+                    row![
+                        text("Version 1").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        text(airpods_info.version1.clone()).size(16)
+                    ],
+                    row![
+                        text("Version 2").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        text(airpods_info.version2.clone()).size(16)
+                    ],
+                    row![
+                        text("Version 3").size(16).style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text);
+                            style
+                        }),
+                        Space::new().width(Length::Fill),
+                        text(airpods_info.version3.clone()).size(16)
+                    ]
+                ]
+                .spacing(4)
+                .padding(8);
+
+                information_col = column![
+                    header,
+                    container(info_rows)
+                        .padding(Padding {
+                            top: 5.0,
+                            bottom: 5.0,
+                            left: 10.0,
+                            right: 10.0,
+                        })
+                        .style(|theme: &Theme| {
+                            let mut style = container::Style::default();
+                            style.background =
+                                Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                            let mut border = Border::default();
+                            border.color = theme.palette().primary.scale_alpha(0.5);
+                            style.border = border.rounded(16);
+                            style
+                        })
+                ];
+            } else {
+                information_col = column![header];
+            }
         } else {
             error!(
                 "Expected AirPodsInformation for device {}, got something else",
