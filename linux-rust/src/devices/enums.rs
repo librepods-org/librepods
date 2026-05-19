@@ -53,14 +53,13 @@ impl Display for DeviceState {
 pub struct AirPodsState {
     pub device_name: String,
     pub noise_control_mode: AirPodsNoiseControlMode,
-    pub noise_control_state: combo_box::State<AirPodsNoiseControlMode>,
     pub conversation_awareness_enabled: bool,
     pub personalized_volume_enabled: bool,
     pub allow_off_mode: bool,
     pub battery: Vec<BatteryInfo>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AirPodsNoiseControlMode {
     Off,
     NoiseCancellation,

@@ -78,6 +78,7 @@ pub struct App {
     stem_control: bool,
     show_serials: bool,
     show_device_info: bool,
+    show_off_listening_mode: bool,
     connecting_devices: HashSet<String>,
 }
 
@@ -115,6 +116,7 @@ pub enum Message {
     ToggleDeviceInfo,
     ConnectDevice(String),
     ConnectResult(String, bool),
+    ShowOffListeningModeChanged(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -173,6 +175,11 @@ impl App {
             .and_then(|v| v.get("stem_control").cloned())
             .and_then(|s| serde_json::from_value(s).ok())
             .unwrap_or(false);
+        let show_off_listening_mode = settings
+            .clone()
+            .and_then(|v| v.get("show_off_listening_mode").cloned())
+            .and_then(|s| serde_json::from_value(s).ok())
+            .unwrap_or(true);
 
         let bluetooth_state = BluetoothState::new();
 
@@ -226,6 +233,7 @@ impl App {
                 stem_control,
                 show_serials: false,
                 show_device_info: false,
+                show_off_listening_mode,
                 connecting_devices: HashSet::new(),
             },
             Task::batch(vec![open_task, wait_task]),
@@ -263,6 +271,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -364,22 +373,7 @@ impl App {
                                             None
                                         }
                                     }).unwrap_or(AirPodsNoiseControlMode::Transparency),
-                                    noise_control_state: combo_box::State::new(
-                                        {
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive
-                                            ];
-                                            if state.control_command_status_list.iter().any(|status| {
-                                                status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                                matches!(status.value.as_slice(), [0x01])
-                                            }) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        }
-                                    ),
+
                                     conversation_awareness_enabled: state.control_command_status_list.iter().any(|status| {
                                         status.identifier == ControlCommandIdentifiers::ConversationDetectConfig &&
                                         matches!(status.value.as_slice(), [0x01])
@@ -502,17 +496,6 @@ impl App {
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.allow_off_mode = is_enabled;
-                                        state.noise_control_state = combo_box::State::new({
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive,
-                                            ];
-                                            if is_enabled {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        });
                                     }
                                 }
                                 _ => {
@@ -618,19 +601,9 @@ impl App {
                     devices_list.get(&mac).map(|d| d.type_.clone())
                 };
                 if let Some(DeviceType::AirPods) = type_
-                    && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
+                    && let Some(DeviceState::AirPods(_state)) = self.device_states.get_mut(&mac)
                 {
-                    state.noise_control_state = combo_box::State::new({
-                        let mut modes = vec![
-                            AirPodsNoiseControlMode::Transparency,
-                            AirPodsNoiseControlMode::NoiseCancellation,
-                            AirPodsNoiseControlMode::Adaptive,
-                        ];
-                        if state.allow_off_mode {
-                            modes.insert(0, AirPodsNoiseControlMode::Off);
-                        }
-                        modes
-                    });
+                    // No-op: segmented buttons determine available modes at render time
                 }
                 Task::none()
             }
@@ -641,6 +614,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -657,6 +631,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -675,6 +650,23 @@ impl App {
                 if !self.show_device_info {
                     self.show_serials = false;
                 }
+                Task::none()
+            }
+            Message::ShowOffListeningModeChanged(is_enabled) => {
+                self.show_off_listening_mode = is_enabled;
+                let app_settings_path = get_app_settings_path();
+                let settings = serde_json::json!({
+                    "theme": self.selected_theme,
+                    "tray_text_mode": self.tray_text_mode,
+                    "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
+                });
+                debug!(
+                    "Writing settings to {}: {}",
+                    app_settings_path.to_str().unwrap(),
+                    settings
+                );
+                std::fs::write(app_settings_path, settings.to_string()).ok();
                 Task::none()
             }
             Message::ConnectDevice(mac) => {
@@ -974,6 +966,7 @@ impl App {
                                                                     aacp_manager.clone(),
                                                                     self.show_serials,
                                                                     self.show_device_info,
+                                                                    self.show_off_listening_mode,
                                                                 ))
                                                     })
                                                 }
@@ -1209,7 +1202,46 @@ impl App {
                                     left: 18.0,
                                     right: 18.0,
                                 }),
-                                stem_control_toggle
+                                stem_control_toggle,
+                                container(
+                                    row![
+                                        column![
+                                            text("Show Off listening mode").size(16),
+                                            text("When enabled, an Off option appears in the listening mode controls. Loud sound levels are not reduced when listening mode is set to Off.").size(12).style(
+                                                |theme: &Theme| {
+                                                    let mut style = text::Style::default();
+                                                    style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                    style
+                                                }
+                                            ).width(Length::Fill)
+                                        ].width(Length::Fill),
+                                        toggler(self.show_off_listening_mode)
+                                            .on_toggle(move |is_enabled| {
+                                                Message::ShowOffListeningModeChanged(is_enabled)
+                                            })
+                                        .spacing(0)
+                                        .size(20)
+                                        ]
+                                            .align_y(Center)
+                                            .spacing(12)
+                                        )
+                                            .padding(Padding{
+                                                top: 5.0,
+                                                bottom: 5.0,
+                                                left: 18.0,
+                                                right: 18.0,
+                                            })
+                                            .style(
+                                                |theme: &Theme| {
+                                                    let mut style = container::Style::default();
+                                                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                    let mut border = Border::default();
+                                                    border.color = theme.palette().primary.scale_alpha(0.5);
+                                                    style.border = border.rounded(16);
+                                                    style
+                                                }
+                                            )
+                                        .align_y(Center)
                             ]
                             .spacing(12);
 

@@ -1,11 +1,11 @@
 use crate::bluetooth::aacp::{AACPManager, ControlCommandIdentifiers};
 use iced::Alignment::End;
 use iced::border::Radius;
-use iced::overlay::menu;
 use iced::widget::button::Style;
+use iced::widget::image;
 use iced::widget::rule::FillMode;
 use iced::widget::{
-    Space, button, column, combo_box, container, row, rule, scrollable, text, text_input, toggler,
+    Space, button, column, container, row, rule, scrollable, text, text_input, toggler,
 };
 use iced::{Background, Border, Center, Color, Length, Padding, Theme};
 use log::error;
@@ -14,8 +14,115 @@ use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
 // use crate::bluetooth::att::ATTManager;
-use crate::devices::enums::{AirPodsState, DeviceData, DeviceInformation, DeviceState};
+use crate::devices::enums::{
+    AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceInformation, DeviceState,
+};
 use crate::ui::window::Message;
+
+// Embed the listening mode icons at compile time from the Android assets
+const ICON_NOISE_CANCELLATION: &[u8] =
+    include_bytes!("../../assets/icons/noise_cancellation.png");
+const ICON_TRANSPARENCY: &[u8] = include_bytes!("../../assets/icons/transparency.png");
+const ICON_ADAPTIVE: &[u8] = include_bytes!("../../assets/icons/adaptive.png");
+
+/// Build a single segmented button for a listening mode.
+fn listening_mode_button<'a>(
+    mode: AirPodsNoiseControlMode,
+    is_selected: bool,
+    icon_bytes: Option<&'static [u8]>,
+    label: &'a str,
+    mac: String,
+    state: AirPodsState,
+    aacp_manager: Arc<AACPManager>,
+) -> iced::Element<'a, Message> {
+    let icon_element: iced::Element<'a, Message> = if let Some(bytes) = icon_bytes {
+        image(image::Handle::from_bytes(bytes))
+            .width(28)
+            .height(28)
+            .into()
+    } else {
+        // "Off" mode uses a unicode power symbol instead of a PNG icon
+        text("\u{23FB}")
+            .size(22)
+            .align_x(Center)
+            .style(move |theme: &Theme| {
+                let mut style = text::Style::default();
+                style.color = Some(if is_selected {
+                    theme.palette().primary
+                } else {
+                    theme.palette().text.scale_alpha(0.6)
+                });
+                style
+            })
+            .into()
+    };
+
+    let label_text = text(label).size(11).align_x(Center).style(
+        move |theme: &Theme| {
+            let mut style = text::Style::default();
+            style.color = Some(if is_selected {
+                theme.palette().primary
+            } else {
+                theme.palette().text.scale_alpha(0.7)
+            });
+            style
+        },
+    );
+
+    let content = column![icon_element, label_text]
+        .spacing(4)
+        .align_x(Center)
+        .width(Length::Fill);
+
+    let mode_clone = mode.clone();
+    button(content)
+        .padding(Padding {
+            top: 10.0,
+            bottom: 8.0,
+            left: 4.0,
+            right: 4.0,
+        })
+        .width(Length::Fill)
+        .style(move |theme: &Theme, _status| {
+            let mut style = Style::default();
+            if is_selected {
+                style.background =
+                    Some(Background::Color(theme.palette().primary.scale_alpha(0.15)));
+                style.border = Border {
+                    width: 1.5,
+                    color: theme.palette().primary.scale_alpha(0.5),
+                    radius: Radius::from(12.0),
+                };
+            } else {
+                style.background = Some(Background::Color(Color::TRANSPARENT));
+                style.border = Border {
+                    width: 1.0,
+                    color: theme.palette().text.scale_alpha(0.1),
+                    radius: Radius::from(12.0),
+                };
+            }
+            style.text_color = theme.palette().text;
+            style
+        })
+        .on_press({
+            let aacp_manager = aacp_manager.clone();
+            let mode_byte = mode_clone.to_byte();
+            let selected_mode = mode.clone();
+            run_async_in_thread(async move {
+                aacp_manager
+                    .send_control_command(
+                        ControlCommandIdentifiers::ListeningMode,
+                        &[mode_byte],
+                    )
+                    .await
+                    .expect("Failed to send Noise Control Mode command");
+            });
+            let mut new_state = state.clone();
+            new_state.noise_control_mode = selected_mode;
+            Message::StateChanged(mac, DeviceState::AirPods(new_state))
+        })
+        .into()
+}
 
 pub fn airpods_view<'a>(
     mac: &'a str,
@@ -24,6 +131,7 @@ pub fn airpods_view<'a>(
     aacp_manager: Arc<AACPManager>,
     show_serials: bool,
     show_device_info: bool,
+    show_off_listening_mode: bool,
     // att_manager: Arc<ATTManager>
 ) -> iced::widget::Container<'a, Message> {
     let mac = mac.to_string();
@@ -94,92 +202,92 @@ pub fn airpods_view<'a>(
         style
     });
 
+    // --- Segmented listening mode control ---
+    let mut mode_buttons: Vec<iced::Element<'a, Message>> = Vec::new();
+
+    // Conditionally include "Off" based on allow_off_mode (from device) AND show_off_listening_mode (from settings)
+    if state.allow_off_mode && show_off_listening_mode {
+        mode_buttons.push(listening_mode_button(
+            AirPodsNoiseControlMode::Off,
+            state.noise_control_mode == AirPodsNoiseControlMode::Off,
+            None,
+            "Off",
+            mac.clone(),
+            state.clone(),
+            aacp_manager.clone(),
+        ));
+    }
+
+    mode_buttons.push(listening_mode_button(
+        AirPodsNoiseControlMode::NoiseCancellation,
+        state.noise_control_mode == AirPodsNoiseControlMode::NoiseCancellation,
+        Some(ICON_NOISE_CANCELLATION),
+        "Noise Cancel",
+        mac.clone(),
+        state.clone(),
+        aacp_manager.clone(),
+    ));
+
+    mode_buttons.push(listening_mode_button(
+        AirPodsNoiseControlMode::Transparency,
+        state.noise_control_mode == AirPodsNoiseControlMode::Transparency,
+        Some(ICON_TRANSPARENCY),
+        "Transparency",
+        mac.clone(),
+        state.clone(),
+        aacp_manager.clone(),
+    ));
+
+    mode_buttons.push(listening_mode_button(
+        AirPodsNoiseControlMode::Adaptive,
+        state.noise_control_mode == AirPodsNoiseControlMode::Adaptive,
+        Some(ICON_ADAPTIVE),
+        "Adaptive",
+        mac.clone(),
+        state.clone(),
+        aacp_manager.clone(),
+    ));
+
     let listening_mode = container(
-        row![
-            text("Listening Mode").size(16).style(|theme: &Theme| {
-                let mut style = text::Style::default();
-                style.color = Some(theme.palette().text);
-                style
+        column![
+            container(
+                text("Listening Mode").size(18).style(|theme: &Theme| {
+                    let mut style = text::Style::default();
+                    style.color = Some(theme.palette().primary);
+                    style
+                })
+            )
+            .padding(Padding {
+                top: 0.0,
+                bottom: 4.0,
+                left: 4.0,
+                right: 4.0,
             }),
-            Space::new().width(Length::Fill),
-            {
-                let state_clone = state.clone();
-                let mac = mac.clone();
-                // this combo_box doesn't go really well with the design, but I am not writing my own dropdown menu for this
-                combo_box(
-                    &state.noise_control_state,
-                    "Select Listening Mode",
-                    Some(&state.noise_control_mode.clone()),
-                    {
-                        let aacp_manager = aacp_manager.clone();
-                        move |selected_mode| {
-                            let aacp_manager = aacp_manager.clone();
-                            let selected_mode_c = selected_mode.clone();
-                            run_async_in_thread(async move {
-                                aacp_manager
-                                    .send_control_command(
-                                        ControlCommandIdentifiers::ListeningMode,
-                                        &[selected_mode_c.to_byte()],
-                                    )
-                                    .await
-                                    .expect("Failed to send Noise Control Mode command");
-                            });
-                            let mut state = state_clone.clone();
-                            state.noise_control_mode = selected_mode.clone();
-                            Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
-                        }
-                    },
-                )
-                .width(Length::from(200))
-                .input_style(|theme: &Theme, _status| text_input::Style {
-                    background: Background::Color(theme.palette().primary.scale_alpha(0.2)),
-                    border: Border {
-                        width: 1.0,
-                        color: theme.palette().text.scale_alpha(0.3),
-                        radius: Radius::from(4.0),
-                    },
-                    icon: Default::default(),
-                    placeholder: theme.palette().text,
-                    value: theme.palette().text,
-                    selection: Default::default(),
-                })
-                .padding(Padding {
-                    top: 5.0,
-                    bottom: 5.0,
-                    left: 10.0,
-                    right: 10.0,
-                })
-                .menu_style(|theme: &Theme| menu::Style {
-                    background: Background::Color(theme.palette().background),
-                    border: Border {
-                        width: 1.0,
-                        color: theme.palette().text,
-                        radius: Radius::from(4.0),
-                    },
-                    text_color: theme.palette().text,
-                    selected_text_color: theme.palette().text,
-                    selected_background: Background::Color(
-                        theme.palette().primary.scale_alpha(0.3),
-                    ),
-                    shadow: Default::default()
-                })
-            }
+            container(
+                row(mode_buttons).spacing(6)
+            )
+            .padding(Padding {
+                top: 4.0,
+                bottom: 4.0,
+                left: 4.0,
+                right: 4.0,
+            })
+            .style(|theme: &Theme| {
+                let mut style = container::Style::default();
+                style.background =
+                    Some(Background::Color(theme.palette().primary.scale_alpha(0.05)));
+                let mut border = Border::default();
+                border.color = theme.palette().primary.scale_alpha(0.3);
+                style.border = border.rounded(16);
+                style
+            })
         ]
-        .align_y(Center),
     )
     .padding(Padding {
         top: 5.0,
         bottom: 5.0,
-        left: 18.0,
-        right: 18.0,
-    })
-    .style(|theme: &Theme| {
-        let mut style = container::Style::default();
-        style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-        let mut border = Border::default();
-        border.color = theme.palette().primary.scale_alpha(0.5);
-        style.border = border.rounded(16);
-        style
+        left: 14.0,
+        right: 14.0,
     });
 
     let mac_audio = mac.clone();
@@ -310,59 +418,6 @@ pub fn airpods_view<'a>(
             }
         )
     ];
-
-    let off_listening_mode_toggle = {
-        let aacp_manager_olm = aacp_manager.clone();
-        let mac = mac.clone();
-        container(row![
-            column![
-                text("Off Listening Mode").size(16),
-                text("When this is on, AirPods listening modes will include an Off option. Loud sound levels are not reduced when listening mode is set to Off.").size(12).style(
-                    |theme: &Theme| {
-                        let mut style = text::Style::default();
-                        style.color = Some(theme.palette().text.scale_alpha(0.7));
-                        style
-                    }
-                ).width(Length::Fill)
-            ].width(Length::Fill),
-            toggler(state.allow_off_mode)
-                .on_toggle(move |is_enabled| {
-                    let aacp_manager = aacp_manager_olm.clone();
-                    run_async_in_thread(
-                        async move {
-                            aacp_manager.send_control_command(
-                                ControlCommandIdentifiers::AllowOffOption,
-                                if is_enabled { &[0x01] } else { &[0x02] }
-                            ).await.expect("Failed to send Off Listening Mode command");
-                        }
-                    );
-                    let mut state = state.clone();
-                    state.allow_off_mode = is_enabled;
-                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
-                })
-            .spacing(0)
-            .size(20)
-        ]
-            .align_y(Center)
-            .spacing(8)
-        )
-            .padding(Padding{
-                top: 5.0,
-                bottom: 5.0,
-                left: 18.0,
-                right: 18.0,
-            })
-            .style(
-                |theme: &Theme| {
-                    let mut style = container::Style::default();
-                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                    let mut border = Border::default();
-                    border.color = theme.palette().primary.scale_alpha(0.5);
-                    style.border = border.rounded(16);
-                    style
-                }
-            )
-    };
 
     let mut information_col = column![];
     if let Some(device) = devices_list.get(mac_information.as_str()) {
@@ -553,8 +608,6 @@ pub fn airpods_view<'a>(
         listening_mode,
         Space::new().height(Length::from(20)),
         audio_settings_col,
-        Space::new().height(Length::from(20)),
-        off_listening_mode_toggle,
         Space::new().height(Length::from(20)),
         information_col
     ])
