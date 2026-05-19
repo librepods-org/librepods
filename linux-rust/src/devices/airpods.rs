@@ -412,3 +412,24 @@ pub struct AirPodsInformation {
     pub version3: String,
     pub le_keys: AirPodsLEKeys,
 }
+
+impl AirPodsInformation {
+    /// Returns a friendly model name for the raw model number, if known.
+    /// Mapping ported from linux/enums.h parseModelNumber().
+    /// Source: https://support.apple.com/en-us/109525
+    pub fn friendly_model_name(&self) -> Option<&'static str> {
+        match self.model_number.as_str() {
+            "A1523" | "A1722" => Some("AirPods 1st Gen"),
+            "A2032" | "A2031" => Some("AirPods 2nd Gen"),
+            "A2564" | "A2565" => Some("AirPods 3rd Gen"),
+            "A3053" | "A3050" | "A3054" => Some("AirPods 4"),
+            "A3055" | "A3056" | "A3057" => Some("AirPods 4 ANC"),
+            "A2083" | "A2084" => Some("AirPods Pro"),
+            "A2698" | "A2699" | "A2931" => Some("AirPods Pro 2"),
+            "A3047" | "A3048" | "A3049" => Some("AirPods Pro 2 USB-C"),
+            "A2096" => Some("AirPods Max"),
+            "A3184" => Some("AirPods Max USB-C"),
+            _ => None,
+        }
+    }
+}

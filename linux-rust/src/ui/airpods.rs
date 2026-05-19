@@ -406,7 +406,10 @@ pub fn airpods_view<'a>(
                             style
                         }),
                         Space::new().width(Length::Fill),
-                        text(airpods_info.model_number.clone()).size(16)
+                        text(match airpods_info.friendly_model_name() {
+                            Some(name) => format!("{} ({})", airpods_info.model_number, name),
+                            None => airpods_info.model_number.clone(),
+                        }).size(16)
                     ],
                     row![
                         text("Manufacturer").size(16).style(|theme: &Theme| {
