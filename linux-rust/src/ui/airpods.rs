@@ -32,8 +32,6 @@ fn listening_mode_button<'a>(
     icon_bytes: Option<&'static [u8]>,
     label: &'a str,
     mac: String,
-    state: AirPodsState,
-    aacp_manager: Arc<AACPManager>,
 ) -> iced::Element<'a, Message> {
     let icon_element: iced::Element<'a, Message> = if let Some(bytes) = icon_bytes {
         image(image::Handle::from_bytes(bytes))
@@ -74,7 +72,6 @@ fn listening_mode_button<'a>(
         .align_x(Center)
         .width(Length::Fill);
 
-    let mode_clone = mode.clone();
     button(content)
         .padding(Padding {
             top: 10.0,
@@ -104,23 +101,8 @@ fn listening_mode_button<'a>(
             style.text_color = theme.palette().text;
             style
         })
-        .on_press({
-            let aacp_manager = aacp_manager.clone();
-            let mode_byte = mode_clone.to_byte();
-            let selected_mode = mode.clone();
-            run_async_in_thread(async move {
-                aacp_manager
-                    .send_control_command(
-                        ControlCommandIdentifiers::ListeningMode,
-                        &[mode_byte],
-                    )
-                    .await
-                    .expect("Failed to send Noise Control Mode command");
-            });
-            let mut new_state = state.clone();
-            new_state.noise_control_mode = selected_mode;
-            Message::StateChanged(mac, DeviceState::AirPods(new_state))
-        })
+        // Only send a message — side effects (AACP command) are handled in update()
+        .on_press(Message::SetListeningMode(mac, mode))
         .into()
 }
 
@@ -205,16 +187,14 @@ pub fn airpods_view<'a>(
     // --- Segmented listening mode control ---
     let mut mode_buttons: Vec<iced::Element<'a, Message>> = Vec::new();
 
-    // Conditionally include "Off" based on allow_off_mode (from device) AND show_off_listening_mode (from settings)
-    if state.allow_off_mode && show_off_listening_mode {
+    // Conditionally include "Off" based on the app setting
+    if show_off_listening_mode {
         mode_buttons.push(listening_mode_button(
             AirPodsNoiseControlMode::Off,
             state.noise_control_mode == AirPodsNoiseControlMode::Off,
             None,
             "Off",
             mac.clone(),
-            state.clone(),
-            aacp_manager.clone(),
         ));
     }
 
@@ -224,8 +204,6 @@ pub fn airpods_view<'a>(
         Some(ICON_NOISE_CANCELLATION),
         "Noise Cancel",
         mac.clone(),
-        state.clone(),
-        aacp_manager.clone(),
     ));
 
     mode_buttons.push(listening_mode_button(
@@ -234,8 +212,6 @@ pub fn airpods_view<'a>(
         Some(ICON_TRANSPARENCY),
         "Transparency",
         mac.clone(),
-        state.clone(),
-        aacp_manager.clone(),
     ));
 
     mode_buttons.push(listening_mode_button(
@@ -244,8 +220,6 @@ pub fn airpods_view<'a>(
         Some(ICON_ADAPTIVE),
         "Adaptive",
         mac.clone(),
-        state.clone(),
-        aacp_manager.clone(),
     ));
 
     let listening_mode = container(

@@ -117,6 +117,7 @@ pub enum Message {
     ConnectDevice(String),
     ConnectResult(String, bool),
     ShowOffListeningModeChanged(bool),
+    SetListeningMode(String, AirPodsNoiseControlMode),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -686,6 +687,32 @@ impl App {
             }
             Message::ConnectResult(mac, _success) => {
                 self.connecting_devices.remove(&mac);
+                Task::none()
+            }
+            Message::SetListeningMode(mac, mode) => {
+                // Send the AACP command to change the listening mode
+                let device_managers = self.device_managers.blocking_read();
+                if let Some(managers) = device_managers.get(&mac) {
+                    if let Some(aacp_manager) = managers.get_aacp() {
+                        let mode_byte = mode.to_byte();
+                        let aacp = aacp_manager.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async move {
+                                if let Err(e) = aacp.send_control_command(
+                                    ControlCommandIdentifiers::ListeningMode,
+                                    &[mode_byte],
+                                ).await {
+                                    log::error!("Failed to send Noise Control Mode command: {}", e);
+                                }
+                            });
+                        });
+                    }
+                }
+                // Update the local UI state
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    state.noise_control_mode = mode;
+                }
                 Task::none()
             }
         }
