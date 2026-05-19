@@ -19,9 +19,9 @@ use iced::widget::{
     Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
     text_input, toggler
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
+use iced::{Background, Border, Center, Color, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
 use log::{debug, error};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -78,6 +78,7 @@ pub struct App {
     stem_control: bool,
     show_serials: bool,
     show_device_info: bool,
+    connecting_devices: HashSet<String>,
 }
 
 pub struct BluetoothState {
@@ -112,6 +113,8 @@ pub enum Message {
     StemControlChanged(bool),
     ToggleSerialVisibility,
     ToggleDeviceInfo,
+    ConnectDevice(String),
+    ConnectResult(String, bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -223,6 +226,7 @@ impl App {
                 stem_control,
                 show_serials: false,
                 show_device_info: false,
+                connecting_devices: HashSet::new(),
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -673,6 +677,25 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ConnectDevice(mac) => {
+                self.connecting_devices.insert(mac.clone());
+                Task::perform(
+                    async move {
+                        let output = tokio::process::Command::new("bluetoothctl")
+                            .arg("connect")
+                            .arg(&mac)
+                            .output()
+                            .await;
+                        let success = output.map(|o| o.status.success()).unwrap_or(false);
+                        (mac, success)
+                    },
+                    |(mac, success)| Message::ConnectResult(mac, success),
+                )
+            }
+            Message::ConnectResult(mac, _success) => {
+                self.connecting_devices.remove(&mac);
+                Task::none()
+            }
         }
     }
 
@@ -881,6 +904,62 @@ impl App {
                                 let device_type = devices_list.get(id).map(|d| d.type_.clone());
                                 let device_state = self.device_states.get(id);
                                 debug!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
+                                let is_connected = self.bluetooth_state.connected_devices.contains(id);
+                                let is_connecting = self.connecting_devices.contains(id);
+                                let device_name = devices_list.get(id).map(|d| d.name.clone()).unwrap_or_else(|| id.clone());
+
+                                if !is_connected && !is_connecting {
+                                    let id_clone = id.clone();
+                                    container(
+                                        column![
+                                            text("\u{1F3A7}").size(64),
+                                            Space::new().height(Length::from(16)),
+                                            text(device_name).size(22),
+                                            Space::new().height(Length::from(8)),
+                                            text("Not Connected").size(14).style(|theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.5));
+                                                style
+                                            }),
+                                            Space::new().height(Length::from(24)),
+                                            button(
+                                                container(
+                                                    text("Connect").size(15)
+                                                )
+                                                .padding(Padding { top: 8.0, bottom: 8.0, left: 24.0, right: 24.0 })
+                                            )
+                                            .style(|theme: &Theme, _status| {
+                                                let mut style = Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary));
+                                                style.text_color = Color::WHITE;
+                                                style.border = Border::default().rounded(10);
+                                                style
+                                            })
+                                            .padding(0)
+                                            .on_press(Message::ConnectDevice(id_clone))
+                                        ]
+                                        .align_x(iced::Alignment::Center)
+                                    )
+                                    .center_x(Length::Fill)
+                                    .center_y(Length::Fill)
+                                } else if is_connecting {
+                                    container(
+                                        column![
+                                            text("\u{1F3A7}").size(64),
+                                            Space::new().height(Length::from(16)),
+                                            text(device_name).size(22),
+                                            Space::new().height(Length::from(8)),
+                                            text("Connecting\u{2026}").size(14).style(|theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().primary);
+                                                style
+                                            }),
+                                        ]
+                                        .align_x(iced::Alignment::Center)
+                                    )
+                                    .center_x(Length::Fill)
+                                    .center_y(Length::Fill)
+                                } else {
                                 match device_type {
                                     Some(DeviceType::AirPods) => {
 
@@ -902,7 +981,7 @@ impl App {
                                             }
                                         }).unwrap_or_else(|| {
                                             container(
-                                                text("Required managers or state not available for this AirPods device").size(16)
+                                                text("Loading device...").size(16)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
@@ -914,24 +993,22 @@ impl App {
                                                 if let Some(att_manager) = device_managers.get_att() {
                                                     nothing_view(id, &devices_list, state, att_manager.clone(), self.show_serials, self.show_device_info)
                                                 } else {
-                                                    error!("No ATT manager found for Nothing device {}", id);
                                                     container(
-                                                        text("No valid ATT manager found for this Nothing device").size(16)
+                                                        text("Loading device...").size(16)
                                                     )
                                                         .center_x(Length::Fill)
                                                         .center_y(Length::Fill)
                                                 }
                                             } else {
-                                                error!("No manager found for Nothing device {}", id);
                                                 container(
-                                                    text("No manager found for this Nothing device").size(16)
+                                                    text("Loading device...").size(16)
                                                 )
                                                     .center_x(Length::Fill)
                                                     .center_y(Length::Fill)
                                             }
                                         } else {
                                             container(
-                                                text("No state available for this Nothing device").size(16)
+                                                text("Loading device...").size(16)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
@@ -942,6 +1019,7 @@ impl App {
                                             .center_x(Length::Fill)
                                             .center_y(Length::Fill)
                                     }
+                                }
                                 }
                             }
                         }
