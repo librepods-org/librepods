@@ -74,7 +74,8 @@ data class AirPodsUiState(
     val version3: String = "",
 
     val headTrackingActive: Boolean = false,
-    val headGesturesEnabled: Boolean = true,
+    val headGesturesAnswerCall: Boolean = true,
+    val headGesturesMuteCall: Boolean = true,
 
     val eqData: FloatArray = floatArrayOf(),
 
@@ -177,7 +178,8 @@ class AirPodsViewModel(
                         ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG,
                         false
                     )
-                    setHeadGesturesEnabled(false)
+                    setHeadGesturesAnswerCall(false)
+                    setHeadGesturesMuteCall(false)
                 }
                 _uiState.update { it.copy(isPremium = premium) }
             }
@@ -340,7 +342,8 @@ class AirPodsViewModel(
             sharedPreferences.getBoolean("automatic_ear_detection", true)
         val automaticConnectionEnabled =
             sharedPreferences.getBoolean("automatic_connection_ctrl_cmd", true)
-        val headGesturesEnabled = sharedPreferences.getBoolean("head_gestures", true)
+        val headGesturesAnswerCall = sharedPreferences.getBoolean("head_gestures_answer_call", true)
+        val headGesturesMuteCall = sharedPreferences.getBoolean("head_gestures_mute_call", true)
         val leftAction = StemAction.valueOf(
             sharedPreferences.getString(
                 "left_long_press_action",
@@ -363,7 +366,8 @@ class AirPodsViewModel(
                 offListeningMode = offListeningModeEnabled,
                 automaticEarDetectionEnabled = automaticEarDetectionEnabled,
                 automaticConnectionEnabled = automaticConnectionEnabled,
-                headGesturesEnabled = headGesturesEnabled,
+                headGesturesAnswerCall = headGesturesAnswerCall,
+                headGesturesMuteCall = headGesturesMuteCall,
                 leftAction = leftAction,
                 rightAction = rightAction,
                 vendorIdHook = vendorIdHook,
@@ -381,10 +385,17 @@ class AirPodsViewModel(
         }
     }
 
-    fun setHeadGesturesEnabled(enabled: Boolean) {
-        sharedPreferences.edit { putBoolean("head_gestures", enabled) }
+    fun setHeadGesturesAnswerCall(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean("head_gestures_answer_call", enabled) }
         _uiState.update {
-            it.copy(headGesturesEnabled = enabled)
+            it.copy(headGesturesAnswerCall = enabled)
+        }
+    }
+
+    fun setHeadGesturesMuteCall(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean("head_gestures_mute_call", enabled) }
+        _uiState.update {
+            it.copy(headGesturesMuteCall = enabled)
         }
     }
 
