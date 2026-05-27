@@ -25,7 +25,8 @@ enum class StemAction {
     PREVIOUS_TRACK,
     NEXT_TRACK,
     DIGITAL_ASSISTANT,
-    CYCLE_NOISE_CONTROL_MODES;
+    CYCLE_NOISE_CONTROL_MODES,
+    MUTE_CALL;
     companion object {
         fun fromString(action: String): StemAction? {
             return entries.find { it.name == action }

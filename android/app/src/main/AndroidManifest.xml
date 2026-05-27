@@ -113,6 +113,16 @@
             android:foregroundServiceType="connectedDevice"
             android:permission="android.permission.BLUETOOTH_CONNECT" />
         <service
+            android:name=".services.TeamsNotifListener"
+            android:exported="true"
+            android:label="LibrePods Teams Mute Sync"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".services.AirPodsQSService"
             android:exported="true"
             android:icon="@drawable/airpods"

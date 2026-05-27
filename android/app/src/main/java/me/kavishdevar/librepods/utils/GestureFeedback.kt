@@ -162,6 +162,11 @@ class GestureFeedback(context: Context) {
         }
     }
 
+    fun playMuteReminder() {
+        if (!soundsLoaded.get()) return
+        soundPool.play(confirmNoId, 0.2f, 0.2f, 1, 0, 1.0f)
+    }
+
     fun playConfirmation(isYes: Boolean) {
         if (currentHorizontalStreamId > 0) {
             soundPool.stop(currentHorizontalStreamId)

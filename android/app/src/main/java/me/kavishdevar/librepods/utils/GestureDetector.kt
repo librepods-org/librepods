@@ -45,8 +45,8 @@ class GestureDetector(
     companion object {
         private const val TAG = "GestureDetector"
 
-        private const val IMMEDIATE_FEEDBACK_THRESHOLD = 600
-        private const val DIRECTION_CHANGE_SENSITIVITY = 150
+        private const val IMMEDIATE_FEEDBACK_THRESHOLD = 400
+        private const val DIRECTION_CHANGE_SENSITIVITY = 80
 
         private const val FAST_MOVEMENT_THRESHOLD = 300.0
         private const val MIN_REQUIRED_EXTREMES = 3
@@ -78,14 +78,15 @@ class GestureDetector(
 
     private val peakThreshold = 400
     private val directionChangeThreshold = DIRECTION_CHANGE_SENSITIVITY
-    private val rhythmConsistencyThreshold = 0.5
+    private val rhythmConsistencyThreshold = 0.8
 
     private var horizontalIncreasing: Boolean? = null
     private var verticalIncreasing: Boolean? = null
 
-    private val minConfidenceThreshold = 0.7
+    private val minConfidenceThreshold = 0.6
 
-    private var isRunning = false
+    var isRunning = false
+        private set
     private var detectionJob: Job? = null
     private var gestureDetectedCallback: ((Boolean) -> Unit)? = null
 
@@ -119,9 +120,11 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
                 if (gesture != null) {
                     withContext(Dispatchers.Main) {
                         audio.playConfirmation(gesture)
-
-                        gestureDetectedCallback?.invoke(gesture)
+                        // Save callback before stopDetection clears it, then stop first so
+                        // isRunning=false when the callback tries to restart detection.
+                        val cb = gestureDetectedCallback
                         stopDetection(doNotStop)
+                        cb?.invoke(gesture)
                     }
                     break
                 }
@@ -157,24 +160,9 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
         val significantVertical = abs(verticalDelta) > IMMEDIATE_FEEDBACK_THRESHOLD
 
         if (significantHorizontal && (!significantVertical || abs(horizontalDelta) > abs(verticalDelta))) {
-            CoroutineScope(Dispatchers.Main).launch {
-                audio.playDirectional(isVertical = false, value = horizontalDelta)
-            }
-            significantMotion = true
-            lastSignificantMotionTime = System.currentTimeMillis()
             Log.d(TAG, "Significant HORIZONTAL movement: $horizontalDelta")
-        }
-        else if (significantVertical) {
-            CoroutineScope(Dispatchers.Main).launch {
-                audio.playDirectional(isVertical = true, value = verticalDelta)
-            }
-            significantMotion = true
-            lastSignificantMotionTime = System.currentTimeMillis()
+        } else if (significantVertical) {
             Log.d(TAG, "Significant VERTICAL movement: $verticalDelta")
-        }
-        else if (significantMotion &&
-                 (System.currentTimeMillis() - lastSignificantMotionTime) > 300) {
-            significantMotion = false
         }
 
         prevHorizontal = horizontal.toDouble()
@@ -248,6 +236,7 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
         val now = System.currentTimeMillis()
 
         if (increasing && current < prev - dynamicThreshold) {
+            Log.d(TAG, "Direction change (peak): prev=$prev abs=${abs(prev)} threshold=$peakThreshold accepted=${abs(prev) > peakThreshold}")
             if (abs(prev) > peakThreshold) {
                 peaks.add(Triple(buffer.size - 1, prev, now))
                 if (lastPeakTime > 0) {
@@ -268,6 +257,7 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
             }
             increasing = false
         } else if (!increasing && current > prev + dynamicThreshold) {
+            Log.d(TAG, "Direction change (trough): prev=$prev abs=${abs(prev)} threshold=$peakThreshold accepted=${abs(prev) > peakThreshold}")
             if (abs(prev) > peakThreshold) {
                 troughs.add(Triple(buffer.size - 1, prev, now))
 
@@ -365,7 +355,7 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
 
     private fun detectGestures(): Boolean? {
         val requiredExtremes = getRequiredExtremes()
-        Log.d(TAG, "Current required extremes: $requiredExtremes")
+        Log.d(TAG, "Current required extremes: $requiredExtremes, vPeaks=${verticalPeaks.size} vTroughs=${verticalTroughs.size} hPeaks=${horizontalPeaks.size} hTroughs=${horizontalTroughs.size}")
 
         if (verticalPeaks.size + verticalTroughs.size >= requiredExtremes) {
             val allExtremes = (verticalPeaks + verticalTroughs).sortedBy { it.first }
