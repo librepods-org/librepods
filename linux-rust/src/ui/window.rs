@@ -3,8 +3,8 @@ use crate::bluetooth::aacp::{
 };
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::{
-    AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceState, DeviceType, NothingAncMode,
-    NothingState,
+    AirPodsModel, AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceInformation, DeviceState,
+    DeviceType, NothingAncMode, NothingState,
 };
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
@@ -348,7 +348,7 @@ impl App {
                                 let aacp_manager_state = aacp_manager.state.clone();
                                 let state = aacp_manager_state.blocking_lock();
                                 debug!("AACP manager found for AirPods device {}", mac);
-                                let device_name = {
+                                let (device_name, model) = {
                                     let devices_json = std::fs::read_to_string(get_devices_path())
                                         .unwrap_or_else(|e| {
                                             error!("Failed to read devices file: {}", e);
@@ -359,13 +359,26 @@ impl App {
                                             error!("Deserialization failed: {}", e);
                                             HashMap::new()
                                         });
-                                    devices_list
+                                    let name = devices_list
                                         .get(&mac)
                                         .map(|d| d.name.clone())
-                                        .unwrap_or_else(|| "Unknown Device".to_string())
+                                        .unwrap_or_else(|| "Unknown Device".to_string());
+                                    let model = devices_list
+                                        .get(&mac)
+                                        .and_then(|d| d.information.as_ref())
+                                        .and_then(|info| {
+                                            if let DeviceInformation::AirPods(ap) = info {
+                                                Some(AirPodsModel::from_model_number(&ap.model_number))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .unwrap_or(AirPodsModel::Unknown);
+                                    (name, model)
                                 };
                                 self.device_states.insert(mac.clone(), DeviceState::AirPods(AirPodsState {
                                     device_name,
+                                    model,
                                     battery: state.battery_info.clone(),
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
                                         if status.identifier == ControlCommandIdentifiers::ListeningMode {

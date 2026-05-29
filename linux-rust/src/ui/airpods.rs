@@ -1,4 +1,4 @@
-use crate::bluetooth::aacp::{AACPManager, ControlCommandIdentifiers};
+use crate::bluetooth::aacp::{AACPManager, BatteryComponent, BatteryStatus, ControlCommandIdentifiers};
 use iced::Alignment::End;
 use iced::border::Radius;
 use iced::widget::button::Style;
@@ -24,6 +24,235 @@ const ICON_NOISE_CANCELLATION: &[u8] =
     include_bytes!("../../assets/icons/noise_cancellation.png");
 const ICON_TRANSPARENCY: &[u8] = include_bytes!("../../assets/icons/transparency.png");
 const ICON_ADAPTIVE: &[u8] = include_bytes!("../../assets/icons/adaptive.png");
+
+// Embed device images at compile time from the legacy Qt assets
+const IMG_POD: &[u8] = include_bytes!("../../assets/devices/pod.png");
+const IMG_POD_CASE: &[u8] = include_bytes!("../../assets/devices/pod_case.png");
+const IMG_POD3: &[u8] = include_bytes!("../../assets/devices/pod3.png");
+const IMG_POD3_CASE: &[u8] = include_bytes!("../../assets/devices/pod3_case.png");
+const IMG_POD4_CASE: &[u8] = include_bytes!("../../assets/devices/pod4_case.png");
+const IMG_PODPRO: &[u8] = include_bytes!("../../assets/devices/podpro.png");
+const IMG_PODPRO_CASE: &[u8] = include_bytes!("../../assets/devices/podpro_case.png");
+const IMG_PODMAX: &[u8] = include_bytes!("../../assets/devices/podmax.png");
+
+/// Get the embedded bytes for a device image filename.
+fn device_image_bytes(filename: &str) -> &'static [u8] {
+    match filename {
+        "pod.png" => IMG_POD,
+        "pod_case.png" => IMG_POD_CASE,
+        "pod3.png" => IMG_POD3,
+        "pod3_case.png" => IMG_POD3_CASE,
+        "pod4_case.png" => IMG_POD4_CASE,
+        "podpro.png" => IMG_PODPRO,
+        "podpro_case.png" => IMG_PODPRO_CASE,
+        "podmax.png" => IMG_PODMAX,
+        _ => IMG_POD,
+    }
+}
+
+/// Battery level color: green >50%, yellow 20-50%, red <20%.
+fn battery_color(level: u8) -> Color {
+    if level <= 20 {
+        Color::from_rgb(1.0, 0.27, 0.23) // #FF453A — red
+    } else if level <= 50 {
+        Color::from_rgb(1.0, 0.84, 0.04) // #FFD60A — yellow
+    } else {
+        Color::from_rgb(0.19, 0.82, 0.35) // #30D158 — green
+    }
+}
+
+/// Build a single battery column: device image + battery bar + percentage.
+fn battery_column<'a>(
+    img_bytes: &'static [u8],
+    label: &'a str,
+    level: Option<u8>,
+    status: Option<BatteryStatus>,
+    img_width: f32,
+) -> iced::Element<'a, Message> {
+    let is_disconnected = status == Some(BatteryStatus::Disconnected);
+    let is_charging = status == Some(BatteryStatus::Charging);
+    let opacity = if is_disconnected { 0.35 } else { 1.0 };
+
+    let device_img = container(
+        image(image::Handle::from_bytes(img_bytes))
+            .width(Length::Fixed(img_width))
+    )
+    .center_x(Length::Fill);
+
+    // Bar width and height constants
+    let bar_total_width = 80.0_f32;
+    let bar_height = 8.0_f32;
+
+    let bar_and_text: iced::Element<'a, Message> = if is_disconnected {
+        // Disconnected: show empty dimmed bar + label with "–"
+        column![
+            // Empty dimmed battery bar
+            container(Space::new())
+                .width(Length::Fixed(bar_total_width))
+                .height(bar_height)
+                .style(move |theme: &Theme| {
+                    let mut s = container::Style::default();
+                    s.background = Some(Background::Color(
+                        theme.palette().text.scale_alpha(0.08),
+                    ));
+                    s.border = Border::default().rounded(4);
+                    s
+                }),
+            // Label + "–"
+            row![
+                text(label).size(12).style(move |theme: &Theme| {
+                    let mut s = text::Style::default();
+                    s.color = Some(theme.palette().text.scale_alpha(0.35));
+                    s
+                }),
+                Space::new().width(Length::Fill),
+                text("–").size(14).style(move |theme: &Theme| {
+                    let mut s = text::Style::default();
+                    s.color = Some(theme.palette().text.scale_alpha(0.35));
+                    s
+                })
+            ]
+            .width(Length::Fixed(bar_total_width))
+            .align_y(Center)
+        ]
+        .spacing(4)
+        .align_x(iced::Alignment::Center)
+        .into()
+    } else if let Some(lvl) = level {
+        let color = battery_color(lvl);
+        let bar_fill = (lvl as f32 / 100.0).clamp(0.02, 1.0);
+
+        let charging_indicator: iced::Element<'a, Message> = if is_charging {
+            text(" ⚡").size(12).style(move |_theme: &Theme| {
+                let mut s = text::Style::default();
+                s.color = Some(Color::from_rgb(0.19, 0.82, 0.35));
+                s
+            }).into()
+        } else {
+            Space::new().into()
+        };
+
+        column![
+            // Battery bar
+            container(
+                container(Space::new())
+                    .width(Length::FillPortion((bar_fill * 100.0) as u16))
+                    .height(bar_height)
+                    .style(move |_theme: &Theme| {
+                        let mut s = container::Style::default();
+                        s.background = Some(Background::Color(color));
+                        s.border = Border::default().rounded(4);
+                        s
+                    })
+            )
+            .width(Length::Fixed(bar_total_width))
+            .height(bar_height)
+            .style(move |theme: &Theme| {
+                let mut s = container::Style::default();
+                s.background = Some(Background::Color(
+                    theme.palette().text.scale_alpha(0.1),
+                ));
+                s.border = Border::default().rounded(4);
+                s
+            }),
+            // Label + percentage
+            row![
+                text(label).size(12).style(move |theme: &Theme| {
+                    let mut s = text::Style::default();
+                    s.color = Some(theme.palette().text.scale_alpha(0.55));
+                    s
+                }),
+                Space::new().width(Length::Fill),
+                text(format!("{}%", lvl)).size(14),
+                charging_indicator
+            ]
+            .width(Length::Fixed(bar_total_width))
+            .align_y(Center)
+        ]
+        .spacing(4)
+        .align_x(iced::Alignment::Center)
+        .into()
+    } else {
+        Space::new().into()
+    };
+
+    container(
+        column![
+            device_img,
+            Space::new().height(8),
+            bar_and_text
+        ]
+        .align_x(iced::Alignment::Center)
+    )
+    .style(move |_theme: &Theme| {
+        let mut s = container::Style::default();
+        s.text_color = Some(Color::WHITE.scale_alpha(opacity));
+        s
+    })
+    .center_x(Length::Fill)
+    .into()
+}
+
+/// Build the full battery view section with device images and battery indicators.
+fn battery_view<'a>(state: &'a AirPodsState) -> iced::Element<'a, Message> {
+    let (bud_img_name, case_img_name) = state.model.device_images();
+    let bud_bytes = device_image_bytes(bud_img_name);
+    let case_bytes = device_image_bytes(case_img_name);
+
+    let battery = &state.battery;
+
+    // Check for headphone-only (AirPods Max)
+    let headphone = battery.iter().find(|b| b.component == BatteryComponent::Headphone);
+
+    if state.model.is_over_ear() || headphone.is_some() {
+        // AirPods Max: single headphone display
+        let hp = headphone;
+        let level = hp.map(|b| b.level);
+        let status = hp.map(|b| b.status);
+
+        container(
+            battery_column(bud_bytes, "", level, status, 80.0)
+        )
+        .center_x(Length::Fill)
+        .padding(Padding {
+            top: 12.0,
+            bottom: 12.0,
+            left: 20.0,
+            right: 20.0,
+        })
+        .into()
+    } else {
+        // Earbuds: L + R + Case
+        let left = battery.iter().find(|b| b.component == BatteryComponent::Left);
+        let right = battery.iter().find(|b| b.component == BatteryComponent::Right);
+        let case = battery.iter().find(|b| b.component == BatteryComponent::Case);
+
+        let left_level = left.map(|b| b.level);
+        let left_status = left.map(|b| b.status);
+        let right_level = right.map(|b| b.level);
+        let right_status = right.map(|b| b.status);
+        let case_level = case.map(|b| b.level);
+        let case_status = case.map(|b| b.status);
+
+        container(
+            row![
+                battery_column(bud_bytes, "L", left_level, left_status, 48.0),
+                battery_column(bud_bytes, "R", right_level, right_status, 48.0),
+                battery_column(case_bytes, "Case", case_level, case_status, 60.0)
+            ]
+            .spacing(24)
+            .align_y(iced::Alignment::End)
+        )
+        .center_x(Length::Fill)
+        .padding(Padding {
+            top: 12.0,
+            bottom: 12.0,
+            left: 20.0,
+            right: 20.0,
+        })
+        .into()
+    }
+}
 
 /// Build a single segmented button for a listening mode.
 fn listening_mode_button<'a>(
@@ -576,9 +805,14 @@ pub fn airpods_view<'a>(
         }
     }
 
+    // Battery view with device images
+    let battery_section = battery_view(state);
+
     let content = container(column![
         rename_input,
-        Space::new().height(Length::from(20)),
+        Space::new().height(Length::from(10)),
+        battery_section,
+        Space::new().height(Length::from(10)),
         listening_mode,
         Space::new().height(Length::from(20)),
         audio_settings_col,

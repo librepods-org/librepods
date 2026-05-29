@@ -52,6 +52,7 @@ impl Display for DeviceState {
 #[derive(Clone, Debug)]
 pub struct AirPodsState {
     pub device_name: String,
+    pub model: AirPodsModel,
     pub noise_control_mode: AirPodsNoiseControlMode,
     pub conversation_awareness_enabled: bool,
     pub personalized_volume_enabled: bool,
@@ -95,6 +96,69 @@ impl AirPodsNoiseControlMode {
             AirPodsNoiseControlMode::Transparency => 0x03,
             AirPodsNoiseControlMode::Adaptive => 0x04,
         }
+    }
+}
+
+/// AirPods hardware model, used for selecting correct device artwork.
+/// Mapping ported from linux/enums.h.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AirPodsModel {
+    Unknown,
+    AirPods1,
+    AirPods2,
+    AirPods3,
+    AirPods4,
+    AirPods4ANC,
+    AirPodsPro,
+    AirPodsPro2Lightning,
+    AirPodsPro2USBC,
+    AirPodsMaxLightning,
+    AirPodsMaxUSBC,
+}
+
+impl AirPodsModel {
+    /// Parse a raw model number string into an AirPodsModel.
+    /// Source: https://support.apple.com/en-us/109525
+    pub fn from_model_number(model_number: &str) -> Self {
+        match model_number {
+            "A1523" | "A1722" => AirPodsModel::AirPods1,
+            "A2032" | "A2031" => AirPodsModel::AirPods2,
+            "A2564" | "A2565" => AirPodsModel::AirPods3,
+            "A3053" | "A3050" | "A3054" => AirPodsModel::AirPods4,
+            "A3055" | "A3056" | "A3057" => AirPodsModel::AirPods4ANC,
+            "A2083" | "A2084" => AirPodsModel::AirPodsPro,
+            "A2698" | "A2699" | "A2931" => AirPodsModel::AirPodsPro2Lightning,
+            "A3047" | "A3048" | "A3049" => AirPodsModel::AirPodsPro2USBC,
+            "A2096" => AirPodsModel::AirPodsMaxLightning,
+            "A3184" => AirPodsModel::AirPodsMaxUSBC,
+            _ => AirPodsModel::Unknown,
+        }
+    }
+
+    /// Returns (bud_image_filename, case_image_filename) for this model.
+    /// Images are in `assets/devices/`.
+    pub fn device_images(&self) -> (&'static str, &'static str) {
+        match self {
+            AirPodsModel::AirPods1 | AirPodsModel::AirPods2 => ("pod.png", "pod_case.png"),
+            AirPodsModel::AirPods3 => ("pod3.png", "pod3_case.png"),
+            AirPodsModel::AirPods4 | AirPodsModel::AirPods4ANC => ("pod3.png", "pod4_case.png"),
+            AirPodsModel::AirPodsPro
+            | AirPodsModel::AirPodsPro2Lightning
+            | AirPodsModel::AirPodsPro2USBC => ("podpro.png", "podpro_case.png"),
+            AirPodsModel::AirPodsMaxLightning | AirPodsModel::AirPodsMaxUSBC => {
+                ("podmax.png", "podmax.png") // Max has no separate case image
+            }
+            AirPodsModel::Unknown => ("pod.png", "pod_case.png"),
+        }
+    }
+
+    /// Whether this model is an over-ear headphone (AirPods Max)
+    /// vs in-ear earbuds. Affects battery layout (single vs L/R/Case).
+    pub fn is_over_ear(&self) -> bool {
+        matches!(
+            self,
+            AirPodsModel::AirPodsMaxLightning | AirPodsModel::AirPodsMaxUSBC
+        )
     }
 }
 
