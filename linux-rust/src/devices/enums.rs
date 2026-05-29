@@ -79,13 +79,13 @@ impl Display for AirPodsNoiseControlMode {
 }
 
 impl AirPodsNoiseControlMode {
-    pub fn from_byte(value: &u8) -> Self {
+    pub fn from_byte(value: &u8) -> Option<Self> {
         match value {
-            0x01 => AirPodsNoiseControlMode::Off,
-            0x02 => AirPodsNoiseControlMode::NoiseCancellation,
-            0x03 => AirPodsNoiseControlMode::Transparency,
-            0x04 => AirPodsNoiseControlMode::Adaptive,
-            _ => AirPodsNoiseControlMode::Off,
+            0x01 => Some(AirPodsNoiseControlMode::Off),
+            0x02 => Some(AirPodsNoiseControlMode::NoiseCancellation),
+            0x03 => Some(AirPodsNoiseControlMode::Transparency),
+            0x04 => Some(AirPodsNoiseControlMode::Adaptive),
+            _ => None,
         }
     }
     pub fn to_byte(&self) -> u8 {

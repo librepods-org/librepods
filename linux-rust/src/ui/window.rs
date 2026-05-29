@@ -369,7 +369,7 @@ impl App {
                                     battery: state.battery_info.clone(),
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
                                         if status.identifier == ControlCommandIdentifiers::ListeningMode {
-                                            status.value.first().map(AirPodsNoiseControlMode::from_byte)
+                                            status.value.first().and_then(AirPodsNoiseControlMode::from_byte)
                                         } else {
                                             None
                                         }
@@ -434,15 +434,21 @@ impl App {
                         match event {
                             AACPEvent::ControlCommand(status) => match status.identifier {
                                 ControlCommandIdentifiers::ListeningMode => {
-                                    let mode = status
+                                    if let Some(mode) = status
                                         .value
                                         .first()
-                                        .map(AirPodsNoiseControlMode::from_byte)
-                                        .unwrap_or(AirPodsNoiseControlMode::Transparency);
-                                    if let Some(DeviceState::AirPods(state)) =
-                                        self.device_states.get_mut(&mac)
+                                        .and_then(AirPodsNoiseControlMode::from_byte)
                                     {
-                                        state.noise_control_mode = mode;
+                                        if let Some(DeviceState::AirPods(state)) =
+                                            self.device_states.get_mut(&mac)
+                                        {
+                                            state.noise_control_mode = mode;
+                                        }
+                                    } else {
+                                        log::warn!(
+                                            "Ignoring unknown ListeningMode value: {:?}",
+                                            status.value
+                                        );
                                     }
                                 }
                                 ControlCommandIdentifiers::ConversationDetectConfig => {
@@ -709,6 +715,7 @@ impl App {
                         });
                     }
                 }
+                drop(device_managers);
                 // Update the local UI state
                 if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
                     state.noise_control_mode = mode;

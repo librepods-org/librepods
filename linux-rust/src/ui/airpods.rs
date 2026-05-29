@@ -202,7 +202,7 @@ pub fn airpods_view<'a>(
         AirPodsNoiseControlMode::NoiseCancellation,
         state.noise_control_mode == AirPodsNoiseControlMode::NoiseCancellation,
         Some(ICON_NOISE_CANCELLATION),
-        "Noise Cancel",
+        "Noise Cancellation",
         mac.clone(),
     ));
 

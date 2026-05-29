@@ -148,7 +148,12 @@ impl ksni::Tray for MyTray {
                             .get(current)
                             .map(|&(_, val)| val)
                             .unwrap_or(0x02);
-                        let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+                        // Only send if the mode actually changed (avoid feedback loop
+                        // from ksni firing select during menu rebuilds)
+                        if this.listening_mode != Some(value) {
+                            let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+                            this.listening_mode = Some(value);
+                        }
                     }
                 }),
                 options: options
