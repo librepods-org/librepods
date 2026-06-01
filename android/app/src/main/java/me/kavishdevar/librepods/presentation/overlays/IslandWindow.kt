@@ -33,6 +33,7 @@ import android.content.IntentFilter
 import android.content.res.Resources
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -374,6 +375,7 @@ class IslandWindow(private val context: Context) {
 
         val videoView = islandView.findViewById<VideoView>(R.id.island_video_view)
         val videoUri = "android.resource://me.kavishdevar.librepods/${R.raw.island}".toUri()
+        videoView.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
         videoView.setVideoURI(videoUri)
         videoView.setOnPreparedListener { mediaPlayer ->
             mediaPlayer.isLooping = true

@@ -29,6 +29,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -137,6 +138,7 @@ class PopupWindow(
                 updateBatteryStatus(batteryNotification)
 
                 val vid = mView.findViewById<VideoView>(R.id.video)
+                vid.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
                 vid.setVideoPath("android.resource://me.kavishdevar.librepods/" + R.raw.connected)
                 vid.resolveAdjustedSize(vid.width, vid.height)
                 vid.start()
