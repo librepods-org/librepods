@@ -179,7 +179,7 @@ class AirPodsViewModel(
                 if (premium) {
                     sharedPreferences.edit {
                         remove("premium_expiry_time")
-                        remove("foss_upgraded")
+                        if (BuildConfig.PLAY_BUILD) remove("foss_upgraded")
                     }
                     _uiState.update { it.copy(isPremium = true, timeUntilFOSSPremiumExpiry = 0L) }
                 } else {
