@@ -16,53 +16,53 @@ Bytes that are not used are set to `0x00`. From what I've observed, the `data3` 
 
 ## Identifiers and details 
 
-| Command identifier | Description |
-|--------------|---------------------|
-| 0x01 | Mic Mode |
-| 0x05 | Button Send Mode |
-| 0x06 | Owns connection |
-| 0x0A | Ear Detection |
-| 0x12 | VoiceTrigger for Siri |
-| 0x14 | SingleClickMode |
-| 0x15 | DoubleClickMode |
-| 0x16 | ClickHoldMode |
-| 0x17 | DoubleClickInterval |
-| 0x18 | ClickHoldInterval |
-| 0x1A | ListeningModeConfigs |
-| 0x1B | OneBudANCMode |
-| 0x1C | CrownRotationDirection |
-| 0x0D | ListeningMode |
-| 0x1E | AutoAnswerMode |
-| 0x1F | Chime Volume |
-| 0x20 | Connect Automatically |
-| 0x23 | VolumeSwipeInterval |
-| 0x24 | Call Management Config |
-| 0x25 | VolumeSwipeMode |
-| 0x26 | Adaptive Volume Config |
-| 0x27 | Software Mute config |
-| 0x28 | Conversation Detect config |
-| 0x29 | SSL |
-| 0x2C | Hearing Aid Enrolled and Hearing Aid Enabled |
-| 0x2E | AutoANC Strength |
-| 0x2F | HPS Gain Swipe |
-| 0x30 | HRM enable/disable state |
-| 0x31 | In Case Tone config |
-| 0x32 | Siri Multitone config |
-| 0x33 | Hearing Assist config |
-| 0x34 | Allow Off Option for Listening Mode config |
-| 0x35 | Sleep Detection config |
-| 0x36 | Allow Auto Connect |
-| 0x37 | PPE Toggle config |
-| 0x38 | Personal Protective Equipment Cap Level config |
-| 0x39 | Raw Gestures config |
-| 0x3A | Temporary Pairing Config |
-| 0x3B | Dynamic End of Charge config |
-| 0x3C | System Siri message config |
-| 0x3D | Hearing Aid Generic config |
-| 0x3E | Uplink EQ Bud config |
-| 0x3F | Uplink EQ Source config |
-| 0x40 | In Case Tone Volume |
-| 0x41 | Disable Button Input config |
+| Command identifier | Description                                    |
+| ------------------ | ---------------------------------------------- |
+| 0x01               | Mic Mode                                       |
+| 0x05               | Button Send Mode                               |
+| 0x06               | Owns connection                                |
+| 0x0A               | Ear Detection                                  |
+| 0x12               | VoiceTrigger for Siri                          |
+| 0x14               | SingleClickMode                                |
+| 0x15               | DoubleClickMode                                |
+| 0x16               | ClickHoldMode                                  |
+| 0x17               | DoubleClickInterval                            |
+| 0x18               | ClickHoldInterval                              |
+| 0x1A               | ListeningModeConfigs                           |
+| 0x1B               | OneBudANCMode                                  |
+| 0x1C               | CrownRotationDirection                         |
+| 0x0D               | ListeningMode                                  |
+| 0x1E               | AutoAnswerMode                                 |
+| 0x1F               | Chime Volume                                   |
+| 0x20               | Connect Automatically                          |
+| 0x23               | VolumeSwipeInterval                            |
+| 0x24               | Call Management Config                         |
+| 0x25               | VolumeSwipeMode                                |
+| 0x26               | Adaptive Volume Config                         |
+| 0x27               | Software Mute config                           |
+| 0x28               | Conversation Detect config                     |
+| 0x29               | SSL                                            |
+| 0x2C               | Hearing Aid Enrolled and Hearing Aid Enabled   |
+| 0x2E               | AutoANC Strength                               |
+| 0x2F               | HPS Gain Swipe                                 |
+| 0x30               | HRM enable/disable state                       |
+| 0x31               | In Case Tone config                            |
+| 0x32               | Siri Multitone config                          |
+| 0x33               | Hearing Assist config                          |
+| 0x34               | Allow Off Option for Listening Mode config     |
+| 0x35               | Sleep Detection config                         |
+| 0x36               | Allow Auto Connect                             |
+| 0x37               | PPE Toggle config                              |
+| 0x38               | Personal Protective Equipment Cap Level config |
+| 0x39               | Raw Gestures config                            |
+| 0x3A               | Temporary Pairing Config                       |
+| 0x3B               | Dynamic End of Charge config                   |
+| 0x3C               | System Siri message config                     |
+| 0x3D               | Hearing Aid Generic config                     |
+| 0x3E               | Uplink EQ Bud config                           |
+| 0x3F               | Uplink EQ Source config                        |
+| 0x40               | In Case Tone Volume                            |
+| 0x41               | Disable Button Input config                    |
 
 ## Command Details
 

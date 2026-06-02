@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 @file:OptIn(ExperimentalEncodingApi::class)
 
@@ -40,7 +40,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 class RadareOffsetFinder(context: Context) {
     companion object {
         private const val TAG = "RadareOffsetFinder"
-        private const val RADARE2_URL = "https://hc-cdn.hel1.your-objectstorage.com/s/v3/c9898243c42c0d3d1387de9a37d57ce9df77f9c9_radare2-5.9.9-android-aarch64.tar.gz"
+        private const val RADARE2_URL = "https://github.com/devnoname120/radare2/releases/download/5.9.8-android-aln/radare2-5.9.9-android-aarch64-aln.tar.gz"
         private const val HOOK_OFFSET_PROP = "persist.librepods.hook_offset"
         private const val CFG_REQ_OFFSET_PROP = "persist.librepods.cfg_req_offset"
         private const val CSM_CONFIG_OFFSET_PROP = "persist.librepods.csm_config_offset"
@@ -115,6 +115,11 @@ class RadareOffsetFinder(context: Context) {
         }
 
         fun isSdpOffsetAvailable(): Boolean {
+            val sharedPreferences = ServiceManager.getService()?.applicationContext?.getSharedPreferences("settings", Context.MODE_PRIVATE) // ik not good practice- too lazy
+            if (sharedPreferences?.getBoolean("skip_setup", false) == true) {
+                Log.d(TAG, "Setup skipped, returning true for SDP offset.")
+                return true
+            }
             try {
                 val process = Runtime.getRuntime().exec(arrayOf("/system/bin/getprop", SDP_OFFSET_PROP))
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
@@ -462,7 +467,7 @@ class RadareOffsetFinder(context: Context) {
 //            findAndSaveL2cuProcessCfgReqOffset(libraryPath, envSetup)
 //            findAndSaveL2cCsmConfigOffset(libraryPath, envSetup)
 //            findAndSaveL2cuSendPeerInfoReqOffset(libraryPath, envSetup)
-            
+
             // findAndSaveSdpOffset(libraryPath, envSetup) Should not be run by default, only when user asks for it.
 
         } catch (e: Exception) {

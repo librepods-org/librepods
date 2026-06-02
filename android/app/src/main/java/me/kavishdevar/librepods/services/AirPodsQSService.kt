@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods Contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 @file:OptIn(ExperimentalEncodingApi::class)
 
@@ -35,9 +35,9 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import me.kavishdevar.librepods.QuickSettingsDialogActivity
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.constants.AirPodsNotifications
-import me.kavishdevar.librepods.constants.NoiseControlMode
-import me.kavishdevar.librepods.utils.AACPManager
+import me.kavishdevar.librepods.data.AirPodsNotifications
+import me.kavishdevar.librepods.data.NoiseControlMode
+import me.kavishdevar.librepods.bluetooth.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 @RequiresApi(Build.VERSION_CODES.Q)
@@ -98,7 +98,7 @@ class AirPodsQSService : TileService() {
         Log.d("AirPodsQSService", "onStartListening")
 
         val service = ServiceManager.getService()
-        isAirPodsConnected = service?.isConnectedLocally == true
+        isAirPodsConnected = service?.isConnected() == true
         currentAncMode = service?.getANC() ?: (NoiseControlMode.OFF.ordinal + 1)
 
         if (currentAncMode == NoiseControlMode.OFF.ordinal + 1 && !isOffModeEnabled()) {
@@ -151,7 +151,7 @@ class AirPodsQSService : TileService() {
             return
         }
 
-        val clickBehavior = sharedPreferences.getString("qs_click_behavior", "dialog") ?: "dialog"
+        val clickBehavior = "cycle" // sharedPreferences.getString("qs_click_behavior", "dialog") ?: "dialog"
 
         if (clickBehavior == "dialog") {
             launchDialogActivity()
@@ -244,8 +244,10 @@ class AirPodsQSService : TileService() {
 
     private fun getNextAncMode(): Int {
         val availableModes = getAvailableModes()
+        Log.d("AirPodsQSService", "availableModes: $availableModes, currentAncMode: $currentAncMode")
         val currentIndex = availableModes.indexOf(currentAncMode)
         val nextIndex = (currentIndex + 1) % availableModes.size
+        Log.d("AirPodsQSService", "nextIndex: $nextIndex")
         return availableModes[nextIndex]
     }
 

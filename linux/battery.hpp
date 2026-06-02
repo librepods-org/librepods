@@ -19,6 +19,9 @@ class Battery : public QObject
     Q_PROPERTY(quint8 rightPodLevel READ getRightPodLevel NOTIFY batteryStatusChanged)
     Q_PROPERTY(bool rightPodCharging READ isRightPodCharging NOTIFY batteryStatusChanged)
     Q_PROPERTY(bool rightPodAvailable READ isRightPodAvailable NOTIFY batteryStatusChanged)
+    Q_PROPERTY(quint8 headsetLevel READ getHeadsetLevel NOTIFY batteryStatusChanged)
+    Q_PROPERTY(bool headsetCharging READ isHeadsetCharging NOTIFY batteryStatusChanged)
+    Q_PROPERTY(bool headsetAvailable READ isHeadsetAvailable NOTIFY batteryStatusChanged)
     Q_PROPERTY(quint8 caseLevel READ getCaseLevel NOTIFY batteryStatusChanged)
     Q_PROPERTY(bool caseCharging READ isCaseCharging NOTIFY batteryStatusChanged)
     Q_PROPERTY(bool caseAvailable READ isCaseAvailable NOTIFY batteryStatusChanged)
@@ -32,6 +35,7 @@ public:
     void reset()
     {
         // Initialize all components to unknown state
+        states[Component::Headset] = {};
         states[Component::Left] = {};
         states[Component::Right] = {};
         states[Component::Case] = {};
@@ -41,6 +45,7 @@ public:
     // Enum for AirPods components
     enum class Component
     {
+        Headset = 0x01, // AirPods Max
         Right = 0x02,
         Left = 0x04,
         Case = 0x08,
@@ -105,7 +110,7 @@ public:
             }
 
             // If this is a pod (Left or Right), add it to the list
-            if (comp == Component::Left || comp == Component::Right)
+            if (comp == Component::Left || comp == Component::Right || comp == Component::Headset)
             {
                 podsInPacket.append(comp);
             }
@@ -117,11 +122,17 @@ public:
         // Set primary and secondary pods based on order
         if (!podsInPacket.isEmpty())
         {
-            Component newPrimaryPod = podsInPacket[0]; // First pod is primary
-            if (newPrimaryPod != primaryPod)
-            {
-                primaryPod = newPrimaryPod;
+            if (podsInPacket.count() == 1 && podsInPacket[0] == Component::Headset) {
+                // AirPods Max
+                primaryPod = podsInPacket[0];
                 emit primaryChanged();
+            } else {
+                Component newPrimaryPod = podsInPacket[0]; // First pod is primary
+                if (newPrimaryPod != primaryPod)
+                {
+                    primaryPod = newPrimaryPod;
+                    emit primaryChanged();
+                }
             }
         }
         if (podsInPacket.size() >= 2)
@@ -132,14 +143,18 @@ public:
         // Emit signal to notify about battery status change
         emit batteryStatusChanged();
 
-        // Log which is left and right pod
-        LOG_INFO("Primary Pod:" << primaryPod);
-        LOG_INFO("Secondary Pod:" << secondaryPod);
+        if (primaryPod == Component::Headset) {
+            LOG_INFO("Primary Pod:" << primaryPod);
+        } else {
+            // Log which is left and right pod
+            LOG_INFO("Primary Pod:" << primaryPod);
+            LOG_INFO("Secondary Pod:" << secondaryPod);
+        }
 
         return true;
     }
 
-    bool parseEncryptedPacket(const QByteArray &packet, bool isLeftPodPrimary, bool podInCase)
+    bool parseEncryptedPacket(const QByteArray &packet, bool isLeftPodPrimary, bool podInCase, bool isHeadset)
     {
         // Validate packet size (expect 16 bytes based on provided payloads)
         if (packet.size() != 16)
@@ -160,30 +175,42 @@ public:
         auto [isLeftCharging, rawLeftBattery] = formatBattery(rawLeftBatteryByte);
         auto [isRightCharging, rawRightBattery] = formatBattery(rawRightBatteryByte);
         auto [isCaseCharging, rawCaseBattery] = formatBattery(rawCaseBatteryByte);
+        if (isHeadset) {
+            int batteries[] = {rawLeftBattery, rawRightBattery, rawCaseBattery};
+            bool statuses[] = {isLeftCharging, isRightCharging, isCaseCharging};
+            // Find the first battery that isn't CHAR_MAX
+            auto it = std::find_if(std::begin(batteries), std::end(batteries), [](int i) { return i != CHAR_MAX; });
+            if (it != std::end(batteries)) {
+                std::size_t idx = it - std::begin(batteries);
+                int battery = *it;
+                primaryPod = Component::Headset;
+                states[Component::Headset] =  {static_cast<quint8>(battery), statuses[idx] ? BatteryStatus::Charging : BatteryStatus::Discharging};
+            }
+        } else {
+            if (rawLeftBattery == CHAR_MAX) {
+                rawLeftBattery = states.value(Component::Left).level; // Use last valid level
+                isLeftCharging = states.value(Component::Left).status == BatteryStatus::Charging;
+            }
 
-        if (rawLeftBattery == CHAR_MAX) {
-            rawLeftBattery = states.value(Component::Left).level; // Use last valid level
-            isLeftCharging = states.value(Component::Left).status == BatteryStatus::Charging;
-        }
+            if (rawRightBattery == CHAR_MAX) {
+                rawRightBattery = states.value(Component::Right).level; // Use last valid level
+                isRightCharging = states.value(Component::Right).status == BatteryStatus::Charging;
+            }
 
-        if (rawRightBattery == CHAR_MAX) {
-            rawRightBattery = states.value(Component::Right).level; // Use last valid level
-            isRightCharging = states.value(Component::Right).status == BatteryStatus::Charging;
-        }
+            if (rawCaseBattery == CHAR_MAX) {
+                rawCaseBattery = states.value(Component::Case).level; // Use last valid level
+                isCaseCharging = states.value(Component::Case).status == BatteryStatus::Charging;
+            }
 
-        if (rawCaseBattery == CHAR_MAX) {
-            rawCaseBattery = states.value(Component::Case).level; // Use last valid level
-            isCaseCharging = states.value(Component::Case).status == BatteryStatus::Charging;
+            // Update states
+            states[Component::Left] = {static_cast<quint8>(rawLeftBattery), isLeftCharging ? BatteryStatus::Charging : BatteryStatus::Discharging};
+            states[Component::Right] = {static_cast<quint8>(rawRightBattery), isRightCharging ? BatteryStatus::Charging : BatteryStatus::Discharging};
+            if (podInCase) {
+                states[Component::Case] = {static_cast<quint8>(rawCaseBattery), isCaseCharging ? BatteryStatus::Charging : BatteryStatus::Discharging};
+            }
+            primaryPod = isLeftPodPrimary ? Component::Left : Component::Right;
+            secondaryPod = isLeftPodPrimary ? Component::Right : Component::Left;
         }
-
-        // Update states
-        states[Component::Left] = {static_cast<quint8>(rawLeftBattery), isLeftCharging ? BatteryStatus::Charging : BatteryStatus::Discharging};
-        states[Component::Right] = {static_cast<quint8>(rawRightBattery), isRightCharging ? BatteryStatus::Charging : BatteryStatus::Discharging};
-        if (podInCase) {
-            states[Component::Case] = {static_cast<quint8>(rawCaseBattery), isCaseCharging ? BatteryStatus::Charging : BatteryStatus::Discharging};
-        }
-        primaryPod = isLeftPodPrimary ? Component::Left : Component::Right;
-        secondaryPod = isLeftPodPrimary ? Component::Right : Component::Left;
         emit batteryStatusChanged();
         emit primaryChanged();
 
@@ -236,6 +263,9 @@ public:
     quint8 getCaseLevel() const { return states.value(Component::Case).level; }
     bool isCaseCharging() const { return isStatus(Component::Case, BatteryStatus::Charging); }
     bool isCaseAvailable() const { return !isStatus(Component::Case, BatteryStatus::Disconnected); }
+    quint8 getHeadsetLevel() const { return states.value(Component::Headset).level; }
+    bool isHeadsetCharging() const { return isStatus(Component::Headset, BatteryStatus::Charging); }
+    bool isHeadsetAvailable() const { return !isStatus(Component::Headset, BatteryStatus::Disconnected); }
 
 signals:
     void batteryStatusChanged();

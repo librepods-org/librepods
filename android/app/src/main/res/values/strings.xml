@@ -34,7 +34,7 @@
     <string name="airpods_not_connected">AirPods not connected</string>
     <string name="airpods_not_connected_description">Please connect your AirPods to access settings.</string>
     <string name="back">Back</string>
-    <string name="app_settings">Customizations</string>
+    <string name="customizations">Customizations</string>
     <string name="relative_conversational_awareness_volume">Relative volume</string>
     <string name="relative_conversational_awareness_volume_description">Reduces to a percentage of the current volume instead of the maximum volume.</string>
     <string name="conversational_awareness_pause_music">Pause Music</string>
@@ -140,6 +140,11 @@
     <string name="widget">Widget</string>
     <string name="show_phone_battery_in_widget">Show phone battery in widget</string>
     <string name="show_phone_battery_in_widget_description">Display your phone\'s battery level in the widget alongside AirPods battery</string>
+    <string name="popup_animations">Popup Animations</string>
+    <string name="show_bottom_sheet_popup">Bottom sheet popup</string>
+    <string name="show_bottom_sheet_popup_description">Show the iOS-style modal popup at the bottom when AirPods connect.</string>
+    <string name="show_island_popup">Dynamic Island popup</string>
+    <string name="show_island_popup_description">Show the Dynamic Island-style popup at the top for connection and takeover events.</string>
     <string name="conversational_awareness_volume">Conversational Awareness Volume</string>
     <string name="quick_settings_tile">Quick Settings Tile</string>
     <string name="open_dialog_for_controlling">Open dialog for controlling</string>
@@ -169,7 +174,7 @@
     <string name="enter_enc_key_hex">Enter 16-byte ENC_KEY as hex string (32 characters):</string>
     <string name="must_be_32_hex_chars">Must be exactly 32 hex characters</string>
     <string name="error_converting_hex">Error converting hex:</string>
-    <string name="found_offset_restart_bluetooth">Found offset please restart the Bluetooth process</string>
+    <string name="found_offset_restart_bluetooth">Please restart the Bluetooth process</string>
     <string name="digital_assistant">Digital Assistant</string>
     <string name="on">On</string>
     <string name="camera_remote">Camera Remote</string>
@@ -206,8 +211,70 @@
     <string name="environmental_noise">Environmental Noise</string>
     <string name="reconnect_to_last_device">Reconnect to last connected device</string>
     <string name="disconnect">Disconnect</string>
-    <string name="support_me">Support me</string>
-    <string name="never_show_again">Never show again</string>
-    <string name="support_dialog_description">I recently lost my left AirPod. If you\'ve found LibrePods useful, consider supporting me on GitHub Sponsors so I can buy a replacement and continue working on this project- even a little amount goes a long way. Thank you for your support!</string>
-    <string name="support_librepods">Support LibrePods</string>
+    <string name="listening_mode_off_description">Turns off noise management</string>
+    <string name="listening_mode_transparency_description">Lets in external sounds</string>
+    <string name="listening_mode_adaptive_description">Dynamically adjust external noise</string>
+    <string name="listening_mode_noise_cancellation_description">Blocks out external sounds</string>
+    <string name="unlock_advanced_features">Unlock advanced features</string>
+    <string name="buy_price">Buy %s</string>
+    <string name="restore_purchases">Restore purchases</string>
+    <string name="ear_detection_description">Automatically stop playing audio when you take them off, and resume playback when you put them back on.</string>
+    <string name="battery">Battery</string>
+    <string name="battery_description">View accurate battery status in the app and notification.</string>
+    <string name="noise_control_description">Switch between listening modes directly from the app or Quick Settings.</string>
+    <string name="advanced_device_settings">Advanced device settings</string>
+    <string name="advanced_device_settings_description">Customize settings like Personalized Volume, Adaptive Audio, Pause media when falling asleep, and other Accessibility settings.</string>
+    <string name="automatic_connection">Automatic Connection</string>
+    <string name="automatic_connection_description">Enable and customize automatic connection to AirPods.</string>
+    <string name="customizations_description">Get access to app customizations, including phone battery in widget, conversational awareness volume, and many more upcoming customization features.</string>
+    <string name="support_the_development">Support the development</string>
+    <string name="support_development_description">LibrePods is developed by a single developer. Upgrading helps keep the app alive.</string>
+    <string name="feature_availability_disclaimer">Feature availability depends on your AirPods model and firmware version.</string>
+    <string name="contact">Contact</string>
+    <string name="email">E-Mail</string>
+    <string name="discord">Discord</string>
+    <string name="github_issues">GitHub Issues</string>
+    <string name="version_code">Version code</string>
+    <string name="flavor" translatable="false">Flavor</string>
+    <string name="build_type">Build type</string>
+    <string name="no">No</string>
+    <string name="yes">Yes</string>
+    <string name="settings">Settings</string>
+    <string name="requires_xposed">requires xposed</string>
+    <string name="bypass_compatibility_check">Bypass compatibility check</string>
+    <string name="bypass_compatiblity_check_confirmation">Are you sure your device is supported natively/you have Xposed module enabled?</string>
+    <string name="not_supported">Not supported</string>
+    <string name="check_the_repository_for_more_info">
+        Many devices are not supported due to limitations in the Android Bluetooth stack.
+        \nOn these devices, root access with an Xposed framework is required for full functionality.
+        \n\nThis limitation has been addressed in newer Android versions. The following device configurations can run the app natively:
+        \n• Google Pixel® running Android 16 March update and later with the lateset Play system update
+        \n• Google Pixel® running 17 Beta 3 and above
+        \n• OnePlus devices running OxygenOS 16 or later
+        \n• Oppo devices running ColorOS 16 or later
+        \n\nFor details, see the project documentation.
+    </string>
+    <string name="name_your_own_price">(Name your own price)</string>
+    <string name="compatibility_play_dialog_confirmation">
+        This device may not be supported due to platform limitations and requires an Xposed framework. Tick the checkbox below and type OK to continue.
+    </string>
+    <string name="type_ok_to_continue">Type "%s" to continue</string>
+    <string name="proceed">Proceed</string>
+    <string name="read_compatibility_requirements">I have read compatibility requirements.</string>
+    <string name="device_info">Device information</string>
+    <string name="build_id">Build ID</string>
+    <string name="manufacturer">Manufacturer</string>
+    <string name="free_features">Free features</string>
+    <string name="advanced_features">Advanced features</string>
+    <string name="digital_assistant_on_long_press">Digital Assistant on Long Press</string>
+    <string name="digital_assistant_on_long_press_description">Invoke Digital Assistant when long pressing the AirPods Pro stem.</string>
+    <string name="customizations_unavailable">Customizations unavailable. Connect your AirPods at least once to access.</string>
+    <string name="xposed_available">Xposed available</string>
+    <string name="app_enabled_in_xposed">App enabled in Xposed</string>
+    <string name="subject">Subject</string>
+    <string name="describe_your_issue">Describe your issue</string>
+    <string name="optimized_charging">Optimized Charge Limit</string>
+    <string name="optimized_charging_description">AirPods can learn from your daily usage and determine when to charge to an optmized limit and when to allow or full charge. This limit adapts to your daily usage and preserves your battery lifespan over time.\nThis setting may not affect unsupported AirPods, or AirPods on an older firmware version.</string>
+    <string name="enable_app_in_xposed_or_update_device">Enable LibrePods in Xposed or update your device to proceed.</string>
+    <string name="play_foss_premium_banner">Due to an error in billing, premium access will expire in %1$d days. If you already upgraded the app, please click on this message to email billing@kavish.xyz to restore or verify access. Apologies for the inconvenience.</string>
 </resources>

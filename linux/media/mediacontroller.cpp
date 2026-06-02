@@ -101,39 +101,53 @@ bool MediaController::isActiveOutputDeviceAirPods() {
 }
 
 void MediaController::handleConversationalAwareness(const QByteArray &data) {
-  LOG_DEBUG("Handling conversational awareness data: " << data.toHex());
-  bool lowered = data[9] == 0x01;
-  LOG_INFO("Conversational awareness: " << (lowered ? "enabled" : "disabled"));
-
-  if (lowered) {
-    if (initialVolume == -1 && isActiveOutputDeviceAirPods()) {
-      QString defaultSink = m_pulseAudio->getDefaultSink();
-      initialVolume = m_pulseAudio->getSinkVolume(defaultSink);
-      if (initialVolume == -1) {
-        LOG_ERROR("Failed to get initial volume");
+    if (data.size() < 10) {
+        LOG_ERROR("Invalid conversational awareness packet");
         return;
-      }
-      LOG_DEBUG("Initial volume: " << initialVolume << "%");
     }
-    QString defaultSink = m_pulseAudio->getDefaultSink();
-    int targetVolume = initialVolume * 0.20;
-    if (m_pulseAudio->setSinkVolume(defaultSink, targetVolume)) {
-      LOG_INFO("Volume lowered to 0.20 of initial which is " << targetVolume << "%");
-    } else {
-      LOG_ERROR("Failed to lower volume");
+
+    uint8_t flag = (uint8_t)data[9];
+
+    switch (flag) {
+    case 0x01:
+        LOG_INFO("Conversational awareness event: voice detected");
+
+        if (initialVolume == -1 && isActiveOutputDeviceAirPods()) {
+            QString sink = m_pulseAudio->getDefaultSink();
+            initialVolume = m_pulseAudio->getSinkVolume(sink);
+            LOG_DEBUG("Initial volume saved: " << initialVolume << "%");
+        }
+
+        if (initialVolume != -1) {
+            QString sink = m_pulseAudio->getDefaultSink();
+            int target = initialVolume * 0.20;
+            m_pulseAudio->setSinkVolume(sink, target);
+            LOG_INFO("Volume lowered to " << target << "%");
+        }
+        break;
+
+    case 0x08:
+        LOG_INFO("Conversational awareness disabled");
+        initialVolume = -1;
+        break;
+
+    case 0x09:
+        LOG_INFO("Conversational awareness enabled");
+        break;
+
+    default:
+        LOG_INFO("Conversational awareness event: voice ended");
+
+        if (initialVolume != -1 && isActiveOutputDeviceAirPods()) {
+            QString sink = m_pulseAudio->getDefaultSink();
+            m_pulseAudio->setSinkVolume(sink, initialVolume);
+            LOG_INFO("Volume restored to " << initialVolume << "%");
+            initialVolume = -1;
+        }
+        break;
     }
-  } else {
-    if (initialVolume != -1 && isActiveOutputDeviceAirPods()) {
-      QString defaultSink = m_pulseAudio->getDefaultSink();
-      if (m_pulseAudio->setSinkVolume(defaultSink, initialVolume)) {
-        LOG_INFO("Volume restored to " << initialVolume << "%");
-      } else {
-        LOG_ERROR("Failed to restore volume");
-      }
-      initialVolume = -1;
-    }
-  }
 }
+
 
 bool MediaController::isA2dpProfileAvailable() {
   if (m_deviceOutputName.isEmpty()) {

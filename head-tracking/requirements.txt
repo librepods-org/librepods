@@ -1,6 +1,0 @@
-drawille
-numpy
-pybluez
-matplotlib
-asciichartpy
-rich
