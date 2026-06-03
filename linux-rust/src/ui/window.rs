@@ -382,6 +382,10 @@ impl App {
                                         status.identifier == ControlCommandIdentifiers::AllowOffOption &&
                                         matches!(status.value.as_slice(), [0x01])
                                     }),
+                                    head_tracking_enabled: false,
+                                    head_gestures_enabled: false,
+                                    head_tracking_sample: None,
+                                    head_tracking_neutral: None,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -515,6 +519,19 @@ impl App {
                                 {
                                     state.battery = battery_info;
                                     debug!("Updated battery info for {}: {:?}", mac, state.battery);
+                                }
+                            }
+                            AACPEvent::HeadTracking(data) => {
+                                if let Some(DeviceState::AirPods(state)) =
+                                    self.device_states.get_mut(&mac)
+                                {
+                                    state.head_tracking_sample = Some((
+                                        data.orientation1,
+                                        data.orientation2,
+                                        data.orientation3,
+                                        data.horizontal_accel,
+                                        data.vertical_accel,
+                                    ));
                                 }
                             }
                             _ => {}

@@ -522,6 +522,11 @@ impl MediaController {
         self.mpris_command("Previous").await;
     }
 
+    pub async fn play_pause(&self) {
+        info!("Toggling play/pause");
+        self.mpris_command("PlayPause").await;
+    }
+
     async fn is_a2dp_profile_available(&self) -> bool {
         let index = match self.state.lock().await.device_index {
             Some(i) => i,

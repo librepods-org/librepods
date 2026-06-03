@@ -105,6 +105,27 @@ impl AirPodsDevice {
             }
         }
 
+        // Opt-in head-tracking stream for testing (LIBREPODS_HEADTRACKING=1).
+        // Streams continuous orientation/acceleration samples once we own the connection.
+        if std::env::var("LIBREPODS_HEADTRACKING").as_deref() == Ok("1") {
+            let ht_manager = aacp_manager.clone();
+            tokio::spawn(async move {
+                sleep(Duration::from_secs(3)).await;
+                info!("Taking ownership for head-tracking stream");
+                if let Err(e) = ht_manager
+                    .send_control_command(ControlCommandIdentifiers::OwnsConnection, &[0x01])
+                    .await
+                {
+                    error!("Failed to take ownership: {}", e);
+                }
+                sleep(Duration::from_millis(500)).await;
+                info!("Starting head-tracking stream (LIBREPODS_HEADTRACKING=1)");
+                if let Err(e) = ht_manager.send_start_head_tracking().await {
+                    error!("Failed to start head tracking: {}", e);
+                }
+            });
+        }
+
         let session = bluer::Session::new()
             .await
             .expect("Failed to get bluer session");
@@ -117,6 +138,23 @@ impl AirPodsDevice {
             .await
             .expect("Failed to get adapter address")
             .to_string();
+
+        // Notify that the AirPods connected, using their Bluetooth name.
+        let device_name = match adapter.device(mac_address) {
+            Ok(dev) => dev
+                .alias()
+                .await
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "AirPods".to_string()),
+            Err(_) => "AirPods".to_string(),
+        };
+        crate::utils::notify(
+            &device_name,
+            "Connected",
+            "audio-headphones-symbolic",
+            "librepods-connection",
+        );
 
         let media_controller = Arc::new(Mutex::new(MediaController::new(
             mac_address.to_string(),
@@ -232,6 +270,8 @@ impl AirPodsDevice {
         let ui_tx_clone = ui_tx.clone();
         let command_tx_clone = command_tx.clone();
         tokio::spawn(async move {
+            let mut gesture_detector = crate::devices::gestures::GestureDetector::new();
+            let mut last_ht_ui: Option<std::time::Instant> = None;
             while let Some(event) = rx.recv().await {
                 let event_clone = event.clone();
                 match event {
@@ -373,6 +413,37 @@ impl AirPodsDevice {
                             }
                         } else {
                             debug!("Stem control disabled, ignoring stem press event");
+                        }
+                    }
+                    AACPEvent::HeadTracking(data) => {
+                        // Forward to the UI at ~10 Hz (the raw stream is much faster).
+                        let now = std::time::Instant::now();
+                        let should_send = last_ht_ui
+                            .map_or(true, |t| now.duration_since(t) >= Duration::from_millis(100));
+                        if should_send {
+                            last_ht_ui = Some(now);
+                            let _ = ui_tx_clone.send(BluetoothUIMessage::AACPUIEvent(
+                                mac_address.to_string(),
+                                event_clone,
+                            ));
+                        }
+                        // Run head-gesture detection when enabled (toggled from the UI).
+                        if aacp_manager_clone_events.head_gestures_enabled()
+                            && let Some(gesture) =
+                                gesture_detector.push(data.horizontal_accel, data.vertical_accel)
+                        {
+                            use crate::devices::gestures::Gesture;
+                            let controller = mc_clone.lock().await;
+                            match gesture {
+                                Gesture::Nod => {
+                                    info!("Head gesture: Nod -> play/pause");
+                                    controller.play_pause().await;
+                                }
+                                Gesture::Shake => {
+                                    info!("Head gesture: Shake -> next track");
+                                    controller.next_track().await;
+                                }
+                            }
                         }
                     }
                     _ => {

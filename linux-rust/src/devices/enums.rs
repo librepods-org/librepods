@@ -58,6 +58,32 @@ pub struct AirPodsState {
     pub personalized_volume_enabled: bool,
     pub allow_off_mode: bool,
     pub battery: Vec<BatteryInfo>,
+    // Spatial audio / head tracking
+    pub head_tracking_enabled: bool,
+    pub head_gestures_enabled: bool,
+    /// Latest raw head-tracking sample: (orientation1, orientation2, orientation3,
+    /// horizontal_accel, vertical_accel).
+    pub head_tracking_sample: Option<(i16, i16, i16, i16, i16)>,
+    /// Calibration baseline (orientation1, orientation2, orientation3) for re-centering.
+    pub head_tracking_neutral: Option<(i16, i16, i16)>,
+}
+
+impl AirPodsState {
+    /// Calibrated (pitch, yaw, roll) in degrees from the latest sample, relative
+    /// to the neutral baseline. Returns None if no sample yet.
+    pub fn head_orientation_degrees(&self) -> Option<(f32, f32, f32)> {
+        let (o1, o2, o3, _, _) = self.head_tracking_sample?;
+        let (n1, n2, n3) = self.head_tracking_neutral.unwrap_or((0, 0, 0));
+        let o1n = (o1 - n1) as f32;
+        let o2n = (o2 - n2) as f32;
+        let o3n = (o3 - n3) as f32;
+        // Matches the head-tracking reference: orientation pair maps to pitch/yaw
+        // over a ~+-32000 range scaled to +-180 degrees; orientation1 ~ roll/twist.
+        let pitch = (o2n + o3n) / 2.0 / 32000.0 * 180.0;
+        let yaw = (o2n - o3n) / 2.0 / 32000.0 * 180.0;
+        let roll = o1n / 32000.0 * 180.0;
+        Some((pitch, yaw, roll))
+    }
 }
 
 #[derive(Clone, Debug)]
