@@ -65,7 +65,8 @@ impl ksni::Tray for MyTray {
             }
         };
         let any_bud_charging = matches!(self.battery_l_status, Some(BatteryStatus::Charging))
-            || matches!(self.battery_r_status, Some(BatteryStatus::Charging));
+            || matches!(self.battery_r_status, Some(BatteryStatus::Charging))
+            || matches!(self.battery_headphone_status, Some(BatteryStatus::Charging));
         let app_settings_path = get_app_settings_path();
         let settings = std::fs::read_to_string(&app_settings_path)
             .ok()

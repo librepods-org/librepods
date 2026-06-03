@@ -274,6 +274,18 @@ async fn async_main(
             return true;
         };
         if is_connected==0 {
+            // Notify on AirPods disconnect (only for our AirPods, identified by UUID).
+            if uuids.iter().any(|u| u.to_lowercase() == target_uuid) {
+                let name = proxy
+                    .get::<String>("org.bluez.Device1", "Name")
+                    .unwrap_or_else(|_| "AirPods".to_string());
+                crate::utils::notify(
+                    &name,
+                    "Disconnected",
+                    "audio-headphones-symbolic",
+                    "librepods-connection",
+                );
+            }
             if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceDisconnected(addr_str.clone())) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
             }

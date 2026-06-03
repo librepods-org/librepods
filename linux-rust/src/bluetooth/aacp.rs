@@ -3,7 +3,7 @@ use crate::devices::enums::{DeviceData, DeviceInformation, DeviceType};
 use crate::utils::get_devices_path;
 use bluer::{
     Address, AddressType, Error, Result,
-    l2cap::{SeqPacket, Socket, SocketAddr},
+    l2cap::{SeqPacket, Security, SecurityLevel, Socket, SocketAddr},
 };
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
@@ -295,6 +295,19 @@ pub struct ConnectedDevice {
     pub r#type: Option<String>,
 }
 
+/// Parsed head-tracking sensor sample from a 0x17 stream packet.
+///
+/// `orientation*` are the three raw 16-bit orientation values (offsets 43/45/47);
+/// `*_accel` are the raw acceleration values (offsets 51/53). All little-endian signed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeadTrackingData {
+    pub orientation1: i16,
+    pub orientation2: i16,
+    pub orientation3: i16,
+    pub horizontal_accel: i16,
+    pub vertical_accel: i16,
+}
+
 #[derive(Debug, Clone)]
 pub enum AACPEvent {
     BatteryInfo(Vec<BatteryInfo>),
@@ -306,6 +319,7 @@ pub enum AACPEvent {
     ConnectedDevices(Vec<ConnectedDevice>, Vec<ConnectedDevice>),
     OwnershipToFalseRequest,
     StemPress(StemPressType, StemPressBudType),
+    HeadTracking(HeadTrackingData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,6 +375,9 @@ impl AACPManagerState {
 pub struct AACPManager {
     pub state: Arc<Mutex<AACPManagerState>>,
     tasks: Arc<Mutex<JoinSet<()>>>,
+    /// Whether head-gesture detection should act on the head-tracking stream.
+    /// Shared so the UI (which holds an AACPManager clone) can toggle it live.
+    head_gestures: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AACPManager {
@@ -368,7 +385,17 @@ impl AACPManager {
         AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
             tasks: Arc::new(Mutex::new(JoinSet::new())),
+            head_gestures: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    pub fn set_head_gestures_enabled(&self, enabled: bool) {
+        self.head_gestures
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn head_gestures_enabled(&self) -> bool {
+        self.head_gestures.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub async fn connect(&mut self, addr: Address) {
@@ -387,6 +414,29 @@ impl AACPManager {
                 return;
             }
         };
+
+        // Diagnostics: log the channel's default security and flow-control mode.
+        match socket.security() {
+            Ok(sec) => info!("L2CAP default security before connect: {:?}", sec),
+            Err(e) => info!("Could not read L2CAP security: {}", e),
+        }
+        match socket.flow_control() {
+            Ok(fc) => info!("L2CAP default flow control before connect: {:?}", fc),
+            Err(e) => info!("Could not read L2CAP flow control: {}", e),
+        }
+
+        // AirPods refuse to emit the AAP notification stream over an unencrypted
+        // channel. bumble (proximity_keys.py) authenticates + encrypts before
+        // opening the channel; the equivalent on a raw BlueZ L2CAP socket is to
+        // request an authenticated, encrypted link via BT_SECURITY before connect.
+        if let Err(e) = socket.set_security(Security {
+            level: SecurityLevel::Medium,
+            key_size: 0,
+        }) {
+            error!("Failed to set L2CAP security to Medium: {}", e);
+        } else {
+            info!("Requested L2CAP security level Medium (encrypted) before connect");
+        }
 
         let seq_packet =
             match tokio::time::timeout(CONNECT_TIMEOUT, socket.connect(target_sa)).await {
@@ -424,6 +474,13 @@ impl AACPManager {
         }
 
         info!("L2CAP connection established with {}", addr);
+        {
+            let sock_ref: &Socket<SeqPacket> = seq_packet.as_ref().as_ref();
+            match sock_ref.security() {
+                Ok(sec) => info!("L2CAP security after connect: {:?}", sec),
+                Err(e) => info!("Could not read L2CAP security after connect: {}", e),
+            }
+        }
 
         let (tx, rx) = mpsc::channel(128);
 
@@ -917,6 +974,40 @@ impl AACPManager {
             opcodes::EQ_DATA => {
                 debug!("Received EQ Data");
             }
+            opcodes::HEADTRACKING => {
+                // Two kinds of 0x17 packets arrive:
+                //  - HID/service descriptor plists (variable layout, not sensor data)
+                //  - orientation sensor stream: prefix 04 00 04 00 17 00 00 00 10 00,
+                //    then packet[10] in {0x44, 0x45} and packet[11] == 0x00.
+                let is_sensor = packet.len() >= 55
+                    && packet[5] == 0x00
+                    && packet[6] == 0x00
+                    && packet[7] == 0x00
+                    && packet[8] == 0x10
+                    && packet[9] == 0x00
+                    && (packet[10] == 0x44 || packet[10] == 0x45)
+                    && packet[11] == 0x00;
+                if is_sensor {
+                    let le_i16 = |i: usize| i16::from_le_bytes([packet[i], packet[i + 1]]);
+                    let data = HeadTrackingData {
+                        orientation1: le_i16(43),
+                        orientation2: le_i16(45),
+                        orientation3: le_i16(47),
+                        horizontal_accel: le_i16(51),
+                        vertical_accel: le_i16(53),
+                    };
+                    debug!("Received Head Tracking sample: {:?}", data);
+                    let state = self.state.lock().await;
+                    if let Some(ref tx) = state.event_tx {
+                        let _ = tx.send(AACPEvent::HeadTracking(data));
+                    }
+                } else {
+                    debug!(
+                        "Received Head Tracking descriptor/service packet ({} bytes)",
+                        packet.len()
+                    );
+                }
+            }
             _ => debug!("Received unknown packet with opcode {:#04x}", opcode),
         }
     }
@@ -1199,6 +1290,25 @@ impl AACPManager {
     pub async fn send_some_packet(&self) -> Result<()> {
         self.send_data_packet(&[0x29, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
             .await
+    }
+
+    /// Start the head-tracking / spatial sensor stream (opcode 0x17).
+    /// The accessory must own the connection for the stream to flow.
+    pub async fn send_start_head_tracking(&self) -> Result<()> {
+        self.send_data_packet(&[
+            opcodes::HEADTRACKING, 0x00, 0x00, 0x00, 0x10, 0x00, 0x10, 0x00, 0x08, 0xA1, 0x02,
+            0x42, 0x0B, 0x08, 0x0E, 0x10, 0x02, 0x1A, 0x05, 0x01, 0x40, 0x9C, 0x00, 0x00,
+        ])
+        .await
+    }
+
+    /// Stop the head-tracking / spatial sensor stream (opcode 0x17).
+    pub async fn send_stop_head_tracking(&self) -> Result<()> {
+        self.send_data_packet(&[
+            opcodes::HEADTRACKING, 0x00, 0x00, 0x00, 0x10, 0x00, 0x11, 0x00, 0x08, 0x7E, 0x10,
+            0x02, 0x42, 0x0B, 0x08, 0x4E, 0x10, 0x02, 0x1A, 0x05, 0x01, 0x00, 0x00, 0x00, 0x00,
+        ])
+        .await
     }
 }
 

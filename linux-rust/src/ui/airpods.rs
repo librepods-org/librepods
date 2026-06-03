@@ -5,7 +5,8 @@ use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
-    Space, button, column, combo_box, container, row, rule, text, text_input, toggler,
+    Space, button, column, combo_box, container, progress_bar, row, rule, scrollable, text,
+    text_input, toggler,
 };
 use iced::{Background, Border, Center, Color, Length, Padding, Theme};
 use log::error;
@@ -362,6 +363,69 @@ pub fn airpods_view<'a>(
             )
     };
 
+    // ----- Spatial Audio / Head Tracking -----
+    // AirPods Max gate motion data behind a ProtectedAccess HID relay that no
+    // host can open without Apple's authentication, so head tracking only works
+    // on models that use the Pro-style 0x17 stream.
+    let is_airpods_max = devices_list
+        .get(mac_information.as_str())
+        .and_then(|d| d.information.as_ref())
+        .and_then(|info| match info {
+            DeviceInformation::AirPods(a) => Some(a.model_number.clone()),
+            _ => None,
+        })
+        .map(|m| matches!(m.as_str(), "A2096" | "A3184"))
+        .unwrap_or(false);
+
+    let spatial_header = container(text("Spatial Audio").size(18).style(|theme: &Theme| {
+        let mut style = text::Style::default();
+        style.color = Some(theme.palette().primary);
+        style
+    }))
+    .padding(Padding {
+        top: 5.0,
+        bottom: 5.0,
+        left: 18.0,
+        right: 18.0,
+    });
+
+    let spatial_audio_col = if is_airpods_max {
+        column![
+            spatial_header,
+            container(
+                column![
+                    text("Head tracking is not available on AirPods Max.").size(15),
+                    text("Apple gates the Max's motion sensor behind an authenticated (ProtectedAccess) HID service, so head orientation can't be read on Linux. Head tracking works on AirPods Pro.")
+                        .size(12)
+                        .style(|theme: &Theme| {
+                            let mut style = text::Style::default();
+                            style.color = Some(theme.palette().text.scale_alpha(0.7));
+                            style
+                        }),
+                ]
+                .spacing(6)
+                .padding(8)
+            )
+            .padding(Padding {
+                top: 5.0,
+                bottom: 5.0,
+                left: 10.0,
+                right: 10.0,
+            })
+            .style(|theme: &Theme| {
+                let mut style = container::Style::default();
+                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                let mut border = Border::default();
+                border.color = theme.palette().primary.scale_alpha(0.5);
+                style.border = border.rounded(16);
+                style
+            })
+        ]
+        .spacing(12)
+    } else {
+        spatial_audio_controls(&mac, state, aacp_manager.clone(), spatial_header)
+    };
+
     let mut information_col = column![];
     if let Some(device) = devices_list.get(mac_information.as_str()) {
         if let Some(DeviceInformation::AirPods(ref airpods_info)) = device.information {
@@ -507,20 +571,198 @@ pub fn airpods_view<'a>(
         }
     }
 
-    container(column![
+    container(scrollable(column![
         rename_input,
         Space::new().height(Length::from(20)),
         listening_mode,
         Space::new().height(Length::from(20)),
         audio_settings_col,
         Space::new().height(Length::from(20)),
+        spatial_audio_col,
+        Space::new().height(Length::from(20)),
         off_listening_mode_toggle,
         Space::new().height(Length::from(20)),
         information_col
-    ])
+    ]))
     .padding(20)
     .center_x(Length::Fill)
     .height(Length::Fill)
+}
+
+/// Builds the interactive Spatial Audio / head-tracking controls (for models
+/// that support the Pro-style head-tracking stream).
+fn spatial_audio_controls(
+    mac: &str,
+    state: &AirPodsState,
+    aacp_manager: Arc<AACPManager>,
+    header: iced::widget::Container<'static, Message>,
+) -> iced::widget::Column<'static, Message> {
+    let (ht_pitch, ht_yaw, ht_roll) =
+        state.head_orientation_degrees().unwrap_or((0.0, 0.0, 0.0));
+
+    let axis = |label: &'static str, value: f32| -> iced::Element<'static, Message> {
+        let v = value.clamp(-90.0, 90.0);
+        row![
+            text(label).size(14).width(Length::from(55)),
+            progress_bar(-90.0..=90.0, v)
+                .length(Length::Fill)
+                .girth(Length::from(10)),
+            text(format!("{:+.0}\u{00B0}", value))
+                .size(14)
+                .width(Length::from(50)),
+        ]
+        .align_y(Center)
+        .spacing(10)
+        .into()
+    };
+
+    let recenter_msg = {
+        let mut s = state.clone();
+        s.head_tracking_neutral = s.head_tracking_sample.map(|(o1, o2, o3, _, _)| (o1, o2, o3));
+        Message::StateChanged(mac.to_string(), DeviceState::AirPods(s))
+    };
+
+    let aacp_manager_ht = aacp_manager.clone();
+    let head_tracking_toggle = {
+        let mac = mac.to_string();
+        let state = state.clone();
+        row![
+            column![
+                text("Head Tracking").size(16),
+                text("Streams live head orientation from the AirPods motion sensors. Required for gestures and spatial audio.")
+                    .size(12)
+                    .style(|theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    })
+                    .width(Length::Fill),
+            ]
+            .width(Length::Fill),
+            toggler(state.head_tracking_enabled)
+                .on_toggle(move |is_enabled| {
+                    let aacp_manager = aacp_manager_ht.clone();
+                    run_async_in_thread(async move {
+                        if is_enabled {
+                            let _ = aacp_manager
+                                .send_control_command(ControlCommandIdentifiers::OwnsConnection, &[0x01])
+                                .await;
+                            let _ = aacp_manager.send_start_head_tracking().await;
+                        } else {
+                            let _ = aacp_manager.send_stop_head_tracking().await;
+                        }
+                    });
+                    let mut state = state.clone();
+                    state.head_tracking_enabled = is_enabled;
+                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                })
+                .spacing(0)
+                .size(20),
+        ]
+        .align_y(Center)
+        .spacing(8)
+    };
+
+    let aacp_manager_hg = aacp_manager.clone();
+    let head_gestures_toggle = {
+        let mac = mac.to_string();
+        let state = state.clone();
+        row![
+            column![
+                text("Head Gestures").size(16),
+                text("Nod to play/pause, shake to skip to the next track. (Experimental.)")
+                    .size(12)
+                    .style(|theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    })
+                    .width(Length::Fill),
+            ]
+            .width(Length::Fill),
+            toggler(state.head_gestures_enabled)
+                .on_toggle(move |is_enabled| {
+                    aacp_manager_hg.set_head_gestures_enabled(is_enabled);
+                    let mut state = state.clone();
+                    state.head_gestures_enabled = is_enabled;
+                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                })
+                .spacing(0)
+                .size(20),
+        ]
+        .align_y(Center)
+        .spacing(8)
+    };
+
+    let live_label = if state.head_tracking_sample.is_some() {
+        "Live orientation"
+    } else {
+        "Live orientation (enable Head Tracking and move your head)"
+    };
+
+    column![
+        header,
+        container(
+            column![
+                head_tracking_toggle,
+                rule::horizontal(1).style(|theme: &Theme| rule::Style {
+                    color: theme.palette().text.scale_alpha(0.2),
+                    radius: Radius::from(12),
+                    fill_mode: FillMode::Full,
+                    snap: false
+                }),
+                column![
+                    text(live_label).size(13).style(|theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    }),
+                    axis("Pitch", ht_pitch),
+                    axis("Yaw", ht_yaw),
+                    axis("Roll", ht_roll),
+                    container(
+                        button(text("Re-center").size(14))
+                            .on_press(recenter_msg)
+                            .style(|theme: &Theme, _status| {
+                                let mut style = Style::default();
+                                style.text_color = theme.palette().text;
+                                style.background =
+                                    Some(Background::Color(theme.palette().primary.scale_alpha(0.3)));
+                                style.border = Border::default().rounded(8.0);
+                                style
+                            })
+                            .padding(8)
+                    )
+                    .align_x(End),
+                ]
+                .spacing(8),
+                rule::horizontal(1).style(|theme: &Theme| rule::Style {
+                    color: theme.palette().text.scale_alpha(0.2),
+                    radius: Radius::from(12),
+                    fill_mode: FillMode::Full,
+                    snap: false
+                }),
+                head_gestures_toggle,
+            ]
+            .spacing(8)
+            .padding(8)
+        )
+        .padding(Padding {
+            top: 5.0,
+            bottom: 5.0,
+            left: 10.0,
+            right: 10.0,
+        })
+        .style(|theme: &Theme| {
+            let mut style = container::Style::default();
+            style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+            let mut border = Border::default();
+            border.color = theme.palette().primary.scale_alpha(0.5);
+            style.border = border.rounded(16);
+            style
+        })
+    ]
+    .spacing(12)
 }
 
 fn run_async_in_thread<F>(fut: F)

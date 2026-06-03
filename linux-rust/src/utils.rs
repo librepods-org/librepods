@@ -51,6 +51,34 @@ pub fn get_app_settings_path() -> PathBuf {
     new_path
 }
 
+/// Show a transient desktop notification via `notify-send` (best-effort).
+///
+/// `tag` is used as a synchronous hint so repeated notifications of the same
+/// kind (e.g. noise-control changes) replace each other in place instead of
+/// stacking. Spawns and does not wait; failures are logged, never fatal.
+pub fn notify(summary: &str, body: &str, icon: &str, tag: &str) {
+    let mut cmd = std::process::Command::new("notify-send");
+    cmd.arg("--app-name=LibrePods")
+        .arg("--expire-time=1500")
+        // transient: GNOME shows the banner briefly and does not keep it in the
+        // notification list (GNOME ignores expire-time for the banner itself).
+        .arg("--hint=int:transient:1")
+        // synchronous: repeated notifications of the same kind replace in place.
+        .arg(format!("--hint=string:x-canonical-private-synchronous:{tag}"))
+        .arg("--hint=string:synchronous:".to_string() + tag)
+        .arg("--icon")
+        .arg(icon)
+        .arg(summary);
+    if !body.is_empty() {
+        cmd.arg(body);
+    }
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if let Err(e) = cmd.spawn() {
+        log::warn!("Failed to send notification via notify-send: {}", e);
+    }
+}
+
 fn e(key: &[u8; 16], data: &[u8; 16]) -> [u8; 16] {
     let mut swapped_key = *key;
     swapped_key.reverse();
