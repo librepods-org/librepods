@@ -1,0 +1,83 @@
+name: Bug report (Linux)
+description: Report a bug in the Linux program
+labels: ["bug", "linux"]
+title: "[Linux] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please fill in as much as you can.
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: "linux-v0.1.0, or linux-rust commit abc1234"
+    validations:
+      required: true
+  - type: dropdown
+    id: variant
+    attributes:
+      label: Variant
+      options:
+        - Rust rewrite (`linux-rust` branch)
+        - QT version (NOT MAINTAINED! issues will be closed)
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distro and version
+      placeholder: "Arch Linux, Fedora 41, Ubuntu 24.04, NixOS 25.05"
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop environment / compositor
+      placeholder: "GNOME 47 (Wayland), KDE 6 (X11), Hyprland, ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method (only official sources)
+      options:
+        - Built from source (`nix` or otherwise)
+        - Pre-built binary
+        - AppImage
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: airpods-model
+    attributes:
+      label: AirPods model
+      options:
+        - AirPods (1st gen)
+        - AirPods (2nd gen)
+        - AirPods (3rd gen)
+        - AirPods (4th gen)
+        - AirPods (4th gen) with ANC
+        - AirPods Pro (1st gen)
+        - AirPods Pro 2 (Lightning)
+        - AirPods Pro 2 (USB-C)
+        - AirPods Pro 3
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: Describe what you observed and what you expected. Include steps to reproduce if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and stderr
+      description: Run the app from a terminal with `--debug` and paste the output.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context

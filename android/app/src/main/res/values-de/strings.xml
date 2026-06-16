@@ -1,0 +1,7 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="popup_animations">Popup-Animationen</string>
+    <string name="show_bottom_sheet_popup">Popup unten</string>
+    <string name="show_bottom_sheet_popup_description">Zeigt das Popup im iOS-Stil unten an, wenn AirPods sich verbinden.</string>
+    <string name="show_island_popup">Dynamic Island Popup</string>
+    <string name="show_island_popup_description">Zeigt das Popup im Dynamic-Island-Stil oben für Verbindungs- und Übergabe-Ereignisse.</string>
+</resources>

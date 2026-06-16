@@ -1,20 +1,20 @@
 /*
- * LibrePods - AirPods liberated from Apple’s ecosystem
- *
- * Copyright (C) 2025 LibrePods Contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
- */
+    LibrePods - AirPods liberated from Apple’s ecosystem
+    Copyright (C) 2025 LibrePods contributors
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
 
 @file:OptIn(ExperimentalEncodingApi::class)
 
@@ -40,13 +40,13 @@ val cameraPackages = mutableSetOf(
 var cameraOpen = false
 private var currentCustomPackage: String? = null
 
-class AppListenerService : AccessibilityService() {
+class AppListenerService: AccessibilityService() {
     private lateinit var prefs: android.content.SharedPreferences
     private val preferenceChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
         if (key == "custom_camera_package") {
             val newPackage = sharedPreferences.getString(key, null)
             currentCustomPackage?.let { cameraPackages.remove(it) }
-            if (newPackage != null && newPackage.isNotBlank()) {
+            if (!newPackage.isNullOrBlank()) {
                 cameraPackages.add(newPackage)
             }
             currentCustomPackage = newPackage
@@ -57,7 +57,7 @@ class AppListenerService : AccessibilityService() {
         super.onCreate()
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val customPackage = prefs.getString("custom_camera_package", null)
-        if (customPackage != null && customPackage.isNotBlank()) {
+        if (!customPackage.isNullOrBlank()) {
             cameraPackages.add(customPackage)
             currentCustomPackage = customPackage
         }

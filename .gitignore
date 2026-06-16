@@ -1,10 +1,5 @@
-root-module/radare2-5.9.9-android-aarch64.tar.gz
-wak.toml
-log.txt
-btl2capfix.zip
-root-module-manual
+release
 .vscode
-testing.py
 .DS_Store
 CMakeLists.txt.user*
 

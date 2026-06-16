@@ -3,8 +3,8 @@ use crate::bluetooth::aacp::{
 };
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::{
-    AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceState, DeviceType, NothingAncMode,
-    NothingState,
+    AirPodsModel, AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceInformation, DeviceState,
+    DeviceType, NothingAncMode, NothingState,
 };
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
@@ -19,9 +19,9 @@ use iced::widget::{
     Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
     text_input, toggler
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
+use iced::{Background, Border, Center, Color, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
 use log::{debug, error};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -76,6 +76,10 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    show_serials: bool,
+    show_device_info: bool,
+    show_off_listening_mode: bool,
+    connecting_devices: HashSet<String>,
 }
 
 pub struct BluetoothState {
@@ -108,6 +112,12 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    ToggleSerialVisibility,
+    ToggleDeviceInfo,
+    ConnectDevice(String),
+    ConnectResult(String, bool),
+    ShowOffListeningModeChanged(bool),
+    SetListeningMode(String, AirPodsNoiseControlMode),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -166,6 +176,11 @@ impl App {
             .and_then(|v| v.get("stem_control").cloned())
             .and_then(|s| serde_json::from_value(s).ok())
             .unwrap_or(false);
+        let show_off_listening_mode = settings
+            .clone()
+            .and_then(|v| v.get("show_off_listening_mode").cloned())
+            .and_then(|s| serde_json::from_value(s).ok())
+            .unwrap_or(true);
 
         let bluetooth_state = BluetoothState::new();
 
@@ -217,6 +232,10 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                show_serials: false,
+                show_device_info: false,
+                show_off_listening_mode,
+                connecting_devices: HashSet::new(),
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -253,6 +272,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -328,7 +348,7 @@ impl App {
                                 let aacp_manager_state = aacp_manager.state.clone();
                                 let state = aacp_manager_state.blocking_lock();
                                 debug!("AACP manager found for AirPods device {}", mac);
-                                let device_name = {
+                                let (device_name, model) = {
                                     let devices_json = std::fs::read_to_string(get_devices_path())
                                         .unwrap_or_else(|e| {
                                             error!("Failed to read devices file: {}", e);
@@ -339,37 +359,35 @@ impl App {
                                             error!("Deserialization failed: {}", e);
                                             HashMap::new()
                                         });
-                                    devices_list
+                                    let name = devices_list
                                         .get(&mac)
                                         .map(|d| d.name.clone())
-                                        .unwrap_or_else(|| "Unknown Device".to_string())
+                                        .unwrap_or_else(|| "Unknown Device".to_string());
+                                    let model = devices_list
+                                        .get(&mac)
+                                        .and_then(|d| d.information.as_ref())
+                                        .and_then(|info| {
+                                            if let DeviceInformation::AirPods(ap) = info {
+                                                Some(AirPodsModel::from_model_number(&ap.model_number))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .unwrap_or(AirPodsModel::Unknown);
+                                    (name, model)
                                 };
                                 self.device_states.insert(mac.clone(), DeviceState::AirPods(AirPodsState {
                                     device_name,
+                                    model,
                                     battery: state.battery_info.clone(),
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
                                         if status.identifier == ControlCommandIdentifiers::ListeningMode {
-                                            status.value.first().map(AirPodsNoiseControlMode::from_byte)
+                                            status.value.first().and_then(AirPodsNoiseControlMode::from_byte)
                                         } else {
                                             None
                                         }
                                     }).unwrap_or(AirPodsNoiseControlMode::Transparency),
-                                    noise_control_state: combo_box::State::new(
-                                        {
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive
-                                            ];
-                                            if state.control_command_status_list.iter().any(|status| {
-                                                status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                                matches!(status.value.as_slice(), [0x01])
-                                            }) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        }
-                                    ),
+
                                     conversation_awareness_enabled: state.control_command_status_list.iter().any(|status| {
                                         status.identifier == ControlCommandIdentifiers::ConversationDetectConfig &&
                                         matches!(status.value.as_slice(), [0x01])
@@ -429,15 +447,21 @@ impl App {
                         match event {
                             AACPEvent::ControlCommand(status) => match status.identifier {
                                 ControlCommandIdentifiers::ListeningMode => {
-                                    let mode = status
+                                    if let Some(mode) = status
                                         .value
                                         .first()
-                                        .map(AirPodsNoiseControlMode::from_byte)
-                                        .unwrap_or(AirPodsNoiseControlMode::Transparency);
-                                    if let Some(DeviceState::AirPods(state)) =
-                                        self.device_states.get_mut(&mac)
+                                        .and_then(AirPodsNoiseControlMode::from_byte)
                                     {
-                                        state.noise_control_mode = mode;
+                                        if let Some(DeviceState::AirPods(state)) =
+                                            self.device_states.get_mut(&mac)
+                                        {
+                                            state.noise_control_mode = mode;
+                                        }
+                                    } else {
+                                        log::warn!(
+                                            "Ignoring unknown ListeningMode value: {:?}",
+                                            status.value
+                                        );
                                     }
                                 }
                                 ControlCommandIdentifiers::ConversationDetectConfig => {
@@ -492,17 +516,6 @@ impl App {
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.allow_off_mode = is_enabled;
-                                        state.noise_control_state = combo_box::State::new({
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive,
-                                            ];
-                                            if is_enabled {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        });
                                     }
                                 }
                                 _ => {
@@ -608,19 +621,9 @@ impl App {
                     devices_list.get(&mac).map(|d| d.type_.clone())
                 };
                 if let Some(DeviceType::AirPods) = type_
-                    && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
+                    && let Some(DeviceState::AirPods(_state)) = self.device_states.get_mut(&mac)
                 {
-                    state.noise_control_state = combo_box::State::new({
-                        let mut modes = vec![
-                            AirPodsNoiseControlMode::Transparency,
-                            AirPodsNoiseControlMode::NoiseCancellation,
-                            AirPodsNoiseControlMode::Adaptive,
-                        ];
-                        if state.allow_off_mode {
-                            modes.insert(0, AirPodsNoiseControlMode::Off);
-                        }
-                        modes
-                    });
+                    // No-op: segmented buttons determine available modes at render time
                 }
                 Task::none()
             }
@@ -631,6 +634,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -647,6 +651,7 @@ impl App {
                     "theme": self.selected_theme,
                     "tray_text_mode": self.tray_text_mode,
                     "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
                 });
                 debug!(
                     "Writing settings to {}: {}",
@@ -654,6 +659,80 @@ impl App {
                     settings
                 );
                 std::fs::write(app_settings_path, settings.to_string()).ok();
+                Task::none()
+            }
+            Message::ToggleSerialVisibility => {
+                self.show_serials = !self.show_serials;
+                Task::none()
+            }
+            Message::ToggleDeviceInfo => {
+                self.show_device_info = !self.show_device_info;
+                if !self.show_device_info {
+                    self.show_serials = false;
+                }
+                Task::none()
+            }
+            Message::ShowOffListeningModeChanged(is_enabled) => {
+                self.show_off_listening_mode = is_enabled;
+                let app_settings_path = get_app_settings_path();
+                let settings = serde_json::json!({
+                    "theme": self.selected_theme,
+                    "tray_text_mode": self.tray_text_mode,
+                    "stem_control": self.stem_control,
+                    "show_off_listening_mode": self.show_off_listening_mode,
+                });
+                debug!(
+                    "Writing settings to {}: {}",
+                    app_settings_path.to_str().unwrap(),
+                    settings
+                );
+                std::fs::write(app_settings_path, settings.to_string()).ok();
+                Task::none()
+            }
+            Message::ConnectDevice(mac) => {
+                self.connecting_devices.insert(mac.clone());
+                Task::perform(
+                    async move {
+                        let output = tokio::process::Command::new("bluetoothctl")
+                            .arg("connect")
+                            .arg(&mac)
+                            .output()
+                            .await;
+                        let success = output.map(|o| o.status.success()).unwrap_or(false);
+                        (mac, success)
+                    },
+                    |(mac, success)| Message::ConnectResult(mac, success),
+                )
+            }
+            Message::ConnectResult(mac, _success) => {
+                self.connecting_devices.remove(&mac);
+                Task::none()
+            }
+            Message::SetListeningMode(mac, mode) => {
+                // Send the AACP command to change the listening mode
+                let device_managers = self.device_managers.blocking_read();
+                if let Some(managers) = device_managers.get(&mac) {
+                    if let Some(aacp_manager) = managers.get_aacp() {
+                        let mode_byte = mode.to_byte();
+                        let aacp = aacp_manager.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async move {
+                                if let Err(e) = aacp.send_control_command(
+                                    ControlCommandIdentifiers::ListeningMode,
+                                    &[mode_byte],
+                                ).await {
+                                    log::error!("Failed to send Noise Control Mode command: {}", e);
+                                }
+                            });
+                        });
+                    }
+                }
+                drop(device_managers);
+                // Update the local UI state
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    state.noise_control_mode = mode;
+                }
                 Task::none()
             }
         }
@@ -864,6 +943,62 @@ impl App {
                                 let device_type = devices_list.get(id).map(|d| d.type_.clone());
                                 let device_state = self.device_states.get(id);
                                 debug!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
+                                let is_connected = self.bluetooth_state.connected_devices.contains(id);
+                                let is_connecting = self.connecting_devices.contains(id);
+                                let device_name = devices_list.get(id).map(|d| d.name.clone()).unwrap_or_else(|| id.clone());
+
+                                if !is_connected && !is_connecting {
+                                    let id_clone = id.clone();
+                                    container(
+                                        column![
+                                            text("\u{1F3A7}").size(64),
+                                            Space::new().height(Length::from(16)),
+                                            text(device_name).size(22),
+                                            Space::new().height(Length::from(8)),
+                                            text("Not Connected").size(14).style(|theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.5));
+                                                style
+                                            }),
+                                            Space::new().height(Length::from(24)),
+                                            button(
+                                                container(
+                                                    text("Connect").size(15)
+                                                )
+                                                .padding(Padding { top: 8.0, bottom: 8.0, left: 24.0, right: 24.0 })
+                                            )
+                                            .style(|theme: &Theme, _status| {
+                                                let mut style = Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary));
+                                                style.text_color = Color::WHITE;
+                                                style.border = Border::default().rounded(10);
+                                                style
+                                            })
+                                            .padding(0)
+                                            .on_press(Message::ConnectDevice(id_clone))
+                                        ]
+                                        .align_x(iced::Alignment::Center)
+                                    )
+                                    .center_x(Length::Fill)
+                                    .center_y(Length::Fill)
+                                } else if is_connecting {
+                                    container(
+                                        column![
+                                            text("\u{1F3A7}").size(64),
+                                            Space::new().height(Length::from(16)),
+                                            text(device_name).size(22),
+                                            Space::new().height(Length::from(8)),
+                                            text("Connecting\u{2026}").size(14).style(|theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().primary);
+                                                style
+                                            }),
+                                        ]
+                                        .align_x(iced::Alignment::Center)
+                                    )
+                                    .center_x(Length::Fill)
+                                    .center_y(Length::Fill)
+                                } else {
                                 match device_type {
                                     Some(DeviceType::AirPods) => {
 
@@ -875,7 +1010,10 @@ impl App {
                                                                     id,
                                                                     &devices_list,
                                                                     state,
-                                                                    aacp_manager.clone()
+                                                                    aacp_manager.clone(),
+                                                                    self.show_serials,
+                                                                    self.show_device_info,
+                                                                    self.show_off_listening_mode,
                                                                 ))
                                                     })
                                                 }
@@ -883,7 +1021,7 @@ impl App {
                                             }
                                         }).unwrap_or_else(|| {
                                             container(
-                                                text("Required managers or state not available for this AirPods device").size(16)
+                                                text("Loading device...").size(16)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
@@ -893,26 +1031,24 @@ impl App {
                                         if let Some(DeviceState::Nothing(state)) = device_state {
                                             if let Some(device_managers) = device_managers.get(id) {
                                                 if let Some(att_manager) = device_managers.get_att() {
-                                                    nothing_view(id, &devices_list, state, att_manager.clone())
+                                                    nothing_view(id, &devices_list, state, att_manager.clone(), self.show_serials, self.show_device_info)
                                                 } else {
-                                                    error!("No ATT manager found for Nothing device {}", id);
                                                     container(
-                                                        text("No valid ATT manager found for this Nothing device").size(16)
+                                                        text("Loading device...").size(16)
                                                     )
                                                         .center_x(Length::Fill)
                                                         .center_y(Length::Fill)
                                                 }
                                             } else {
-                                                error!("No manager found for Nothing device {}", id);
                                                 container(
-                                                    text("No manager found for this Nothing device").size(16)
+                                                    text("Loading device...").size(16)
                                                 )
                                                     .center_x(Length::Fill)
                                                     .center_y(Length::Fill)
                                             }
                                         } else {
                                             container(
-                                                text("No state available for this Nothing device").size(16)
+                                                text("Loading device...").size(16)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
@@ -923,6 +1059,7 @@ impl App {
                                             .center_x(Length::Fill)
                                             .center_y(Length::Fill)
                                     }
+                                }
                                 }
                             }
                         }
@@ -1112,7 +1249,46 @@ impl App {
                                     left: 18.0,
                                     right: 18.0,
                                 }),
-                                stem_control_toggle
+                                stem_control_toggle,
+                                container(
+                                    row![
+                                        column![
+                                            text("Show Off listening mode").size(16),
+                                            text("When enabled, an Off option appears in the listening mode controls. Loud sound levels are not reduced when listening mode is set to Off.").size(12).style(
+                                                |theme: &Theme| {
+                                                    let mut style = text::Style::default();
+                                                    style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                    style
+                                                }
+                                            ).width(Length::Fill)
+                                        ].width(Length::Fill),
+                                        toggler(self.show_off_listening_mode)
+                                            .on_toggle(move |is_enabled| {
+                                                Message::ShowOffListeningModeChanged(is_enabled)
+                                            })
+                                        .spacing(0)
+                                        .size(20)
+                                        ]
+                                            .align_y(Center)
+                                            .spacing(12)
+                                        )
+                                            .padding(Padding{
+                                                top: 5.0,
+                                                bottom: 5.0,
+                                                left: 18.0,
+                                                right: 18.0,
+                                            })
+                                            .style(
+                                                |theme: &Theme| {
+                                                    let mut style = container::Style::default();
+                                                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                    let mut border = Border::default();
+                                                    border.color = theme.palette().primary.scale_alpha(0.5);
+                                                    style.border = border.rounded(16);
+                                                    style
+                                                }
+                                            )
+                                        .align_y(Center)
                             ]
                             .spacing(12);
 

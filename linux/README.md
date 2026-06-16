@@ -1,4 +1,29 @@
+# LibrePods on Linux
+
+A new rewrite is being worked upon. Please look at the list of features in the root README to see what's supported in the new version. 
+
+The rewrite can be found in the `linux/rust` branch [here](https://github.com/kavishdevar/librepods/tree/linux/rust/linux-rust). Follow the development in [PR #241](https://github.com/kavishdevar/librepods/pull/241). 
+
+
+## Installation
+
+### GitHub Releases
+
+The app is ready to download as an AppImage or an executable. You can download the latest pre-release from the [GitHub releases](https://github.com/kavishdevar/librepods/releases?q="linux-v0").
+
+### Nightly Builds (recommended)
+
+You can also try the latest build of the new version from the [GitHub Actions artifacts](https://github.com/kavishdevar/librepods/actions/workflows/ci-linux-rust.yml). On the latest successful workflow run, download the **librepods-x86_64.AppImage** or **librepods** binary from **Artifacts**.
+
+
+![new version screenshot](https://github.com/user-attachments/assets/86b3c871-89a8-4e49-861a-5119de1e1d28)
+
+<details>
+  <summary>README for the old version</summary>
+
 # LibrePods Linux
+
+![screenshot](imgs/main-app.png)
 
 A native Linux application to control your AirPods, with support for:
 
@@ -41,6 +66,31 @@ A native Linux application to control your AirPods, with support for:
     # For Fedora
     sudo dnf install openssl-devel
     ```
+4. Libpulse development headers
+
+    ```bash
+    # On Arch Linux / EndevaourOS, these are included in the libpulse package, so you might already have them installed.
+    sudo pacman -S libpulse
+
+    # For Debian / Ubuntu
+    sudo apt-get install libpulse-dev
+
+    # For Fedora
+    sudo dnf install pulseaudio-libs-devel
+    ```
+5. Cmake
+
+    ```bash
+    # For Arch Linux / EndeavourOS
+    sudo pacman -S cmake
+
+    # For Debian / Ubuntu
+    sudo apt-get install cmake
+
+    # For Fedora
+    sudo dnf install cmake
+    ```
+
 ## Setup
 
 1. Build the application:
@@ -82,7 +132,8 @@ Then restart WirePlumber:
 systemctl --user restart wireplumber
 ```
 
-**Note:** Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
+> [!WARNING]
+> Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
 
 #### PulseAudio
 
@@ -100,6 +151,35 @@ systemctl --user enable --now mpris-proxy
   - Switch between noise control modes
   - View battery levels
   - Control playback
+
+
+## CLI Control
+
+`librepods-ctl` is a small command-line tool that lets you access LibrePods from the terminal or via scripts, as long as the main application is running.
+
+### Usage
+```bash
+librepods-ctl
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `noise:off` | Disable noise control |
+| `noise:anc` | Enable Active Noise Cancellation |
+| `noise:transparency` | Enable Transparency mode |
+| `noise:adaptive` | Enable Adaptive mode |
+
+### Example
+```bash
+# Enable ANC
+librepods-ctl noise:anc
+
+# Enable Transparency mode
+librepods-ctl noise:transparency
+```
+
 
 ## Hearing Aid
 
@@ -132,3 +212,5 @@ It is possible that the AirPods disconnect after a short period of time and play
 ### Why a separate script?
 
 Because I discovered that QBluetooth doesn't support connecting to a socket with its PSM, only a UUID can be used. I could add a dependency on BlueZ, but then having two bluetooth interfaces seems unnecessary. So, I decided to use a separate script for hearing aid features. In the future, QBluetooth will be replaced with BlueZ native calls, and then everything will be in one application.
+
+</details>
