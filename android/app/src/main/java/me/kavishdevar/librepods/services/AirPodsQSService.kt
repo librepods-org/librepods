@@ -35,9 +35,10 @@ import android.util.Log
 import androidx.annotation.RequiresApi
 import me.kavishdevar.librepods.QuickSettingsDialogActivity
 import me.kavishdevar.librepods.R
+import me.kavishdevar.librepods.bluetooth.AACPManager
+import me.kavishdevar.librepods.bluetooth.BluetoothConnectionManager
 import me.kavishdevar.librepods.data.AirPodsNotifications
 import me.kavishdevar.librepods.data.NoiseControlMode
-import me.kavishdevar.librepods.bluetooth.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 @RequiresApi(Build.VERSION_CODES.Q)
@@ -98,7 +99,7 @@ class AirPodsQSService : TileService() {
         Log.d("AirPodsQSService", "onStartListening")
 
         val service = ServiceManager.getService()
-        isAirPodsConnected = service?.isConnected() == true
+        isAirPodsConnected = BluetoothConnectionManager.getAACPSocket()?.isConnected == true
         currentAncMode = service?.getANC() ?: (NoiseControlMode.OFF.ordinal + 1)
 
         if (currentAncMode == NoiseControlMode.OFF.ordinal + 1 && !isOffModeEnabled()) {

@@ -21,6 +21,8 @@
 package me.kavishdevar.librepods.bluetooth
 
 import android.util.Log
+import me.kavishdevar.librepods.data.Capability
+import me.kavishdevar.librepods.data.CustomEq
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -31,9 +33,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  * constructing and parsing packets for communication with AirPods.
  */
 class AACPManager {
+    private val TAG = "AACPManager[${System.identityHashCode(this)}]"
     companion object {
-        private const val TAG = "AACPManager"
-
         @Suppress("unused")
         object Opcodes {
             const val SET_FEATURE_FLAGS: Byte = 0x4D
@@ -48,7 +49,7 @@ class AACPManager {
             const val PROXIMITY_KEYS_REQ: Byte = 0x30
             const val PROXIMITY_KEYS_RSP: Byte = 0x31
             const val STEM_PRESS: Byte = 0x19
-            const val EQ_DATA: Byte = 0x53
+            const val HEADPHONE_ACCOMMODATION: Byte = 0x53
             const val CONNECTED_DEVICES: Byte = 0x2E // TiPi 1
             const val AUDIO_SOURCE: Byte = 0x0E // TiPi 2
             const val SMART_ROUTING: Byte = 0x10
@@ -56,6 +57,7 @@ class AACPManager {
             const val SMART_ROUTING_RESP: Byte = 0x11
             const val SEND_CONNECTED_MAC: Byte = 0x14
             const val AUDIO_SOURCE_2: Byte = 0x0C // seems redundant?
+            const val CUSTOM_EQ: Byte = 0x63
         }
 
         private val HEADER_BYTES = byteArrayOf(0x04, 0x00, 0x04, 0x00)
@@ -200,6 +202,11 @@ class AACPManager {
     var eqOnMedia: Boolean = false
         private set
 
+    var customEq: CustomEq = CustomEq(state = 1, low = 50, mid = 50, high = 50)
+        private set
+
+    var customEqCallback: ((CustomEq) -> Unit)? = null
+
     fun getControlCommandStatus(identifier: ControlCommandIdentifiers): ControlCommandStatus? {
         return controlCommandStatusList.find { it.identifier == identifier }
     }
@@ -236,7 +243,9 @@ class AACPManager {
         fun onConnectedDevicesReceived(connectedDevices: List<ConnectedDevice>)
         fun onOwnershipToFalseRequest(sender: String, reasonReverseTapped: Boolean)
         fun onShowNearbyUI(sender: String)
-        fun onEQPacketReceived(eqData: FloatArray)
+        fun onHeadphoneAccommodationReceived(eqData: FloatArray)
+        fun onCustomEqReceived(customEq: CustomEq)
+        fun onCapabilitiesReceived(capabilities: List<Capability>)
     }
 
     fun parseStemPressResponse(data: ByteArray): Pair<StemPressType, StemPressBudType> {
@@ -549,18 +558,18 @@ class AACPManager {
                 }
             }
 
-            Opcodes.EQ_DATA -> {
+            Opcodes.HEADPHONE_ACCOMMODATION -> {
                 if (packet.size != 140) {
                     Log.w(
                         TAG,
-                        "Received EQ_DATA packet of unexpected size: ${packet.size}, expected 140"
+                        "Received HEADPHONE_ACCOMMODATION packet of unexpected size: ${packet.size}, expected 140"
                     )
                     return
                 }
                 if (packet[6] != 0x84.toByte()) {
                     Log.w(
                         TAG,
-                        "Received EQ_DATA packet with unexpected identifier: ${packet[6].toHexString()}, expected 0x84"
+                        "Received HEADPHONE_ACCOMMODATION packet with unexpected identifier: ${packet[6].toHexString()}, expected 0x84"
                     )
                     return
                 }
@@ -583,13 +592,20 @@ class AACPManager {
                     "EQ Data set to: ${eqData.toList()}, eqOnPhone: $eqOnPhone, eqOnMedia: $eqOnMedia"
                 )
 
-                callback?.onEQPacketReceived(eqData)
+                callback?.onHeadphoneAccommodationReceived(eqData)
             }
 
             Opcodes.INFORMATION -> {
                 Log.d(TAG, "Parsing Information Packet")
                 val information = parseInformationPacket(packet)
                 callback?.onDeviceInformationReceived(information)
+            }
+
+            Opcodes.CUSTOM_EQ -> {
+                Log.d(TAG, "Parsing CUSTOM_EQ: ${packet.toHexString()}")
+                customEq = parseCustomEqPacket(packet)
+                customEqCallback?.invoke(customEq)
+                callback?.onCustomEqReceived(customEq)
             }
 
             else -> {
@@ -1295,6 +1311,40 @@ class AACPManager {
             leftSerialNumber = strings.getOrNull(8) ?: "",
             rightSerialNumber = strings.getOrNull(9) ?: "",
             version3 = strings.getOrNull(10) ?: "",
+        )
+    }
+
+    fun sendCustomEqPacket(customEq: CustomEq): Boolean {
+        return sendDataPacket(customEq.toPacket())
+    }
+
+    fun parseCustomEqPacket(packet: ByteArray): CustomEq {
+        val data = packet.sliceArray(6 until packet.size)
+
+        if (data.size < 7) {
+            Log.e(TAG, "custom EQ packet length less than 7, returning default")
+            return CustomEq(1, 50, 50, 50)
+        }
+
+        val lengthLow = data[0].toInt() and 0xFF
+        val lengthHigh = data[1].toInt() and 0xFF
+
+        val length = (lengthHigh shl 8) or lengthLow
+
+        if (length != 5) {
+            Log.w(TAG, "parseCustomEqPacket: unexpected length ($length). parsing normally")
+        }
+
+        val state = data[3].toInt()
+        val low = data[4].toInt()
+        val mid = data[5].toInt()
+        val high = data[6].toInt()
+
+        return CustomEq(
+            state,
+            low,
+            mid,
+            high
         )
     }
 }

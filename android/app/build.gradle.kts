@@ -1,6 +1,6 @@
 import java.util.Properties
 
-val appVersionName = "0.2.9"
+val appVersionName = "0.3.0"
 
 plugins {
     alias(libs.plugins.android.application)
@@ -41,7 +41,7 @@ android {
     defaultConfig {
         applicationId = "me.kavishdevar.librepods"
         targetSdk = 37
-        versionCode = 55
+        versionCode = 56
         versionName = appVersionName
     }
     buildTypes {

@@ -24,6 +24,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.util.Log
 import android.widget.Toast
 import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
@@ -40,6 +41,7 @@ import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.bluetooth.AACPManager.Companion.ControlCommandIdentifiers
 import me.kavishdevar.librepods.bluetooth.ATTCCCDHandles
 import me.kavishdevar.librepods.bluetooth.ATTHandles
+import me.kavishdevar.librepods.bluetooth.BluetoothConnectionManager
 import me.kavishdevar.librepods.data.AirPodsInstance
 import me.kavishdevar.librepods.data.AirPodsModels
 import me.kavishdevar.librepods.data.AirPodsNotifications
@@ -48,6 +50,7 @@ import me.kavishdevar.librepods.data.BatteryComponent
 import me.kavishdevar.librepods.data.BatteryStatus
 import me.kavishdevar.librepods.data.Capability
 import me.kavishdevar.librepods.data.ControlCommandRepository
+import me.kavishdevar.librepods.data.CustomEq
 import me.kavishdevar.librepods.data.StemAction
 import me.kavishdevar.librepods.data.XposedRemotePrefProvider
 import me.kavishdevar.librepods.services.AirPodsService
@@ -95,7 +98,9 @@ data class AirPodsUiState(
     val dynamicEndOfCharge: Boolean = false,
 
     val connectionSuccessful: Boolean = false,
-    val timeUntilFOSSPremiumExpiry: Long = 0L
+    val timeUntilFOSSPremiumExpiry: Long = 0L,
+
+    val customEq: CustomEq = CustomEq(1, 50, 50, 50) // disabled
 )
 
 class AirPodsViewModel(
@@ -138,13 +143,36 @@ class AirPodsViewModel(
         _cameraAction.value = action
     }
 
+    fun setCustomEq(low: Int, mid: Int, high: Int) {
+        require(low in 0..100)
+        require(mid in 0..100)
+        require(high in 0..100)
+        val updatedEq = _uiState.value.customEq.copy(low = low, mid = mid, high = high)
+        service.aacpManager.sendCustomEqPacket(updatedEq)
+        _uiState.update {
+            it.copy(
+                customEq = updatedEq
+            )
+        }
+    }
+
+    fun setCustomEqEnabled(enabled: Boolean) {
+        service.aacpManager.sendCustomEqPacket(_uiState.value.customEq.copy(state = if (enabled) 2 else 1))
+        _uiState.update {
+            it.copy(
+                customEq = it.customEq.copy(state = if (enabled) 2 else 1)
+            )
+        }
+    }
+
     init {
         observeBroadcasts()
         loadName()
         loadInstance()
         loadSharedPreferences()
-        setupControlObservers()
+        observeAACP()
         loadControlList()
+        loadEq()
         loadATT()
         observeATT()
         observeSharedPreferences()
@@ -156,7 +184,7 @@ class AirPodsViewModel(
         listeners.forEach { (id, listener) ->
             controlRepo.remove(id, listener)
         }
-
+        service.aacpManager.customEqCallback = null
         appContext.unregisterReceiver(broadcastReceiver)
 
         super.onCleared()
@@ -313,7 +341,7 @@ class AirPodsViewModel(
     }
 
     // I'm lazy, sorry.
-    fun setupControlObservers() {
+    fun observeAACP() {
         val identifiersList = listOf(
             ControlCommandIdentifiers.MIC_MODE,
             ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL,
@@ -345,6 +373,9 @@ class AirPodsViewModel(
         for (identifier in identifiersList) {
             observeControl(identifier)
         }
+        service.aacpManager.customEqCallback = { customEq ->
+            _uiState.update { it.copy(customEq = customEq) }
+        }
     }
 
     fun refreshInitialData() {
@@ -352,7 +383,7 @@ class AirPodsViewModel(
         service.let { service ->
             _uiState.update {
                 it.copy(
-                    isLocallyConnected = service.isConnected(), battery = service.getBattery()
+                    isLocallyConnected = BluetoothConnectionManager.getAACPSocket()?.isConnected == true, battery = service.getBattery()
                 )
             }
         }
@@ -382,7 +413,6 @@ class AirPodsViewModel(
 
         val connectionSuccessful = sharedPreferences.getBoolean("connection_successful", false)
 
-        val fossUpgraded = sharedPreferences.getBoolean("foss_upgraded", false)
         _uiState.update {
             it.copy(
                 offListeningMode = offListeningModeEnabled,
@@ -398,8 +428,8 @@ class AirPodsViewModel(
         }
 
         // faulty update on Play caused PLAY_BUILD to be false and resulted in use of FOSS billing in Play. since FOSS is not verified, we need to give 2 weeks to verify the purchase
-
         if (BuildConfig.PLAY_BUILD) {
+            val fossUpgraded = sharedPreferences.getBoolean("foss_upgraded", false)
             val expiryTime = sharedPreferences.getLong("premium_expiry_time", 0L)
             val now = System.currentTimeMillis()
 
@@ -474,6 +504,14 @@ class AirPodsViewModel(
         _uiState.update {
             it.copy(
                 controlStates = controlRepo.getMap()
+            )
+        }
+    }
+
+    private fun loadEq() {
+        _uiState.update {
+            it.copy(
+                customEq = service.aacpManager.customEq
             )
         }
     }

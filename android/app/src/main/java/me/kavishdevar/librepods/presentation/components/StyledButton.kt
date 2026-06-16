@@ -140,7 +140,7 @@ half4 main(float2 coord) {
                                 }
                                 drawRect(color)
                             } else {
-                                if (isPressed) {
+                                if (isPressed && enabled) {
                                     drawRect(Color.Black.copy(alpha = 0.4f))
                                     drawRect(Color.White.copy(alpha = 0.2f))
                                 }
@@ -264,29 +264,38 @@ half4 main(float2 coord) {
                         val progressAnimationSpec = spring(0.5f, 300f, 0.001f)
                         val offsetAnimationSpec = spring(1f, 300f, Offset.VisibilityThreshold)
                         val onDragStop: () -> Unit = {
-                            scope.launch {
-                                launch { haptics.performHapticFeedback(HapticFeedbackType.Reject) }
-                                launch { progressAnimation.animateTo(0f, progressAnimationSpec) }
-                                launch {
-                                    offsetAnimation.animateTo(
-                                        Offset.Zero,
-                                        offsetAnimationSpec
-                                    )
+                            if (enabled) {
+                                scope.launch {
+                                    launch { haptics.performHapticFeedback(HapticFeedbackType.Reject) }
+                                    launch {
+                                        progressAnimation.animateTo(
+                                            0f,
+                                            progressAnimationSpec
+                                        )
+                                    }
+                                    launch {
+                                        offsetAnimation.animateTo(
+                                            Offset.Zero,
+                                            offsetAnimationSpec
+                                        )
+                                    }
                                 }
                             }
                         }
                         inspectDragGestures(
                             onDragStart = { down ->
                                 pressStartPosition = down.position
-                                scope.launch {
-                                    launch { haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) }
-                                    launch {
-                                        progressAnimation.animateTo(
-                                            1f,
-                                            progressAnimationSpec
-                                        )
+                                if (enabled) {
+                                    scope.launch {
+                                        launch { haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) }
+                                        launch {
+                                            progressAnimation.animateTo(
+                                                1f,
+                                                progressAnimationSpec
+                                            )
+                                        }
+                                        launch { offsetAnimation.snapTo(Offset.Zero) }
                                     }
-                                    launch { offsetAnimation.snapTo(Offset.Zero) }
                                 }
                             },
                             onDragEnd = {
@@ -294,11 +303,13 @@ half4 main(float2 coord) {
                             },
                             onDragCancel = onDragStop
                         ) { _, dragAmount ->
-                            scope.launch {
-                                if (dragAmount.getDistanceSquared() > 350) haptics.performHapticFeedback(
-                                    HapticFeedbackType.SegmentFrequentTick
-                                )
-                                offsetAnimation.snapTo(offsetAnimation.value + dragAmount)
+                            if (enabled) {
+                                scope.launch {
+                                    if (dragAmount.getDistanceSquared() > 350) haptics.performHapticFeedback(
+                                        HapticFeedbackType.SegmentFrequentTick
+                                    )
+                                    offsetAnimation.snapTo(offsetAnimation.value + dragAmount)
+                                }
                             }
                         }
                     }

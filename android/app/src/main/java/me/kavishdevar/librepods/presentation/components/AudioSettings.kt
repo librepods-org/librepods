@@ -53,6 +53,7 @@ fun AudioSettings(
     conversationalAwarenessCapability: Boolean,
     loudSoundReductionCapability: Boolean,
     adaptiveAudioCapability: Boolean,
+    customEqCapability: Boolean,
 
     adaptiveVolumeChecked: Boolean,
     onAdaptiveVolumeCheckedChange: (Boolean) -> Unit,
@@ -157,6 +158,20 @@ fun AudioSettings(
                 navController = navController,
                 independent = false
             )
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = Color(0x40888888),
+                modifier = Modifier
+                    .padding(horizontal = 12.dp)
+            )
+        }
+        if (customEqCapability) {
+            NavigationButton(
+                to = "equalizer_screen",
+                name = stringResource(R.string.equalizer),
+                navController = navController,
+                independent = false
+            )
         }
     }
 }
@@ -170,6 +185,7 @@ fun AudioSettingsPreview() {
         conversationalAwarenessCapability = true,
         loudSoundReductionCapability = true,
         adaptiveAudioCapability = true,
+        customEqCapability = true,
         adaptiveVolumeChecked = true,
         onAdaptiveVolumeCheckedChange = { },
         conversationalAwarenessChecked = true,

@@ -365,6 +365,7 @@ fun AirPodsSettingsScreen(viewModel: AirPodsViewModel, navController: NavControl
                         conversationalAwarenessCapability = conversationalAwarenessCapability,
                         loudSoundReductionCapability = loudSoundReductionCapability,
                         adaptiveAudioCapability = adaptiveAudioCapability,
+                        customEqCapability = true,
                         adaptiveVolumeChecked = adaptiveVolumeChecked,
                         onAdaptiveVolumeCheckedChange = { checked ->
                             viewModel.setControlCommandBoolean(

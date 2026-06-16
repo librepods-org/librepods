@@ -22,8 +22,10 @@ import android.os.Parcelable
 import android.util.Log
 import kotlinx.parcelize.Parcelize
 
+// TODO: Remove everything but Battery-related stuff
+
 enum class Enums(val value: ByteArray) {
-    NOISE_CANCELLATION(Capabilities.NOISE_CANCELLATION),
+    NOISE_CANCELLATION(byteArrayOf(0x0d)),
     PREFIX(byteArrayOf(0x04, 0x00, 0x04, 0x00)),
     SETTINGS(byteArrayOf(0x09, 0x00)),
     NOISE_CANCELLATION_PREFIX(PREFIX.value + SETTINGS.value + NOISE_CANCELLATION.value),
@@ -81,12 +83,12 @@ class AirPodsNotifications {
         const val AIRPODS_DISCONNECTED = "me.kavishdevar.librepods.AIRPODS_DISCONNECTED"
         const val AIRPODS_CONNECTION_DETECTED = "me.kavishdevar.librepods.AIRPODS_CONNECTION_DETECTED"
         const val DISCONNECT_RECEIVERS = "me.kavishdevar.librepods.DISCONNECT_RECEIVERS"
-        const val EQ_DATA = "me.kavishdevar.librepods.EQ_DATA"
+        const val EQ_DATA = "me.kavishdevar.librepods.HEADPHONE_ACCOMMODATION"
         const val AIRPODS_INFORMATION_UPDATED = "me.kavishdevar.librepods.AIRPODS_INFORMATION_UPDATED"
     }
 
     class EarDetection {
-        private val notificationBit = Capabilities.EAR_DETECTION
+        private val notificationBit = 6.toByte()
         private val notificationPrefix = Enums.PREFIX.value + notificationBit
 
         var status: List<Byte> = listOf(0x01, 0x01)
@@ -240,13 +242,6 @@ class AirPodsNotifications {
         fun setData(data: ByteArray) {
             status = data[9]
         }
-    }
-}
-
-class Capabilities {
-    companion object {
-        val NOISE_CANCELLATION = byteArrayOf(0x0d)
-        val EAR_DETECTION = byteArrayOf(0x06)
     }
 }
 

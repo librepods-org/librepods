@@ -277,4 +277,6 @@
     <string name="optimized_charging_description">AirPods can learn from your daily usage and determine when to charge to an optmized limit and when to allow or full charge. This limit adapts to your daily usage and preserves your battery lifespan over time.\nThis setting may not affect unsupported AirPods, or AirPods on an older firmware version.</string>
     <string name="enable_app_in_xposed_or_update_device">Enable LibrePods in Xposed or update your device to proceed.</string>
     <string name="play_foss_premium_banner">Due to an error in billing, premium access will expire in %1$d days. If you already upgraded the app, please click on this message to email billing@kavish.xyz to restore or verify access. Apologies for the inconvenience.</string>
+    <string name="custom">Custom</string>
+    <string name="recommended">Recommended</string>
 </resources>
