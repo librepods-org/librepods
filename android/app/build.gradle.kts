@@ -1,6 +1,6 @@
 import java.util.Properties
 
-val appVersionName = "0.3.0"
+val appVersionName = "v1.0.0-rc1"
 
 plugins {
     alias(libs.plugins.android.application)
@@ -24,6 +24,14 @@ val releaseSigningAvailable = listOf(
     "RELEASE_KEY_PASSWORD"
 ).all { props[it]?.toString()?.isNotBlank() == true }
 
+kotlin {
+    compilerOptions {
+        optIn.add(
+            "androidx.compose.material3.ExperimentalMaterial3ExpressiveApi"
+        )
+    }
+}
+
 android {
     signingConfigs {
         if (releaseSigningAvailable) {
@@ -41,7 +49,7 @@ android {
     defaultConfig {
         applicationId = "me.kavishdevar.librepods"
         targetSdk = 37
-        versionCode = 56
+        versionCode = 61
         versionName = appVersionName
     }
     buildTypes {
@@ -117,6 +125,7 @@ android {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.accompanist.permissions)
+    implementation(libs.androidx.compose.ui.text.google.fonts)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -145,6 +154,10 @@ dependencies {
     implementation(libs.libxposed.service)
     implementation(libs.play.review)
     implementation(libs.play.review.ktx)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+    implementation(libs.androidx.navigationevent)
 }
 
 aboutLibraries {

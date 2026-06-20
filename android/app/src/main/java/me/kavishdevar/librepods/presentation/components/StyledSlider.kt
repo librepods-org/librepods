@@ -34,14 +34,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -71,6 +75,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.Wallpapers.GREEN_DOMINATED_EXAMPLE
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,6 +95,9 @@ import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.R
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.utils.inspectDragGestures
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -221,363 +229,530 @@ fun StyledSlider(
     endLabel: String? = null,
     independent: Boolean = false,
     description: String? = null,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    index: Int = 0,
+    count: Int = 1
 ) {
-    val backgroundColor = if (isSystemInDarkTheme()) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
-    val isLightTheme = !isSystemInDarkTheme()
-    val trackColor =
-        if (isLightTheme) Color(0xFF787878).copy(0.2f)
-        else Color(0xFF787880).copy(0.36f)
-    val accentColor =
-        if (enabled) {
-            if (isLightTheme) Color(0xFF0088FF)
-            else Color(0xFF0091FF)
-        } else {
-            trackColor
-        }
-    val labelTextColor = if (isLightTheme) Color.Black else Color.White
+    when (LocalDesignSystem.current) {
+        DesignSystem.Material -> {
+            val defaultShape = when {
+                count == 1 -> RoundedCornerShape(24.dp)
 
-    val fraction by derivedStateOf {
-        ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start))
-            .fastCoerceIn(0f, 1f)
-    }
+                index == 0 -> RoundedCornerShape(
+                    topStart = 24.dp,
+                    topEnd = 24.dp,
+                    bottomStart = 8.dp,
+                    bottomEnd = 8.dp
+                )
 
-    val sliderBackdrop = rememberLayerBackdrop()
-    val trackWidthState = remember { mutableFloatStateOf(0f) }
-    val trackPositionState = remember { mutableFloatStateOf(0f) }
-    val startIconWidthState = remember { mutableFloatStateOf(0f) }
-    val endIconWidthState = remember { mutableFloatStateOf(0f) }
-    val density = LocalDensity.current
-    val haptics = LocalHapticFeedback.current
-    var lastDragValue by remember { mutableFloatStateOf(value) }
+                index == count - 1 -> RoundedCornerShape(
+                    topStart = 8.dp,
+                    topEnd = 8.dp,
+                    bottomStart = 24.dp,
+                    bottomEnd = 24.dp
+                )
 
-    val momentumAnimation = rememberMomentumAnimation(maxScale = 1.5f)
+                else -> RoundedCornerShape(8.dp)
+            }
 
-    val content = @Composable {
-        Box(
-            Modifier
-                .fillMaxWidth(if (startIcon == null && endIcon == null) 0.95f else 1f)
-        ) {
-            Box(
-                Modifier
-                    .padding(vertical = 4.dp)
-                    .layerBackdrop(sliderBackdrop)
-                    .fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth(1f)
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (startLabel != null || endLabel != null) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = startLabel ?: "",
-                                style = TextStyle(
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = labelTextColor,
-                                    fontFamily = FontFamily(Font(R.font.sf_pro))
-                                )
-                            )
-                            Text(
-                                text = endLabel ?: "",
-                                style = TextStyle(
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = labelTextColor,
-                                    fontFamily = FontFamily(Font(R.font.sf_pro))
-                                )
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                    }
-                    Column(
+            Column {
+                label?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmallEmphasized,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .then(if (startIcon == null && endIcon == null) Modifier.padding(horizontal = 8.dp) else Modifier),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(0.dp)
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 4.dp, bottom = 12.dp)
+                    )
+                }
+                SegmentedListItem(
+                    shapes = ListItemDefaults.shapes().copy(
+                        shape = defaultShape,
+                        pressedShape = RoundedCornerShape(24.dp),
+                        selectedShape = RoundedCornerShape(24.dp),
+                        hoveredShape = RoundedCornerShape(24.dp),
+                    ),
+                    onClick = {},
+                    enabled = enabled,
+                    modifier = Modifier.heightIn(min = 58.dp),
+                    content = {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            if (startIcon != null) {
+                            description?.let {
                                 Text(
-                                    text = startIcon,
-                                    style = TextStyle(
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Normal,
-                                        color = accentColor,
-                                        fontFamily = FontFamily(Font(R.font.sf_pro))
-                                    ),
-                                    modifier = Modifier
-                                        .padding(horizontal = 12.dp)
-                                        .onGloballyPositioned {
-                                            startIconWidthState.floatValue = it.size.width.toFloat()
-                                        }
+                                    text = it,
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .onSizeChanged { trackWidthState.floatValue = it.width.toFloat() }
-                                    .onGloballyPositioned {
-                                        trackPositionState.floatValue =
-                                            it.positionInParent().y + it.size.height / 2f
-                                    }
-                            ) {
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(28.dp))
-                                        .background(trackColor)
-                                        .height(6f.dp)
-                                        .fillMaxWidth()
-                                )
 
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(28.dp))
-                                        .background(accentColor)
-                                        .height(6f.dp)
-                                        .layout { measurable, constraints ->
-                                            val placeable = measurable.measure(constraints)
-                                            val fraction = fraction
-                                            val width =
-                                                (fraction * constraints.maxWidth).fastRoundToInt()
-                                            layout(width, placeable.height) {
-                                                placeable.place(0, 0)
-                                            }
-                                        }
-                                )
-                            }
-                            if (endIcon != null) {
-                                Text(
-                                    text = endIcon,
-                                    style = TextStyle(
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Normal,
-                                        color = accentColor,
-                                        fontFamily = FontFamily(Font(R.font.sf_pro))
-                                    ),
-                                    modifier = Modifier
-                                        .padding(horizontal = 12.dp)
-                                        .onGloballyPositioned {
-                                            endIconWidthState.floatValue = it.size.width.toFloat()
-                                        }
-                                )
-                            }
-                        }
-                        if (snapPoints.isNotEmpty() && startLabel != null && endLabel != null) Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            if (snapPoints.isNotEmpty()) {
-                                val trackWidth = if (startIcon != null && endIcon != null) trackWidthState.floatValue - with(density) { 6.dp.toPx() } * 2 else trackWidthState.floatValue- with(density) { 22.dp.toPx() }
-                                val startOffset =
-                                    if (startIcon != null) startIconWidthState.floatValue + with(
-                                        density
-                                    ) { 34.dp.toPx() } else with(density) { 14.dp.toPx() }
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
+                            if (startLabel != null || endLabel != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    snapPoints.forEach { point ->
-                                        val pointFraction =
-                                            ((point - valueRange.start) / (valueRange.endInclusive - valueRange.start))
-                                                .fastCoerceIn(0f, 1f)
-                                        Box(
-                                            Modifier
-                                                .graphicsLayer {
-                                                    translationX =
-                                                        startOffset + pointFraction * trackWidth - 4.dp.toPx()
-                                                }
-                                                .size(2.dp)
-                                                .background(
-                                                    trackColor,
-                                                    CircleShape
-                                                )
+                                    startLabel?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+
+                                    Spacer(Modifier.weight(1f))
+
+                                    endLabel?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.labelSmall
                                         )
                                     }
                                 }
                             }
                         }
+                    },
+                    supportingContent = {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+
+                                startIcon?.let {
+                                    Text(it, fontFamily = FontFamily(Font(R.font.sf_pro)))
+                                    Spacer(Modifier.width(12.dp))
+                                }
+
+                                Slider(
+                                    modifier = Modifier.weight(1f),
+                                    value = value,
+                                    onValueChange = { newValue ->
+                                        val snapped =
+                                            if (snapPoints.isNotEmpty()) {
+                                                snapIfClose(
+                                                    newValue,
+                                                    snapPoints,
+                                                    snapThreshold
+                                                )
+                                            } else {
+                                                newValue
+                                            }
+
+                                        onValueChange(snapped)
+                                    },
+                                    valueRange = valueRange,
+                                    enabled = enabled
+                                )
+
+                                endIcon?.let {
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(it, fontFamily = FontFamily(Font(R.font.sf_pro)))
+                                }
+                            }
+                        }
                     }
+                )
+
+                if (index + 1 != count) {
+                    Spacer(
+                        modifier = Modifier.height(2.dp)
+                    )
+                }
+            }
+        }
+
+        DesignSystem.Apple -> {
+            val backgroundColor =
+                if (isSystemInDarkTheme()) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+            val isDarkTheme = isSystemInDarkTheme()
+            val trackColor =
+                if (isDarkTheme) Color(0xFF787880).copy(0.36f)
+                else Color(0xFF787878).copy(0.2f)
+            val accentColor =
+                if (enabled) {
+                    if (isDarkTheme) Color(0xFF0091FF)
+                    else Color(0xFF0088FF)
+                } else {
+                    trackColor
+                }
+            val labelTextColor = if (isDarkTheme) Color.White else Color.Black
+
+            val fraction by derivedStateOf {
+                ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start))
+                    .fastCoerceIn(0f, 1f)
+            }
+
+            val sliderBackdrop = rememberLayerBackdrop()
+            val trackWidthState = remember { mutableFloatStateOf(0f) }
+            val trackPositionState = remember { mutableFloatStateOf(0f) }
+            val startIconWidthState = remember { mutableFloatStateOf(0f) }
+            val endIconWidthState = remember { mutableFloatStateOf(0f) }
+            val density = LocalDensity.current
+            val haptics = LocalHapticFeedback.current
+            var lastDragValue by remember { mutableFloatStateOf(value) }
+
+            val momentumAnimation = rememberMomentumAnimation(maxScale = 1.5f)
+
+            val content = @Composable {
+                Box(
+                    Modifier
+                        .fillMaxWidth(if (startIcon == null && endIcon == null) 0.95f else 1f)
+                ) {
+                    Box(
+                        Modifier
+                            .padding(vertical = 4.dp)
+                            .layerBackdrop(sliderBackdrop)
+                            .fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth(1f)
+                                .padding(vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            if (startLabel != null || endLabel != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = startLabel ?: "",
+                                        style = TextStyle(
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Normal,
+                                            color = labelTextColor,
+                                            fontFamily = FontFamily(Font(R.font.sf_pro))
+                                        )
+                                    )
+                                    Text(
+                                        text = endLabel ?: "",
+                                        style = TextStyle(
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Normal,
+                                            color = labelTextColor,
+                                            fontFamily = FontFamily(Font(R.font.sf_pro))
+                                        )
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .then(
+                                        if (startIcon == null && endIcon == null) Modifier.padding(
+                                            horizontal = 8.dp
+                                        ) else Modifier
+                                    ),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                                ) {
+                                    if (startIcon != null) {
+                                        Text(
+                                            text = startIcon,
+                                            style = TextStyle(
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                color = accentColor,
+                                                fontFamily = FontFamily(Font(R.font.sf_pro))
+                                            ),
+                                            modifier = Modifier
+                                                .padding(horizontal = 12.dp)
+                                                .onGloballyPositioned {
+                                                    startIconWidthState.floatValue =
+                                                        it.size.width.toFloat()
+                                                }
+                                        )
+                                    }
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .onSizeChanged {
+                                                trackWidthState.floatValue = it.width.toFloat()
+                                            }
+                                            .onGloballyPositioned {
+                                                trackPositionState.floatValue =
+                                                    it.positionInParent().y + it.size.height / 2f
+                                            }
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .clip(RoundedCornerShape(28.dp))
+                                                .background(trackColor)
+                                                .height(6f.dp)
+                                                .fillMaxWidth()
+                                        )
+
+                                        Box(
+                                            Modifier
+                                                .clip(RoundedCornerShape(28.dp))
+                                                .background(accentColor)
+                                                .height(6f.dp)
+                                                .layout { measurable, constraints ->
+                                                    val placeable = measurable.measure(constraints)
+                                                    val fraction = fraction
+                                                    val width =
+                                                        (fraction * constraints.maxWidth).fastRoundToInt()
+                                                    layout(width, placeable.height) {
+                                                        placeable.place(0, 0)
+                                                    }
+                                                }
+                                        )
+                                    }
+                                    if (endIcon != null) {
+                                        Text(
+                                            text = endIcon,
+                                            style = TextStyle(
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                color = accentColor,
+                                                fontFamily = FontFamily(Font(R.font.sf_pro))
+                                            ),
+                                            modifier = Modifier
+                                                .padding(horizontal = 12.dp)
+                                                .onGloballyPositioned {
+                                                    endIconWidthState.floatValue =
+                                                        it.size.width.toFloat()
+                                                }
+                                        )
+                                    }
+                                }
+                                if (snapPoints.isNotEmpty() && startLabel != null && endLabel != null) Spacer(
+                                    modifier = Modifier.height(4.dp)
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    if (snapPoints.isNotEmpty()) {
+                                        val trackWidth =
+                                            if (startIcon != null && endIcon != null) trackWidthState.floatValue - with(
+                                                density
+                                            ) { 6.dp.toPx() } * 2 else trackWidthState.floatValue - with(
+                                                density
+                                            ) { 22.dp.toPx() }
+                                        val startOffset =
+                                            if (startIcon != null) startIconWidthState.floatValue + with(
+                                                density
+                                            ) { 34.dp.toPx() } else with(density) { 14.dp.toPx() }
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                        ) {
+                                            snapPoints.forEach { point ->
+                                                val pointFraction =
+                                                    ((point - valueRange.start) / (valueRange.endInclusive - valueRange.start))
+                                                        .fastCoerceIn(0f, 1f)
+                                                Box(
+                                                    Modifier
+                                                        .graphicsLayer {
+                                                            translationX =
+                                                                startOffset + pointFraction * trackWidth - 4.dp.toPx()
+                                                        }
+                                                        .size(2.dp)
+                                                        .background(
+                                                            trackColor,
+                                                            CircleShape
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Box(
+                        Modifier
+                            .graphicsLayer {
+                                val startOffset =
+                                    if (startIcon != null)
+                                        startIconWidthState.floatValue + with(density) { 24.dp.toPx() }
+                                    else
+                                        with(density) { 8.dp.toPx() }
+
+                                translationX =
+                                    (startOffset + fraction * trackWidthState.floatValue - size.width / 2f)
+                                        .fastCoerceIn(
+                                            startOffset - size.width / 4f,
+                                            startOffset + trackWidthState.floatValue - size.width * 3f / 4f
+                                        )
+                                translationY =
+                                    if (startLabel != null || endLabel != null) trackPositionState.floatValue + with(
+                                        density
+                                    ) { 26.dp.toPx() } + size.height / 2f else trackPositionState.floatValue + with(
+                                        density
+                                    ) { 8.dp.toPx() }
+                            }
+                            .then(
+                                if (enabled) {
+                                    Modifier
+                                        .draggable(
+                                            rememberDraggableState { delta ->
+                                                val trackWidth = trackWidthState.floatValue
+                                                if (trackWidth > 0f) {
+                                                    val targetFraction =
+                                                        fraction + delta / trackWidth
+                                                    val targetValue =
+                                                        lerp(
+                                                            valueRange.start,
+                                                            valueRange.endInclusive,
+                                                            targetFraction
+                                                        )
+                                                            .fastCoerceIn(
+                                                                valueRange.start,
+                                                                valueRange.endInclusive
+                                                            )
+                                                    snapPoints.forEach { snap ->
+                                                        if ((lastDragValue < snap && targetValue >= snap) ||
+                                                            (snap in targetValue..<lastDragValue)
+                                                        ) {
+                                                            haptics.performHapticFeedback(
+                                                                HapticFeedbackType.SegmentTick
+                                                            )
+                                                        }
+                                                    }
+                                                    lastDragValue = targetValue
+                                                    val snappedValue =
+                                                        if (snapPoints.isNotEmpty()) snapIfClose(
+                                                            targetValue,
+                                                            snapPoints,
+                                                            snapThreshold,
+                                                        ) else targetValue
+                                                    onValueChange(snappedValue)
+                                                }
+                                            },
+                                            Orientation.Horizontal,
+                                            startDragImmediately = true,
+                                            onDragStarted = {
+                                                lastDragValue = value
+                                            },
+                                            onDragStopped = {
+                                                onValueChange((value * 100).roundToInt() / 100f)
+                                            }
+                                        )
+                                        .then(momentumAnimation.modifier)
+                                        .drawBackdrop(
+                                            rememberCombinedBackdrop(backdrop, sliderBackdrop),
+                                            { RoundedCornerShape(28.dp) },
+                                            highlight = {
+                                                val progress = momentumAnimation.progress
+                                                Highlight.Ambient.copy(alpha = progress)
+                                            },
+                                            shadow = {
+                                                Shadow(
+                                                    radius = 4f.dp,
+                                                    color = Color.Black.copy(0.05f)
+                                                )
+                                            },
+                                            innerShadow = {
+                                                val progress = momentumAnimation.progress
+                                                InnerShadow(
+                                                    radius = 4f.dp * progress,
+                                                    alpha = progress
+                                                )
+                                            },
+                                            layerBlock = {
+                                                scaleX = momentumAnimation.scaleX
+                                                scaleY = momentumAnimation.scaleY
+                                                val velocity = momentumAnimation.velocity / 5000f
+                                                scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(
+                                                    -0.15f,
+                                                    0.15f
+                                                )
+                                                scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(
+                                                    -0.15f,
+                                                    0.15f
+                                                )
+                                            },
+                                            onDrawSurface = {
+                                                val progress = momentumAnimation.progress
+                                                drawRect(Color.White.copy(alpha = 1f - progress))
+                                            },
+                                            effects = {
+                                                val progress = momentumAnimation.progress
+                                                blur(8f.dp.toPx() * (1f - progress))
+                                                lens(
+                                                    refractionHeight = 6f.dp.toPx() * progress,
+                                                    refractionAmount = size.height / 2f * progress,
+                                                    depthEffect = true,
+                                                    chromaticAberration = true
+                                                )
+                                            }
+                                        )
+                                } else {
+                                    Modifier.background(trackColor, RoundedCornerShape(28.dp))
+                                }
+                            )
+                            .size(40f.dp, 24f.dp)
+                    )
                 }
             }
 
-            Box(
-                Modifier
-                    .graphicsLayer {
-//                        val startOffset =
-//                            if (startIcon != null) startIconWidthState.floatValue + with(density) { 24.dp.toPx() } else with(density) { 12.dp.toPx() }
-//                        translationX =
-//                            startOffset + fraction * trackWidthState.floatValue - size.width / 2f
-                        val startOffset =
-                            if (startIcon != null)
-                                startIconWidthState.floatValue + with(density) { 24.dp.toPx() }
-                            else
-                                with(density) { 8.dp.toPx() }
-
-                        translationX =
-                            (startOffset + fraction * trackWidthState.floatValue - size.width / 2f)
-                                .fastCoerceIn(
-                                    startOffset - size.width / 4f,
-                                    startOffset + trackWidthState.floatValue - size.width * 3f / 4f
-                                )
-                        translationY =  if (startLabel != null || endLabel != null) trackPositionState.floatValue + with(density) { 26.dp.toPx() } + size.height / 2f else trackPositionState.floatValue + with(density) { 8.dp.toPx() }
+            if (independent) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (label != null) {
+                        Text(
+                            text = label,
+                            style = TextStyle(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = labelTextColor.copy(alpha = 0.6f),
+                                fontFamily = FontFamily(Font(R.font.sf_pro))
+                            ),
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
+                        )
                     }
-                    .then(
-                        if (enabled) {
-                            Modifier
-                                .draggable(
-                                    rememberDraggableState { delta ->
-                                        val trackWidth = trackWidthState.floatValue
-                                        if (trackWidth > 0f) {
-                                            val targetFraction = fraction + delta / trackWidth
-                                            val targetValue =
-                                                lerp(
-                                                    valueRange.start,
-                                                    valueRange.endInclusive,
-                                                    targetFraction
-                                                )
-                                                    .fastCoerceIn(
-                                                        valueRange.start,
-                                                        valueRange.endInclusive
-                                                    )
-                                            snapPoints.forEach { snap ->
-                                                if ((lastDragValue < snap && targetValue >= snap) ||
-                                                    (snap in targetValue..<lastDragValue)) {
-                                                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                                }
-                                            }
-                                            lastDragValue = targetValue
-                                            val snappedValue = if (snapPoints.isNotEmpty()) snapIfClose(
-                                                targetValue,
-                                                snapPoints,
-                                                snapThreshold,
-                                            ) else targetValue
-                                            onValueChange(snappedValue)
-                                        }
-                                    },
-                                    Orientation.Horizontal,
-                                    startDragImmediately = true,
-                                    onDragStarted = {
-                                        lastDragValue = value
-                                    },
-                                    onDragStopped = {
-                                        onValueChange((value * 100).roundToInt() / 100f)
-                                    }
-                                )
-                                .then(momentumAnimation.modifier)
-                                .drawBackdrop(
-                                    rememberCombinedBackdrop(backdrop, sliderBackdrop),
-                                    { RoundedCornerShape(28.dp) },
-                                    highlight = {
-                                        val progress = momentumAnimation.progress
-                                        Highlight.Ambient.copy(alpha = progress)
-                                    },
-                                    shadow = {
-                                        Shadow(
-                                            radius = 4f.dp,
-                                            color = Color.Black.copy(0.05f)
-                                        )
-                                    },
-                                    innerShadow = {
-                                        val progress = momentumAnimation.progress
-                                        InnerShadow(
-                                            radius = 4f.dp * progress,
-                                            alpha = progress
-                                        )
-                                    },
-                                    layerBlock = {
-                                        scaleX = momentumAnimation.scaleX
-                                        scaleY = momentumAnimation.scaleY
-                                        val velocity = momentumAnimation.velocity / 5000f
-                                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.15f, 0.15f)
-                                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.15f, 0.15f)
-                                    },
-                                    onDrawSurface = {
-                                        val progress = momentumAnimation.progress
-                                        drawRect(Color.White.copy(alpha = 1f - progress))
-                                    },
-                                    effects = {
-                                        val progress = momentumAnimation.progress
-                                        blur(8f.dp.toPx() * (1f - progress))
-                                        lens(
-                                            refractionHeight = 6f.dp.toPx() * progress,
-                                            refractionAmount = size.height / 2f * progress,
-                                            depthEffect = true,
-                                            chromaticAberration = true
-                                        )
-                                    }
-                                )
-                        } else {
-                            Modifier.background(trackColor, RoundedCornerShape(28.dp))
-                        }
-                    )
-                    .size(40f.dp, 24f.dp)
-            )
-        }
-    }
 
-    if (independent) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(backgroundColor, RoundedCornerShape(28.dp))
+                            .padding(horizontal = 8.dp, vertical = 0.dp)
+                            .heightIn(min = 58.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        content()
+                    }
 
-        Column (
-            modifier = Modifier
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            if (label != null) {
-                Text(
-                    text = label,
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = labelTextColor.copy(alpha = 0.6f),
-                        fontFamily = FontFamily(Font(R.font.sf_pro))
-                    ),
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
+                    if (description != null) {
+                        Text(
+                            text = description,
+                            style = TextStyle(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Light,
+                                color = (if (isSystemInDarkTheme()) Color.White else Color.Black).copy(
+                                    alpha = 0.6f
+                                ),
+                                fontFamily = FontFamily(Font(R.font.sf_pro))
+                            ),
+                            modifier = Modifier
+                                .padding(horizontal = 18.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            } else {
+                if (label != null) Log.w(
+                    "StyledSlider",
+                    "Label is ignored when independent is false"
                 )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(backgroundColor, RoundedCornerShape(28.dp))
-                    .padding(horizontal = 8.dp, vertical = 0.dp)
-                    .heightIn(min = 58.dp),
-                contentAlignment = Alignment.Center
-            ) {
+                if (description != null) Log.w(
+                    "StyledSlider",
+                    "Description is ignored when independent is false"
+                )
                 content()
             }
-
-            if (description != null) {
-                Text(
-                    text = description,
-                    style = TextStyle(
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Light,
-                        color = (if (isSystemInDarkTheme()) Color.White else Color.Black).copy(alpha = 0.6f),
-                        fontFamily = FontFamily(Font(R.font.sf_pro))
-                    ),
-                    modifier = Modifier
-                        .padding(horizontal = 18.dp, vertical = 4.dp)
-                )
-            }
         }
-    } else {
-        if (label != null) Log.w("StyledSlider", "Label is ignored when independent is false")
-        if (description != null) Log.w("StyledSlider", "Description is ignored when independent is false")
-        content()
     }
 }
 
@@ -586,46 +761,48 @@ private fun snapIfClose(value: Float, points: List<Float>, threshold: Float = 0.
     return if (abs(nearest - value) <= threshold) nearest else value
 }
 
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(uiMode = Configuration.UI_MODE_NIGHT_YES, wallpaper = GREEN_DOMINATED_EXAMPLE)
 @Composable
 fun StyledSliderPreview() {
     val a = remember { mutableFloatStateOf(0.5f) }
-    Box(
-        Modifier
-            .background(if (isSystemInDarkTheme()) Color(0xFF000000) else Color(0xFFF0F0F0))
-            .padding(16.dp)
-            .fillMaxSize()
+    LibrePodsTheme(
+        m3eEnabled = true
     ) {
-        Column (
-            Modifier.align(Alignment.Center),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        )
-        {
-            StyledSlider(
-                value = a.floatValue,
-                onValueChange = {
-                    a.floatValue = it
-                },
-                valueRange = 0f..2f,
-                snapPoints = listOf(1f),
-                snapThreshold = 0.1f,
-                independent = true,
-                startIcon = "A",
-                endIcon = "B",
-            )
-            StyledSlider(
-                value = a.floatValue,
-                onValueChange = {
-                    a.floatValue = it
-                },
-                valueRange = 0f..2f,
-                snapPoints = listOf(1f),
-                snapThreshold = 0.1f,
-                independent = true,
-                startIcon = "A",
-                endIcon = "B",
-                enabled = false
-            )
+        StyledScaffold(
+            title = "test",
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Spacer(modifier = Modifier.height(72.dp))
+                StyledSlider(
+                    value = a.floatValue,
+                    onValueChange = {
+                        a.floatValue = it
+                    },
+                    valueRange = 0f..2f,
+                    snapPoints = listOf(1f),
+                    snapThreshold = 0.1f,
+                    independent = true,
+                    startIcon = "A",
+                    endIcon = "B",
+                )
+                StyledSlider(
+                    label = "Small label",
+                    description = "This is a somewhat long descriptionRes",
+                    value = a.floatValue,
+                    onValueChange = {
+                        a.floatValue = it
+                    },
+                    valueRange = 0f..2f,
+                    snapPoints = listOf(1f),
+                    snapThreshold = 0.1f,
+                    independent = true,
+                    startIcon = "A",
+                    endIcon = "B",
+                )
+            }
         }
     }
 }

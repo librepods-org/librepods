@@ -29,6 +29,7 @@ import me.kavishdevar.librepods.bluetooth.ATTHandles
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "HearingAidUtils"
 
@@ -144,7 +145,7 @@ fun sendHearingAidSettings(
 ) {
     debounceJob.value?.cancel()
     debounceJob.value = CoroutineScope(Dispatchers.IO).launch {
-        delay(100)
+        delay(100.milliseconds)
         try {
             Log.d(TAG, "Current data before update: ${currentData.joinToString(" ") { String.format("%02X", it) }}")
             if (currentData.size < 104) {

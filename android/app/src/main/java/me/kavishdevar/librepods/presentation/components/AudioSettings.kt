@@ -20,35 +20,13 @@
 
 package me.kavishdevar.librepods.presentation.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
 import me.kavishdevar.librepods.R
 import kotlin.io.encoding.ExperimentalEncodingApi
 
 @Composable
 fun AudioSettings(
-    navController: NavController,
     adaptiveVolumeCapability: Boolean,
     conversationalAwarenessCapability: Boolean,
     loudSoundReductionCapability: Boolean,
@@ -64,135 +42,57 @@ fun AudioSettings(
     loudSoundReductionChecked: Boolean,
     onLoudSoundReductionCheckedChange: (Boolean) -> Unit,
 
+    navigateToAdaptiveStrength: () -> Unit,
+    navigateToEqualizer: () -> Unit,
+
     vendorIdHook: Boolean,
     isPremium: Boolean
 ) {
-    val isDarkTheme = isSystemInDarkTheme()
-    val textColor = if (isDarkTheme) Color.White else Color.Black
+    if (adaptiveVolumeCapability || conversationalAwarenessCapability || loudSoundReductionCapability || adaptiveAudioCapability) {
+        StyledList(title = stringResource(R.string.audio)) {
+            if (adaptiveVolumeCapability) {
+                StyledToggle(
+                    label = stringResource(R.string.personalized_volume),
+                    description = stringResource(R.string.personalized_volume_description),
+                    checked = adaptiveVolumeChecked,
+                    onCheckedChange = onAdaptiveVolumeCheckedChange,
+                    enabled = isPremium,
+                )
+            }
 
-    if (!adaptiveVolumeCapability && !conversationalAwarenessCapability && !loudSoundReductionCapability && !adaptiveAudioCapability) {
-        return
-    }
-    Box(
-        modifier = Modifier
-            .background(if (isDarkTheme) Color(0xFF000000) else Color(0xFFF2F2F7))
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-    ){
-        Text(
-            text = stringResource(R.string.audio),
-            style = TextStyle(
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = textColor.copy(alpha = 0.6f),
-                fontFamily = FontFamily(Font(R.font.sf_pro))
-            )
-        )
-    }
+            if (conversationalAwarenessCapability) {
+                StyledToggle(
+                    label = stringResource(R.string.conversational_awareness),
+                    description = stringResource(R.string.conversational_awareness_description),
+                    checked = conversationalAwarenessChecked,
+                    onCheckedChange = onConversationalAwarenessCheckedChange,
+                    enabled = isPremium,
+                )
+            }
 
-    val backgroundColor = if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF)
+            if (loudSoundReductionCapability && vendorIdHook) {
+                StyledToggle(
+                    label = stringResource(R.string.loud_sound_reduction),
+                    description = stringResource(R.string.loud_sound_reduction_description),
+                    checked = loudSoundReductionChecked,
+                    onCheckedChange = onLoudSoundReductionCheckedChange,
+                    enabled = isPremium,
+                )
+            }
 
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(28.dp))
-            .fillMaxWidth()
-            .background(backgroundColor, RoundedCornerShape(28.dp))
-            .padding(top = 2.dp)
-    ) {
+            if (adaptiveAudioCapability) {
+                StyledListItem(
+                    name = stringResource(R.string.adaptive_audio),
+                    onClick = navigateToAdaptiveStrength,
+                )
+            }
 
-        if (adaptiveVolumeCapability) {
-            StyledToggle(
-                label = stringResource(R.string.personalized_volume),
-                description = stringResource(R.string.personalized_volume_description),
-                independent = false,
-                checked = adaptiveVolumeChecked,
-                onCheckedChange = onAdaptiveVolumeCheckedChange,
-                enabled = isPremium
-            )
-
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = Color(0x40888888),
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-            )
-        }
-
-        if (conversationalAwarenessCapability) {
-            StyledToggle(
-                label = stringResource(R.string.conversational_awareness),
-                description = stringResource(R.string.conversational_awareness_description),
-                independent = false,
-                checked = conversationalAwarenessChecked,
-                onCheckedChange = onConversationalAwarenessCheckedChange,
-                enabled = isPremium
-            )
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = Color(0x40888888),
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-            )
-        }
-
-        if (loudSoundReductionCapability && vendorIdHook){
-            StyledToggle(
-                label = stringResource(R.string.loud_sound_reduction),
-                description = stringResource(R.string.loud_sound_reduction_description),
-                independent = false,
-                checked = loudSoundReductionChecked,
-                onCheckedChange = onLoudSoundReductionCheckedChange,
-                enabled = isPremium
-            )
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = Color(0x40888888),
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-            )
-        }
-
-        if (adaptiveAudioCapability) {
-            NavigationButton(
-                to = "adaptive_strength",
-                name = stringResource(R.string.adaptive_audio),
-                navController = navController,
-                independent = false
-            )
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = Color(0x40888888),
-                modifier = Modifier
-                    .padding(horizontal = 12.dp)
-            )
-        }
-        if (customEqCapability) {
-            NavigationButton(
-                to = "equalizer_screen",
-                name = stringResource(R.string.equalizer),
-                navController = navController,
-                independent = false
-            )
+            if (customEqCapability) {
+                StyledListItem(
+                    name = stringResource(R.string.equalizer),
+                    onClick = navigateToEqualizer,
+                )
+            }
         }
     }
-}
-
-@Preview
-@Composable
-fun AudioSettingsPreview() {
-    AudioSettings(
-        navController = rememberNavController(),
-        adaptiveVolumeCapability = true,
-        conversationalAwarenessCapability = true,
-        loudSoundReductionCapability = true,
-        adaptiveAudioCapability = true,
-        customEqCapability = true,
-        adaptiveVolumeChecked = true,
-        onAdaptiveVolumeCheckedChange = { },
-        conversationalAwarenessChecked = true,
-        onConversationalAwarenessCheckedChange = { },
-        loudSoundReductionChecked = true,
-        onLoudSoundReductionCheckedChange = { },
-        vendorIdHook = true,
-        isPremium = true
-    )
 }

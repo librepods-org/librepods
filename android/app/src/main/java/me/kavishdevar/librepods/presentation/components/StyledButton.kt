@@ -32,6 +32,11 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,12 +66,21 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import kotlinx.coroutines.launch
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.utils.inspectDragGestures
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
+
+enum class MaterialButtonStyle {
+    Tonal,
+    Normal,
+    Outlined,
+    Filled
+}
 
 @Composable
 fun StyledButton(
@@ -78,20 +92,58 @@ fun StyledButton(
     surfaceColor: Color = Color.Unspecified,
     maxScale: Float = 0.1f,
     enabled: Boolean = true,
+    materialButtonStyle: MaterialButtonStyle = MaterialButtonStyle.Tonal, // picking tonal because most usages assume a transparent/gray background, tonal will give a slightly less vibrant background
     content: @Composable RowScope.() -> Unit,
 ) {
-    val isInteractive = enabled && isInteractive
-    val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
-    val progressAnimation = remember { Animatable(0f) }
-    var pressStartPosition by remember { mutableStateOf(Offset.Zero) }
-    val offsetAnimation = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
-    var isPressed by remember { mutableStateOf(false) }
+    when (LocalDesignSystem.current) {
+        DesignSystem.Material -> {
+            when (materialButtonStyle) {
+                MaterialButtonStyle.Filled -> {
+                    Button(
+                        modifier = modifier.height(48.dp),
+                        onClick = onClick,
+                        content = content
+                    )
+                }
+                MaterialButtonStyle.Tonal -> {
+                    FilledTonalButton(
+                        modifier = modifier.height(48.dp),
+                        onClick = onClick,
+                        content = content,
+                        colors = ButtonDefaults.filledTonalButtonColors(containerColor = surfaceColor)
+                    )
+                }
 
-    val interactiveHighlightShader = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            RuntimeShader(
-                """
+                MaterialButtonStyle.Outlined -> {
+                    OutlinedButton(
+                        modifier = modifier.height(48.dp),
+                        onClick = onClick,
+                        content = content
+                    )
+                }
+
+                MaterialButtonStyle.Normal -> {
+                    TextButton(
+                        modifier = modifier.height(48.dp),
+                        onClick = onClick,
+                        content = content
+                    )
+                }
+            }
+        }
+        DesignSystem.Apple -> {
+            val isInteractive = enabled && isInteractive
+            val scope = rememberCoroutineScope()
+            val haptics = LocalHapticFeedback.current
+            val progressAnimation = remember { Animatable(0f) }
+            var pressStartPosition by remember { mutableStateOf(Offset.Zero) }
+            val offsetAnimation = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+            var isPressed by remember { mutableStateOf(false) }
+
+            val interactiveHighlightShader = remember {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    RuntimeShader(
+                        """
 uniform float2 size;
 layout(color) uniform half4 color;
 uniform float radius;
@@ -103,238 +155,250 @@ half4 main(float2 coord) {
     float intensity = smoothstep(radius, radius * 0.5, dist);
     return color * intensity;
 }"""
-            )
-        } else {
-            null
-        }
-    }
-
-    Row(
-        modifier
-            .then(
-                if (!isInteractive) {
-                    Modifier.drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { RoundedCornerShape(28f.dp) },
-                        effects = {
-                            blur(16f.dp.toPx())
-                        },
-                        layerBlock = null,
-                        onDrawSurface = {
-                            if (tint.isSpecified) {
-                                drawRect(tint, blendMode = BlendMode.Hue)
-                                drawRect(tint.copy(alpha = 0.75f))
-                            } else {
-                                drawRect(Color.White.copy(0.1f))
-                            }
-                            if (surfaceColor.isSpecified && enabled) {
-                                val color = if (isPressed) {
-                                    Color(
-                                        red = surfaceColor.red * 0.5f,
-                                        green = surfaceColor.green * 0.5f,
-                                        blue = surfaceColor.blue * 0.5f,
-                                        alpha = surfaceColor.alpha
-                                    )
-                                } else {
-                                    surfaceColor
-                                }
-                                drawRect(color)
-                            } else {
-                                if (isPressed && enabled) {
-                                    drawRect(Color.Black.copy(alpha = 0.4f))
-                                    drawRect(Color.White.copy(alpha = 0.2f))
-                                }
-                            }
-                        },
-                        onDrawFront = null,
-                        highlight = { Highlight.Ambient.copy(alpha = 0f) }
                     )
                 } else {
-                    Modifier.drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { RoundedCornerShape(28f.dp) },
-                        effects = {
-                            vibrancy()
-                            blur(2f.dp.toPx())
-                            lens(
-                                refractionHeight = 12f.dp.toPx(),
-                                refractionAmount = 24f.dp.toPx(),
-                                depthEffect = true,
-                                chromaticAberration = true
+                    null
+                }
+            }
+
+            Row(
+                modifier
+                    .then(
+                        if (!isInteractive) {
+                            Modifier.drawBackdrop(
+                                backdrop = backdrop,
+                                shape = { RoundedCornerShape(28f.dp) },
+                                effects = {
+                                    blur(16f.dp.toPx())
+                                },
+                                layerBlock = null,
+                                onDrawSurface = {
+                                    if (tint.isSpecified) {
+                                        drawRect(tint, blendMode = BlendMode.Hue)
+                                        drawRect(tint.copy(alpha = 0.75f))
+                                    } else {
+                                        drawRect(Color.White.copy(0.1f))
+                                    }
+                                    if (surfaceColor.isSpecified && enabled) {
+                                        val color = if (isPressed) {
+                                            Color(
+                                                red = surfaceColor.red * 0.5f,
+                                                green = surfaceColor.green * 0.5f,
+                                                blue = surfaceColor.blue * 0.5f,
+                                                alpha = surfaceColor.alpha
+                                            )
+                                        } else {
+                                            surfaceColor
+                                        }
+                                        drawRect(color)
+                                    } else {
+                                        if (isPressed && enabled) {
+                                            drawRect(Color.Black.copy(alpha = 0.4f))
+                                            drawRect(Color.White.copy(alpha = 0.2f))
+                                        }
+                                    }
+                                },
+                                onDrawFront = null,
+                                highlight = { Highlight.Ambient.copy(alpha = 0f) }
                             )
-                        },
-                        layerBlock = {
-                            val width = size.width
-                            val height = size.height
+                        } else {
+                            Modifier.drawBackdrop(
+                                backdrop = backdrop,
+                                shape = { RoundedCornerShape(28f.dp) },
+                                effects = {
+                                    vibrancy()
+                                    blur(2f.dp.toPx())
+                                    lens(
+                                        refractionHeight = 12f.dp.toPx(),
+                                        refractionAmount = 24f.dp.toPx(),
+                                        depthEffect = true,
+                                        chromaticAberration = true
+                                    )
+                                },
+                                layerBlock = {
+                                    val width = size.width
+                                    val height = size.height
 
-                            val progress = progressAnimation.value
-                            val scale = lerp(1f, 1f + maxScale, progress)
+                                    val progress = progressAnimation.value
+                                    val scale = lerp(1f, 1f + maxScale, progress)
 
-                            val maxOffset = size.minDimension
-                            val initialDerivative = 0.05f
-                            val offset = offsetAnimation.value
-                            translationX =
-                                maxOffset * tanh(initialDerivative * offset.x / maxOffset)
-                            translationY =
-                                maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+                                    val maxOffset = size.minDimension
+                                    val initialDerivative = 0.05f
+                                    val offset = offsetAnimation.value
+                                    translationX =
+                                        maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                                    translationY =
+                                        maxOffset * tanh(initialDerivative * offset.y / maxOffset)
 
-                            val maxDragScale = 0.1f
-                            val offsetAngle = atan2(offset.y, offset.x)
-                            scaleX =
-                                scale +
-                                    maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
-                                    (width / height).fastCoerceAtMost(1f)
-                            scaleY =
-                                scale +
-                                    maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
-                                    (height / width).fastCoerceAtMost(1f)
-                        },
-                        onDrawSurface = {
-                            if (tint.isSpecified) {
-                                drawRect(tint, blendMode = BlendMode.Hue)
-                                drawRect(tint.copy(alpha = 0.75f))
-                            } else {
-                                drawRect(Color.White.copy(0.1f))
-                            }
-                            if (surfaceColor.isSpecified) {
-                                val color = if (!isInteractive && isPressed) {
-                                    Color(
-                                        red = surfaceColor.red * 0.5f,
-                                        green = surfaceColor.green * 0.5f,
-                                        blue = surfaceColor.blue * 0.5f,
-                                        alpha = surfaceColor.alpha
-                                    )
-                                } else {
-                                    surfaceColor
-                                }
-                                drawRect(color)
-                            }
-                        },
-                        onDrawFront = {
-                            val progress = progressAnimation.value.fastCoerceIn(0f, 1f)
-                            if (progress > 0f) {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && interactiveHighlightShader != null) {
-                                    drawRect(
-                                        Color.White.copy(0.1f * progress),
-                                        blendMode = BlendMode.Plus
-                                    )
-                                    interactiveHighlightShader.apply {
-                                        val offset = pressStartPosition + offsetAnimation.value
-                                        setFloatUniform("size", size.width, size.height)
-                                        setColorUniform(
-                                            "color",
-                                            Color.White.copy(0.15f * progress).toArgb()
-                                        )
-                                        setFloatUniform("radius", size.maxDimension)
-                                        setFloatUniform(
-                                            "offset",
-                                            offset.x.fastCoerceIn(0f, size.width),
-                                            offset.y.fastCoerceIn(0f, size.height)
-                                        )
+                                    val maxDragScale = 0.1f
+                                    val offsetAngle = atan2(offset.y, offset.x)
+                                    scaleX =
+                                        scale +
+                                            maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                                            (width / height).fastCoerceAtMost(1f)
+                                    scaleY =
+                                        scale +
+                                            maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                                            (height / width).fastCoerceAtMost(1f)
+                                },
+                                onDrawSurface = {
+                                    if (tint.isSpecified) {
+                                        drawRect(tint, blendMode = BlendMode.Hue)
+                                        drawRect(tint.copy(alpha = 0.75f))
+                                    } else {
+                                        drawRect(Color.White.copy(0.1f))
                                     }
-                                    drawRect(
-                                        ShaderBrush(interactiveHighlightShader),
-                                        blendMode = BlendMode.Plus
-                                    )
-                                } else {
-                                    drawRect(
-                                        Color.White.copy(0.25f * progress),
-                                        blendMode = BlendMode.Plus
-                                    )
-                                }
-                            }
-                        }
-                    )
-                }
-            )
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                role = Role.Button,
-                onClick = {
-                    if (enabled) {
-                        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                        onClick()
-                    }
-                }
-            )
-            .then(
-                if (isInteractive) {
-                    Modifier.pointerInput(scope) {
-                        val progressAnimationSpec = spring(0.5f, 300f, 0.001f)
-                        val offsetAnimationSpec = spring(1f, 300f, Offset.VisibilityThreshold)
-                        val onDragStop: () -> Unit = {
-                            if (enabled) {
-                                scope.launch {
-                                    launch { haptics.performHapticFeedback(HapticFeedbackType.Reject) }
-                                    launch {
-                                        progressAnimation.animateTo(
-                                            0f,
-                                            progressAnimationSpec
-                                        )
+                                    if (surfaceColor.isSpecified) {
+                                        val color = if (!isInteractive && isPressed) {
+                                            Color(
+                                                red = surfaceColor.red * 0.5f,
+                                                green = surfaceColor.green * 0.5f,
+                                                blue = surfaceColor.blue * 0.5f,
+                                                alpha = surfaceColor.alpha
+                                            )
+                                        } else {
+                                            surfaceColor
+                                        }
+                                        drawRect(color)
                                     }
-                                    launch {
-                                        offsetAnimation.animateTo(
-                                            Offset.Zero,
-                                            offsetAnimationSpec
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        inspectDragGestures(
-                            onDragStart = { down ->
-                                pressStartPosition = down.position
-                                if (enabled) {
-                                    scope.launch {
-                                        launch { haptics.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick) }
-                                        launch {
-                                            progressAnimation.animateTo(
-                                                1f,
-                                                progressAnimationSpec
+                                },
+                                onDrawFront = {
+                                    val progress = progressAnimation.value.fastCoerceIn(0f, 1f)
+                                    if (progress > 0f) {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && interactiveHighlightShader != null) {
+                                            drawRect(
+                                                Color.White.copy(0.1f * progress),
+                                                blendMode = BlendMode.Plus
+                                            )
+                                            interactiveHighlightShader.apply {
+                                                val offset =
+                                                    pressStartPosition + offsetAnimation.value
+                                                setFloatUniform("size", size.width, size.height)
+                                                setColorUniform(
+                                                    "color",
+                                                    Color.White.copy(0.15f * progress).toArgb()
+                                                )
+                                                setFloatUniform("radius", size.maxDimension)
+                                                setFloatUniform(
+                                                    "offset",
+                                                    offset.x.fastCoerceIn(0f, size.width),
+                                                    offset.y.fastCoerceIn(0f, size.height)
+                                                )
+                                            }
+                                            drawRect(
+                                                ShaderBrush(interactiveHighlightShader),
+                                                blendMode = BlendMode.Plus
+                                            )
+                                        } else {
+                                            drawRect(
+                                                Color.White.copy(0.25f * progress),
+                                                blendMode = BlendMode.Plus
                                             )
                                         }
-                                        launch { offsetAnimation.snapTo(Offset.Zero) }
                                     }
                                 }
-                            },
-                            onDragEnd = {
-                                onDragStop()
-                            },
-                            onDragCancel = onDragStop
-                        ) { _, dragAmount ->
+                            )
+                        }
+                    )
+                    .clickable(
+                        interactionSource = null,
+                        indication = null,
+                        role = Role.Button,
+                        onClick = {
                             if (enabled) {
-                                scope.launch {
-                                    if (dragAmount.getDistanceSquared() > 350) haptics.performHapticFeedback(
-                                        HapticFeedbackType.SegmentFrequentTick
-                                    )
-                                    offsetAnimation.snapTo(offsetAnimation.value + dragAmount)
-                                }
+                                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                onClick()
                             }
                         }
-                    }
-                } else {
-                    Modifier.pointerInput(Unit) {
-                        detectTapGestures(
-                            onPress = {
-                                isPressed = true
-                                tryAwaitRelease()
-                                isPressed = false
-                            },
-                            onTap = {
-                                if (enabled) {
-                                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                    onClick()
+                    )
+                    .then(
+                        if (isInteractive) {
+                            Modifier.pointerInput(scope) {
+                                val progressAnimationSpec = spring(0.5f, 300f, 0.001f)
+                                val offsetAnimationSpec =
+                                    spring(1f, 300f, Offset.VisibilityThreshold)
+                                val onDragStop: () -> Unit = {
+                                    if (enabled) {
+                                        scope.launch {
+                                            launch {
+                                                haptics.performHapticFeedback(
+                                                    HapticFeedbackType.Reject
+                                                )
+                                            }
+                                            launch {
+                                                progressAnimation.animateTo(
+                                                    0f,
+                                                    progressAnimationSpec
+                                                )
+                                            }
+                                            launch {
+                                                offsetAnimation.animateTo(
+                                                    Offset.Zero,
+                                                    offsetAnimationSpec
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                inspectDragGestures(
+                                    onDragStart = { down ->
+                                        pressStartPosition = down.position
+                                        if (enabled) {
+                                            scope.launch {
+                                                launch {
+                                                    haptics.performHapticFeedback(
+                                                        HapticFeedbackType.SegmentFrequentTick
+                                                    )
+                                                }
+                                                launch {
+                                                    progressAnimation.animateTo(
+                                                        1f,
+                                                        progressAnimationSpec
+                                                    )
+                                                }
+                                                launch { offsetAnimation.snapTo(Offset.Zero) }
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        onDragStop()
+                                    },
+                                    onDragCancel = onDragStop
+                                ) { _, dragAmount ->
+                                    if (enabled) {
+                                        scope.launch {
+                                            if (dragAmount.getDistanceSquared() > 350) haptics.performHapticFeedback(
+                                                HapticFeedbackType.SegmentFrequentTick
+                                            )
+                                            offsetAnimation.snapTo(offsetAnimation.value + dragAmount)
+                                        }
+                                    }
                                 }
                             }
-                        )
-                    }
-                }
+                        } else {
+                            Modifier.pointerInput(Unit) {
+                                detectTapGestures(
+                                    onPress = {
+                                        isPressed = true
+                                        tryAwaitRelease()
+                                        isPressed = false
+                                    },
+                                    onTap = {
+                                        if (enabled) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                            onClick()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    )
+                    .height(48f.dp)
+                    .padding(horizontal = 16f.dp),
+                horizontalArrangement = Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+                content = content
             )
-            .height(48f.dp)
-            .padding(horizontal = 16f.dp),
-        horizontalArrangement = Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-        content = content
-    )
+        }
+    }
 }

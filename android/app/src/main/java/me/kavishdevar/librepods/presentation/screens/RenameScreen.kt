@@ -21,13 +21,19 @@
 package me.kavishdevar.librepods.presentation.screens
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -35,13 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.presentation.components.StyledInputField
-import me.kavishdevar.librepods.presentation.components.StyledScaffold
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -58,28 +63,32 @@ fun RenameScreen(viewModel: AirPodsViewModel) {
         keyboardController?.show()
     }
 
-    StyledScaffold(
-        title = stringResource(R.string.name),
-    ) { spacerHeight ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(spacerHeight))
+    val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
+    val topPadding = if (m3eEnabled) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp
+    val bottomPadding = if (m3eEnabled) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
 
-            val name = sharedPreferences.getString("name", "")?: ""
-            val textFieldState = rememberTextFieldState(initialText = name)
-            
-            LaunchedEffect(textFieldState.text) {
-                sharedPreferences.edit {putString("name", textFieldState.text as String?)}
-                viewModel.setName(textFieldState.text.toString())
-            }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(topPadding))
 
-            StyledInputField(
-                textFieldState,
-                focusRequester
-            )
+        val name = sharedPreferences.getString("name", "")?: ""
+        val textFieldState = rememberTextFieldState(initialText = name)
+
+        LaunchedEffect(textFieldState.text) {
+            sharedPreferences.edit {putString("name", textFieldState.text as String?)}
+            viewModel.setName(textFieldState.text.toString())
         }
+
+        StyledInputField(
+            textFieldState,
+            focusRequester
+        )
+
+        Spacer(modifier = Modifier.height(bottomPadding))
+
     }
 }

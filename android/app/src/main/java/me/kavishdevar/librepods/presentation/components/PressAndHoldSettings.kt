@@ -18,40 +18,18 @@
 
 package me.kavishdevar.librepods.presentation.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.StemAction
 
 @Composable
 fun PressAndHoldSettings(
-    navController: NavController,
     leftAction: StemAction,
-    rightAction: StemAction
+    rightAction: StemAction,
+    navigateToLeftLongPress: () -> Unit,
+    navigateToRightLongPress: () -> Unit
 ) {
-    val isDarkTheme = isSystemInDarkTheme()
-    val textColor = if (isDarkTheme) Color.White else Color.Black
-    val dividerColor = Color(0x40888888)
-
     val leftActionText = when (leftAction) {
         StemAction.CYCLE_NOISE_CONTROL_MODES -> stringResource(R.string.noise_control)
         StemAction.DIGITAL_ASSISTANT -> "Digital Assistant"
@@ -63,46 +41,19 @@ fun PressAndHoldSettings(
         StemAction.DIGITAL_ASSISTANT -> "Digital Assistant"
         else -> "INVALID!!"
     }
-    Box(
-        modifier = Modifier
-            .background(if (isDarkTheme) Color(0xFF000000) else Color(0xFFF2F2F7))
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-    ){
-        Text(
-            text = stringResource(R.string.press_and_hold_airpods),
-            style = TextStyle(
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = textColor.copy(alpha = 0.6f),
-                fontFamily = FontFamily(Font(R.font.sf_pro))
-            )
-        )
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(if (isDarkTheme) Color(0xFF1C1C1E) else Color(0xFFFFFFFF), RoundedCornerShape(28.dp))
-            .clip(RoundedCornerShape(28.dp))
+
+    StyledList(
+        title = stringResource(R.string.press_and_hold_airpods)
     ) {
-        NavigationButton(
-            to = "long_press/Left",
+        StyledListItem(
             name = stringResource(R.string.left),
-            navController = navController,
-            independent = false,
-            currentState = leftActionText,
+            description = leftActionText,
+            onClick = navigateToLeftLongPress
         )
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = dividerColor,
-            modifier = Modifier
-                .padding(horizontal = 16.dp)
-        )
-        NavigationButton(
-            to = "long_press/Right",
+        StyledListItem(
             name = stringResource(R.string.right),
-            navController = navController,
-            independent = false,
-            currentState = rightActionText,
+            description = rightActionText,
+            onClick = navigateToRightLongPress,
         )
     }
 }

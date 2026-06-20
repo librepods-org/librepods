@@ -64,9 +64,6 @@ fun BatteryView(
     val rightLevel = right?.level ?: 0
     val caseLevel = case?.level ?: 0
 
-    val caseCharging = case?.status == BatteryStatus.CHARGING ||
-        case?.status == BatteryStatus.OPTIMIZED_CHARGING
-
     val singleDisplayed = remember { mutableStateOf(false) }
 
     Box(

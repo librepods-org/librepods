@@ -18,103 +18,101 @@
 
 package me.kavishdevar.librepods.presentation.screens
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.bluetooth.ATTHandles
 import me.kavishdevar.librepods.presentation.components.StyledButton
-import me.kavishdevar.librepods.presentation.components.StyledScaffold
 import me.kavishdevar.librepods.presentation.components.StyledToggle
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
 
 @Composable
-fun HearingProtectionScreen(viewModel: AirPodsViewModel, navController: NavController) {
+fun HearingProtectionScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Unit) {
     val backdrop = rememberLayerBackdrop()
     val state by viewModel.uiState.collectAsState()
-    StyledScaffold(
-        title = stringResource(R.string.hearing_protection),
-    ) { spacerHeight ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(spacerHeight))
-            if (!state.isPremium) {
-                StyledButton(
-                    onClick = {
-                        navController.navigate("purchase_screen")
-                    },
-                    backdrop = rememberLayerBackdrop(),
-                    modifier = Modifier.fillMaxWidth(),
-                    maxScale = 0.05f,
-                    surfaceColor = if (isSystemInDarkTheme()) Color(0xFF916100) else Color(0xFFE59900)
-                ) {
-                    Text(
-                        stringResource(R.string.unlock_advanced_features),
-                        style = TextStyle(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            fontFamily = FontFamily(Font(R.font.sf_pro)),
-                            color = Color.White
-                        ),
-                    )
-                }
-            }
-            if (state.vendorIdHook) {
-                StyledToggle(
-                    title = stringResource(R.string.environmental_noise),
-                    label = stringResource(R.string.loud_sound_reduction),
-                    description = stringResource(R.string.loud_sound_reduction_description),
-                    checked = state.loudSoundReductionEnabled,
-                    onCheckedChange = {
-                        viewModel.setATTCharacteristicValue(
-                            ATTHandles.LOUD_SOUND_REDUCTION,
-                            byteArrayOf(if (it) 1.toByte() else 0.toByte())
-                        )
-                    },
-                    enabled = state.isPremium
-                )
 
-                Spacer(modifier = Modifier.height(12.dp))
+    val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
+    val topPadding = if (m3eEnabled) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp
+    val bottomPadding = if (m3eEnabled) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .layerBackdrop(backdrop)
+            .padding(horizontal = 16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(topPadding))
+        if (!state.isPremium) {
+            StyledButton(
+                onClick = navigateToPurchase,
+                backdrop = rememberLayerBackdrop(),
+                modifier = Modifier.fillMaxWidth(),
+                maxScale = 0.05f,
+                surfaceColor = MaterialTheme.colorScheme.primary
+            ) {
+                Text(
+                    stringResource(R.string.unlock_advanced_features),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
             }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        if (state.vendorIdHook) {
             StyledToggle(
-                title = stringResource(R.string.workspace_use),
-                label = stringResource(R.string.ppe),
-                description = stringResource(R.string.workspace_use_description),
-                checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG]?.getOrNull(
-                    0
-                )?.toInt() == 1,
+                title = stringResource(R.string.environmental_noise),
+                label = stringResource(R.string.loud_sound_reduction),
+                description = stringResource(R.string.loud_sound_reduction_description),
+                checked = state.loudSoundReductionEnabled,
                 onCheckedChange = {
-                    viewModel.setControlCommandBoolean(
-                        AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG, it
+                    viewModel.setATTCharacteristicValue(
+                        ATTHandles.LOUD_SOUND_REDUCTION,
+                        byteArrayOf(if (it) 1.toByte() else 0.toByte())
                     )
                 },
                 enabled = state.isPremium
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
         }
+        StyledToggle(
+            title = stringResource(R.string.workspace_use),
+            label = stringResource(R.string.ppe),
+            description = stringResource(R.string.workspace_use_description),
+            checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG]?.getOrNull(
+                0
+            )?.toInt() == 1,
+            onCheckedChange = {
+                viewModel.setControlCommandBoolean(
+                    AACPManager.Companion.ControlCommandIdentifiers.PPE_TOGGLE_CONFIG, it
+                )
+            },
+            enabled = state.isPremium
+        )
+        Spacer(modifier = Modifier.height(bottomPadding))
     }
 }

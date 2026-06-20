@@ -20,6 +20,12 @@ hilt = "2.59.2"
 xposed = "101.0.0"
 lifecycleProcess = "2.10.0"
 play = "2.0.2"
+nav3Core = "1.1.2"
+lifecycleViewmodelNav3 = "2.11.0-rc01"
+navevent = "1.1.1"
+m3 = "1.5.0-alpha21"
+foundationLayout = "1.11.2"
+uiTextGoogleFonts = "1.11.2"
 
 [libraries]
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
@@ -30,7 +36,7 @@ androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", versi
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "m3" }
 annotations = { group = "org.jetbrains", name = "annotations", version.ref = "annotations" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
@@ -52,6 +58,12 @@ libxposed-service = { group = "io.github.libxposed", name = "service", version.r
 androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleProcess" }
 play-review = { group = "com.google.android.play", name="review", version.ref = "play" }
 play-review-ktx = { group = "com.google.android.play", name="review-ktx", version.ref = "play" }
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
+androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
+androidx-navigationevent = { module = "androidx.navigationevent:navigationevent", version.ref = "navevent"}
+androidx-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
+androidx-compose-ui-text-google-fonts = { group = "androidx.compose.ui", name = "ui-text-google-fonts", version.ref = "uiTextGoogleFonts" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

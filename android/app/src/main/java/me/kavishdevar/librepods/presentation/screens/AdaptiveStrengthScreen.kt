@@ -18,14 +18,19 @@
 
 package me.kavishdevar.librepods.presentation.screens
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -36,15 +41,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.Job
@@ -53,74 +51,72 @@ import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.presentation.components.StyledButton
-import me.kavishdevar.librepods.presentation.components.StyledScaffold
 import me.kavishdevar.librepods.presentation.components.StyledSlider
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
 
 @Composable
-fun AdaptiveStrengthScreen(viewModel: AirPodsViewModel, navController: NavController) {
+fun AdaptiveStrengthScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val backdrop = rememberLayerBackdrop()
 
-    StyledScaffold(
-        title = stringResource(R.string.customize_adaptive_audio)
-    ) { spacerHeight ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(spacerHeight))
-            if (!state.isPremium) {
-                StyledButton(
-                    onClick = {
-                        navController.navigate("purchase_screen")
-                    },
-                    backdrop = rememberLayerBackdrop(),
-                    modifier = Modifier.fillMaxWidth(),
-                    maxScale = 0.05f,
-                    surfaceColor = if (isSystemInDarkTheme()) Color(0xFF916100) else Color(0xFFE59900)
-                ) {
-                    Text(
-                        stringResource(R.string.unlock_advanced_features),
-                        style = TextStyle(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium,
-                            fontFamily = FontFamily(Font(R.font.sf_pro)),
-                            color = Color.White
-                        ),
+    val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
+    val topPadding = if (m3eEnabled) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp
+    val bottomPadding = if (m3eEnabled) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .layerBackdrop(backdrop)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(topPadding))
+        if (!state.isPremium) {
+            StyledButton(
+                onClick = navigateToPurchase,
+                backdrop = rememberLayerBackdrop(),
+                modifier = Modifier.fillMaxWidth(),
+                maxScale = 0.05f,
+                surfaceColor = MaterialTheme.colorScheme.primary
+            ) {
+                Text(
+                    stringResource(R.string.unlock_advanced_features),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        val sliderValue = remember {
+            mutableFloatStateOf(100f - (state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH]?.getOrNull(0)?.toFloat() ?: 50f))
+        }
+        var job by remember { mutableStateOf<Job?>(null) }
+        val scope = rememberCoroutineScope()
+        StyledSlider(
+            label = stringResource(R.string.customize_adaptive_audio),
+            value = sliderValue.floatValue,
+            onValueChange = {
+                sliderValue.floatValue = it
+                job?.cancel()
+                job = scope.launch {
+                    delay(150)
+                    viewModel.setControlCommandValue(
+                        AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH,
+                        byteArrayOf((100 - it).toInt().toByte())
                     )
                 }
-            }
-            val sliderValue = remember {
-                mutableFloatStateOf(100f - (state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH]?.getOrNull(0)?.toFloat() ?: 50f))
-            }
-            var job by remember { mutableStateOf<Job?>(null) }
-            val scope = rememberCoroutineScope()
-            StyledSlider(
-                label = stringResource(R.string.customize_adaptive_audio),
-                value = sliderValue.floatValue,
-                onValueChange = {
-                    sliderValue.floatValue = it
-                    job?.cancel()
-                    job = scope.launch {
-                        delay(150)
-                        viewModel.setControlCommandValue(
-                            AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH,
-                            byteArrayOf((100 - it).toInt().toByte())
-                        )
-                    }
-                },
-                valueRange = 0f..100f,
-                snapPoints = listOf(0f, 50f, 100f),
-                startIcon = "􀊥",
-                endIcon = "􀊩",
-                independent = true,
-                description = stringResource(R.string.adaptive_audio_description),
-                enabled = state.isPremium
-            )
-        }
+            },
+            valueRange = 0f..100f,
+            snapPoints = listOf(0f, 50f, 100f),
+            startIcon = "􀊥",
+            endIcon = "􀊩",
+            independent = true,
+            description = stringResource(R.string.adaptive_audio_description),
+            enabled = state.isPremium
+        )
+        Spacer(modifier = Modifier.height(bottomPadding))
     }
 }

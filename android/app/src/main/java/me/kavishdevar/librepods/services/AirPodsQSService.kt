@@ -99,7 +99,7 @@ class AirPodsQSService : TileService() {
         Log.d("AirPodsQSService", "onStartListening")
 
         val service = ServiceManager.getService()
-        isAirPodsConnected = BluetoothConnectionManager.getAACPSocket()?.isConnected == true
+        isAirPodsConnected = BluetoothConnectionManager.aacpSocket?.isConnected == true
         currentAncMode = service?.getANC() ?: (NoiseControlMode.OFF.ordinal + 1)
 
         if (currentAncMode == NoiseControlMode.OFF.ordinal + 1 && !isOffModeEnabled()) {

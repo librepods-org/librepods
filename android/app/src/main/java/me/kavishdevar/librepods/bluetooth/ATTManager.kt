@@ -34,7 +34,7 @@ enum class ATTHandles(val value: Int) {
 
 enum class ATTCCCDHandles(val value: Int) {
     TRANSPARENCY(ATTHandles.TRANSPARENCY.value + 1),
-//    LOUD_SOUND_REDUCTION(ATTHandles.LOUD_SOUND_REDUCTION.value + 1), // doesn't work
+    //    LOUD_SOUND_REDUCTION(ATTHandles.LOUD_SOUND_REDUCTION.value + 1), // doesn't work
     HEARING_AID(ATTHandles.HEARING_AID.value + 1)
 }
 
@@ -86,7 +86,7 @@ class ATTManagerv2 {
     }
 
     fun readCharacteristic(handle: ATTHandles, timeoutMillis: Long = 2000): ByteArray? {
-        val socket = BluetoothConnectionManager.getATTSocket() ?: return null
+        val socket = BluetoothConnectionManager.attSocket ?: return null
         try {
             val output = socket.outputStream
             val pdu = byteArrayOf(0x0A, handle.value.toByte(), 0x00)
@@ -117,7 +117,7 @@ class ATTManagerv2 {
     }
 
     fun writeCharacteristic(handle: Byte, data: ByteArray, timeoutMillis: Long = 2000) {
-        val socket = BluetoothConnectionManager.getATTSocket() ?: return
+        val socket = BluetoothConnectionManager.attSocket ?: return
         try {
             val output = socket.outputStream
             val pdu = byteArrayOf(0x12, handle, 0x00) + data // 0x00 for LE
@@ -141,7 +141,7 @@ class ATTManagerv2 {
     fun disconnected() {
         characteristicList.clear()
         stopReader()
-        val socket = BluetoothConnectionManager.getATTSocket() ?: return
+        val socket = BluetoothConnectionManager.attSocket?: return
         try {
             socket.close()
         } catch (e: Exception) {
@@ -151,7 +151,7 @@ class ATTManagerv2 {
     }
 
     private fun runReaderLoop() {
-        val socket = BluetoothConnectionManager.getATTSocket() ?: run {
+        val socket = BluetoothConnectionManager.attSocket ?: run {
             Log.w(TAG, "ATT socket not available. stopping reader")
             readerRunning.set(false)
             return

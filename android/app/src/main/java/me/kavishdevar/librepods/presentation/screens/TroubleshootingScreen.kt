@@ -38,10 +38,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,17 +88,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import androidx.navigation.NavController
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.kavishdevar.librepods.R
-import me.kavishdevar.librepods.presentation.components.StyledScaffold
 import me.kavishdevar.librepods.utils.LogCollector
 import java.io.File
 import java.text.SimpleDateFormat
@@ -118,7 +119,7 @@ fun CustomIconButton(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalHazeMaterialsApi::class)
 @Composable
-fun TroubleshootingScreen(navController: NavController) {
+fun TroubleshootingScreen() {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
@@ -214,538 +215,539 @@ fun TroubleshootingScreen(navController: NavController) {
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        StyledScaffold(
-            title = stringResource(R.string.troubleshooting)
-        ){ topPadding, hazeState, bottomPadding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .layerBackdrop(backdrop)
-                    .hazeSource(state = hazeState)
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp)
-            ) {
-                Spacer(modifier = Modifier.height(topPadding))
+        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp
+        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
 
-                Text(
-                    text = stringResource(R.string.saved_logs),
-                    style = TextStyle(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textColor.copy(alpha = 0.6f),
-                        fontFamily = FontFamily(Font(R.font.sf_pro))
-                    ),
-                    modifier = Modifier.padding(16.dp, bottom = 4.dp, top = 8.dp)
-                )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .layerBackdrop(backdrop)
+                .verticalScroll(scrollState)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .padding(horizontal = 16.dp)
+        ) {
+            Spacer(modifier = Modifier.height(topPadding))
 
-                Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = stringResource(R.string.saved_logs),
+                style = TextStyle(
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor.copy(alpha = 0.6f),
+                    fontFamily = FontFamily(Font(R.font.sf_pro))
+                ),
+                modifier = Modifier.padding(16.dp, bottom = 4.dp, top = 8.dp)
+            )
 
-                if (savedLogs.isEmpty()) {
-                    Column(
+            Spacer(modifier = Modifier.height(2.dp))
+
+            if (savedLogs.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            backgroundColor,
+                            RoundedCornerShape(28.dp)
+                        )
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = stringResource(R.string.no_logs_found),
+                        fontSize = 16.sp,
+                        color = textColor
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            backgroundColor,
+                            RoundedCornerShape(28.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                backgroundColor,
-                                RoundedCornerShape(28.dp)
-                            )
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = stringResource(R.string.no_logs_found),
+                            text = "Total Logs: ${savedLogs.size}",
                             fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
                             color = textColor
                         )
+
+                        if (savedLogs.size > 1) {
+                            TextButton(
+                                onClick = { showDeleteAllDialog = true },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Text("Delete All")
+                            }
+                        }
                     }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                backgroundColor,
-                                RoundedCornerShape(28.dp)
-                            )
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
+
+                    savedLogs.forEach { logFile ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                                .padding(vertical = 8.dp)
+                                .clickable {
+                                    openLogBottomSheet(logFile)
+                                },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Total Logs: ${savedLogs.size}",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = textColor
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = logFile.name,
+                                    fontSize = 16.sp,
+                                    color = textColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
 
-                            if (savedLogs.size > 1) {
-                                TextButton(
-                                    onClick = { showDeleteAllDialog = true },
-                                    colors = ButtonDefaults.textButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.error
-                                    )
-                                ) {
-                                    Text("Delete All")
-                                }
+                                Text(
+                                    text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US)
+                                        .format(Date(logFile.lastModified())),
+                                    fontSize = 14.sp,
+                                    color = textColor.copy(alpha = 0.6f)
+                                )
                             }
-                        }
 
-                        savedLogs.forEach { logFile ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                                    .clickable {
-                                        openLogBottomSheet(logFile)
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
+                            CustomIconButton(
+                                onClick = {
+                                    selectedLogFile = logFile
+                                    showDeleteDialog = true
+                                }
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = logFile.name,
-                                        fontSize = 16.sp,
-                                        color = textColor,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-
-                                    Text(
-                                        text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US)
-                                            .format(Date(logFile.lastModified())),
-                                        fontSize = 14.sp,
-                                        color = textColor.copy(alpha = 0.6f)
-                                    )
-                                }
-
-                                CustomIconButton(
-                                    onClick = {
-                                        selectedLogFile = logFile
-                                        showDeleteDialog = true
-                                    }
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
                             }
                         }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-                AnimatedVisibility(
-                    visible = !showTroubleshootingSteps,
-                    enter = fadeIn(animationSpec = tween(300)),
-                    exit = fadeOut(animationSpec = tween(300))
+            AnimatedVisibility(
+                visible = !showTroubleshootingSteps,
+                enter = fadeIn(animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(300))
+            ) {
+                Button(
+                    onClick = { showTroubleshootingSteps = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = buttonBgColor,
+                        contentColor = textColor
+                    ),
+                    enabled = !isCollectingLogs
                 ) {
-                    Button(
-                        onClick = { showTroubleshootingSteps = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = buttonBgColor,
-                            contentColor = textColor
-                        ),
-                        enabled = !isCollectingLogs
-                    ) {
-                        Text(stringResource(R.string.collect_logs))
-                    }
+                    Text(stringResource(R.string.collect_logs))
                 }
+            }
 
-                AnimatedVisibility(
-                    visible = showTroubleshootingSteps,
-                    enter = fadeIn(animationSpec = tween(300)) +
-                        slideInVertically(animationSpec = tween(300)) { it / 2 },
-                    exit = fadeOut(animationSpec = tween(300)) +
-                        slideOutVertically(animationSpec = tween(300)) { it / 2 }
-                ) {
-                    Column {
-                        Spacer(modifier = Modifier.height(16.dp))
+            AnimatedVisibility(
+                visible = showTroubleshootingSteps,
+                enter = fadeIn(animationSpec = tween(300)) +
+                    slideInVertically(animationSpec = tween(300)) { it / 2 },
+                exit = fadeOut(animationSpec = tween(300)) +
+                    slideOutVertically(animationSpec = tween(300)) { it / 2 }
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                        Text(
-                            text = stringResource(R.string.troubleshooting_steps),
-                            style = TextStyle(
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Light,
-                                color = textColor.copy(alpha = 0.6f),
-                                fontFamily = FontFamily(Font(R.font.sf_pro))
-                            ),
-                            modifier = Modifier.padding(16.dp, bottom = 2.dp, top = 8.dp)
+                    Text(
+                        text = stringResource(R.string.troubleshooting_steps),
+                        style = TextStyle(
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Light,
+                            color = textColor.copy(alpha = 0.6f),
+                            fontFamily = FontFamily(Font(R.font.sf_pro))
+                        ),
+                        modifier = Modifier.padding(16.dp, bottom = 2.dp, top = 8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                backgroundColor,
+                                RoundedCornerShape(28.dp)
+                            )
+                            .padding(16.dp)
+                    ) {
+                        val textAlpha = animateFloatAsState(
+                            targetValue = 1f,
+                            animationSpec = tween(durationMillis = 300),
+                            label = "textAlpha"
                         )
 
-                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = instructionText,
+                            fontSize = 16.sp,
+                            color = textColor.copy(alpha = textAlpha.value),
+                            lineHeight = 22.sp
+                        )
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    backgroundColor,
-                                    RoundedCornerShape(28.dp)
-                                )
-                                .padding(16.dp)
-                        ) {
-                            val textAlpha = animateFloatAsState(
-                                targetValue = 1f,
-                                animationSpec = tween(durationMillis = 300),
-                                label = "textAlpha"
-                            )
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                            Text(
-                                text = instructionText,
-                                fontSize = 16.sp,
-                                color = textColor.copy(alpha = textAlpha.value),
-                                lineHeight = 22.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            when (currentStep) {
-                                0 -> {
-                                    Button(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                logCollector.openXposedSettings(context)
-                                                delay(2000)
-                                                currentStep = 1
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = buttonBgColor,
-                                            contentColor = textColor
-                                        )
-                                    ) {
-                                        Text("Open Xposed Settings")
-                                    }
+                        when (currentStep) {
+                            0 -> {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            logCollector.openXposedSettings(context)
+                                            delay(2000)
+                                            currentStep = 1
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = buttonBgColor,
+                                        contentColor = textColor
+                                    )
+                                ) {
+                                    Text("Open Xposed Settings")
                                 }
+                            }
 
-                                1 -> {
-                                    Button(
-                                        onClick = {
-                                            currentStep = 2
-                                            isCollectingLogs = true
+                            1 -> {
+                                Button(
+                                    onClick = {
+                                        currentStep = 2
+                                        isCollectingLogs = true
 
-                                            coroutineScope.launch {
-                                                try {
-                                                    logCollector.clearLogs()
+                                        coroutineScope.launch {
+                                            try {
+                                                logCollector.clearLogs()
 
-                                                    logCollector.addLogMarker(LogCollector.LogMarkerType.START)
+                                                logCollector.addLogMarker(LogCollector.LogMarkerType.START)
 
-                                                    logCollector.killBluetoothService()
+                                                logCollector.killBluetoothService()
 
-                                                    withContext(Dispatchers.Main) {
-                                                        delay(500)
-                                                        currentStep = 3
-                                                    }
+                                                withContext(Dispatchers.Main) {
+                                                    delay(500)
+                                                    currentStep = 3
+                                                }
 
-                                                    val timestamp = SimpleDateFormat(
-                                                        "yyyyMMdd_HHmmss",
-                                                        Locale.US
-                                                    ).format(Date())
+                                                val timestamp = SimpleDateFormat(
+                                                    "yyyyMMdd_HHmmss",
+                                                    Locale.US
+                                                ).format(Date())
 
-                                                    logContent =
-                                                        logCollector.startLogCollection(
-                                                            listener = { /* Removed live log display */ },
-                                                            connectionDetectedCallback = {
-                                                                launch {
-                                                                    delay(5000)
-                                                                    withContext(Dispatchers.Main) {
-                                                                        if (isCollectingLogs) {
-                                                                            logCollector.stopLogCollection()
-                                                                            currentStep = 4
-                                                                            isCollectingLogs =
-                                                                                false
-                                                                        }
+                                                logContent =
+                                                    logCollector.startLogCollection(
+                                                        listener = { /* Removed live log display */ },
+                                                        connectionDetectedCallback = {
+                                                            launch {
+                                                                delay(5000)
+                                                                withContext(Dispatchers.Main) {
+                                                                    if (isCollectingLogs) {
+                                                                        logCollector.stopLogCollection()
+                                                                        currentStep = 4
+                                                                        isCollectingLogs =
+                                                                            false
                                                                     }
                                                                 }
                                                             }
-                                                        )
-
-                                                    val logFile =
-                                                        logCollector.saveLogToInternalStorage(
-                                                            "airpods_log_$timestamp.txt",
-                                                            logContent
-                                                        )
-                                                    logFile?.let {
-                                                        withContext(Dispatchers.Main) {
-                                                            savedLogs.add(0, it)
-                                                            selectedLogFile = it
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Log saved: ${it.name}",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
                                                         }
-                                                    }
-                                                } catch (e: Exception) {
+                                                    )
+
+                                                val logFile =
+                                                    logCollector.saveLogToInternalStorage(
+                                                        "airpods_log_$timestamp.txt",
+                                                        logContent
+                                                    )
+                                                logFile?.let {
                                                     withContext(Dispatchers.Main) {
+                                                        savedLogs.add(0, it)
+                                                        selectedLogFile = it
                                                         Toast.makeText(
                                                             context,
-                                                            "Error collecting logs: ${e.message}",
+                                                            "Log saved: ${it.name}",
                                                             Toast.LENGTH_SHORT
                                                         ).show()
-                                                        isCollectingLogs = false
-                                                        currentStep = 0
                                                     }
                                                 }
+                                            } catch (e: Exception) {
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Error collecting logs: ${e.message}",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                    isCollectingLogs = false
+                                                    currentStep = 0
+                                                }
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = buttonBgColor,
+                                        contentColor = textColor
+                                    )
+                                ) {
+                                    Text("Continue")
+                                }
+                            }
+
+                            2, 3 -> {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = accentColor
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        text = if (currentStep == 2) "Preparing..." else "Collecting logs...",
+                                        fontSize = 14.sp,
+                                        color = textColor
+                                    )
+
+                                    if (currentStep == 3) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        Button(
+                                            onClick = {
+                                                coroutineScope.launch {
+                                                    logCollector.addLogMarker(
+                                                        LogCollector.LogMarkerType.CUSTOM,
+                                                        "Manual stop requested by user"
+                                                    )
+                                                    delay(1000)
+                                                    logCollector.stopLogCollection()
+                                                    delay(500)
+
+                                                    withContext(Dispatchers.Main) {
+                                                        currentStep = 4
+                                                        isCollectingLogs = false
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Log collection stopped",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = buttonBgColor,
+                                                contentColor = textColor
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                        ) {
+                                            Text("Stop Collection")
+                                        }
+                                    }
+                                }
+                            }
+
+                            4 -> {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            selectedLogFile?.let { file ->
+                                                val fileUri = FileProvider.getUriForFile(
+                                                    context,
+                                                    "${context.packageName}.provider",
+                                                    file
+                                                )
+                                                val shareIntent =
+                                                    Intent(Intent.ACTION_SEND).apply {
+                                                        type = "text/plain"
+                                                        putExtra(
+                                                            Intent.EXTRA_STREAM,
+                                                            fileUri
+                                                        )
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                context.startActivity(
+                                                    Intent.createChooser(
+                                                        shareIntent,
+                                                        "Share log file"
+                                                    )
+                                                )
                                             }
                                         },
-                                        modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = buttonBgColor,
                                             contentColor = textColor
-                                        )
+                                        ),
+                                        modifier = Modifier.width(150.dp)
                                     ) {
-                                        Text("Continue")
-                                    }
-                                }
-
-                                2, 3 -> {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = accentColor
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = "Share"
                                         )
-
-                                        Spacer(modifier = Modifier.height(8.dp))
-
-                                        Text(
-                                            text = if (currentStep == 2) "Preparing..." else "Collecting logs...",
-                                            fontSize = 14.sp,
-                                            color = textColor
-                                        )
-
-                                        if (currentStep == 3) {
-                                            Spacer(modifier = Modifier.height(16.dp))
-
-                                            Button(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        logCollector.addLogMarker(
-                                                            LogCollector.LogMarkerType.CUSTOM,
-                                                            "Manual stop requested by user"
-                                                        )
-                                                        delay(1000)
-                                                        logCollector.stopLogCollection()
-                                                        delay(500)
-
-                                                        withContext(Dispatchers.Main) {
-                                                            currentStep = 4
-                                                            isCollectingLogs = false
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Log collection stopped",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
-                                                        }
-                                                    }
-                                                },
-                                                shape = RoundedCornerShape(10.dp),
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = buttonBgColor,
-                                                    contentColor = textColor
-                                                ),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                            ) {
-                                                Text("Stop Collection")
-                                            }
-                                        }
-                                    }
-                                }
-
-                                4 -> {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Button(
-                                            onClick = {
-                                                selectedLogFile?.let { file ->
-                                                    val fileUri = FileProvider.getUriForFile(
-                                                        context,
-                                                        "${context.packageName}.provider",
-                                                        file
-                                                    )
-                                                    val shareIntent =
-                                                        Intent(Intent.ACTION_SEND).apply {
-                                                            type = "text/plain"
-                                                            putExtra(
-                                                                Intent.EXTRA_STREAM,
-                                                                fileUri
-                                                            )
-                                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                        }
-                                                    context.startActivity(
-                                                        Intent.createChooser(
-                                                            shareIntent,
-                                                            "Share log file"
-                                                        )
-                                                    )
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = buttonBgColor,
-                                                contentColor = textColor
-                                            ),
-                                            modifier = Modifier.width(150.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Share,
-                                                contentDescription = "Share"
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Share")
-                                        }
-
-                                        Spacer(modifier = Modifier.width(16.dp))
-
-                                        Button(
-                                            onClick = {
-                                                selectedLogFile?.let { file ->
-                                                    saveLauncher.launch(
-                                                        file.absolutePath
-                                                    )
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = buttonBgColor,
-                                                contentColor = textColor
-                                            ),
-                                            modifier = Modifier.width(150.dp)
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_save),
-                                                contentDescription = "Save"
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Save")
-                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Share")
                                     }
 
-                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Spacer(modifier = Modifier.width(16.dp))
 
                                     Button(
                                         onClick = {
-                                            currentStep = 0
-                                            showTroubleshootingSteps = false
+                                            selectedLogFile?.let { file ->
+                                                saveLauncher.launch(
+                                                    file.absolutePath
+                                                )
+                                            }
                                         },
-                                        modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = buttonBgColor,
                                             contentColor = textColor
-                                        )
+                                        ),
+                                        modifier = Modifier.width(150.dp)
                                     ) {
-                                        Text("Done")
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_save),
+                                            contentDescription = "Save"
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Save")
                                     }
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Button(
+                                    onClick = {
+                                        currentStep = 0
+                                        showTroubleshootingSteps = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = buttonBgColor,
+                                        contentColor = textColor
+                                    )
+                                ) {
+                                    Text("Done")
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                if (showDeleteDialog && selectedLogFile != null) {
-                    AlertDialog(
-                        onDismissRequest = { showDeleteDialog = false },
-                        title = { Text("Delete Log File") },
-                        text = {
-                            Text("Are you sure you want to delete this log file? This action cannot be undone.")
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    selectedLogFile?.let { file ->
+            if (showDeleteDialog && selectedLogFile != null) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteDialog = false },
+                    title = { Text("Delete Log File") },
+                    text = {
+                        Text("Are you sure you want to delete this log file? This action cannot be undone.")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                selectedLogFile?.let { file ->
+                                    if (file.delete()) {
+                                        savedLogs.remove(file)
+                                        Toast.makeText(
+                                            context,
+                                            "Log file deleted",
+                                            Toast.LENGTH_SHORT
+                                        )
+                                            .show()
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "Failed to delete log file",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                                showDeleteDialog = false
+                            }
+                        ) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            if (showDeleteAllDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteAllDialog = false },
+                    title = { Text("Delete All Logs") },
+                    text = {
+                        Text("Are you sure you want to delete all log files? This action cannot be undone and will remove ${savedLogs.size} log files.")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                coroutineScope.launch(Dispatchers.IO) {
+                                    var deletedCount = 0
+                                    savedLogs.forEach { file ->
                                         if (file.delete()) {
-                                            savedLogs.remove(file)
+                                            deletedCount++
+                                        }
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        if (deletedCount > 0) {
+                                            savedLogs.clear()
                                             Toast.makeText(
                                                 context,
-                                                "Log file deleted",
+                                                "Deleted $deletedCount log files",
                                                 Toast.LENGTH_SHORT
-                                            )
-                                                .show()
+                                            ).show()
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "Failed to delete log file",
+                                                "Failed to delete log files",
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
                                     }
-                                    showDeleteDialog = false
                                 }
-                            ) {
-                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                                showDeleteAllDialog = false
                             }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showDeleteDialog = false }) {
-                                Text("Cancel")
-                            }
+                        ) {
+                            Text("Delete All", color = MaterialTheme.colorScheme.error)
                         }
-                    )
-                }
-
-                if (showDeleteAllDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showDeleteAllDialog = false },
-                        title = { Text("Delete All Logs") },
-                        text = {
-                            Text("Are you sure you want to delete all log files? This action cannot be undone and will remove ${savedLogs.size} log files.")
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    coroutineScope.launch(Dispatchers.IO) {
-                                        var deletedCount = 0
-                                        savedLogs.forEach { file ->
-                                            if (file.delete()) {
-                                                deletedCount++
-                                            }
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            if (deletedCount > 0) {
-                                                savedLogs.clear()
-                                                Toast.makeText(
-                                                    context,
-                                                    "Deleted $deletedCount log files",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            } else {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Failed to delete log files",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                    }
-                                    showDeleteAllDialog = false
-                                }
-                            ) {
-                                Text("Delete All", color = MaterialTheme.colorScheme.error)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showDeleteAllDialog = false }) {
-                                Text("Cancel")
-                            }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteAllDialog = false }) {
+                            Text("Cancel")
                         }
-                    )
-                }
+                    }
+                )
             }
+
+            Spacer(modifier = Modifier.height(bottomPadding))
         }
 
         if (showBottomSheet) {

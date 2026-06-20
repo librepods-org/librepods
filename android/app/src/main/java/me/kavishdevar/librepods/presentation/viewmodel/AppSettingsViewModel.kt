@@ -36,7 +36,8 @@ data class AppSettingsUiState(
     val connectionSuccessful: Boolean = false,
     val showBottomSheetPopup: Boolean = true,
     val showIslandPopup: Boolean = true,
-    val timeUntilFOSSPremiumExpiry: Long = 0L
+    val timeUntilFOSSPremiumExpiry: Long = 0L,
+    val m3eEnabled: Boolean = false
 )
 
 class AppSettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -62,7 +63,6 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun onCleared() {
         sharedPreferences.unregisterOnSharedPreferenceChangeListener(sharedPrefListener)
-        super.onCleared()
     }
 
     private fun observeBilling() {
@@ -71,7 +71,7 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
                 if (premium) {
                     sharedPreferences.edit {
                         remove("premium_expiry_time")
-                        remove("foss_upgraded")
+                        if (BuildConfig.PLAY_BUILD) remove("foss_upgraded")
                     }
                     _uiState.update { it.copy(isPremium = true, timeUntilFOSSPremiumExpiry = 0L) }
                 } else {
@@ -151,7 +151,8 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
                 vendorIdHook = xposedRemotePref.getBoolean("vendor_id_hook", false),
                 connectionSuccessful = sharedPreferences.getBoolean("connection_successful", false),
                 showBottomSheetPopup = sharedPreferences.getBoolean("show_bottom_sheet_popup", true),
-                showIslandPopup = sharedPreferences.getBoolean("show_island_popup", true)
+                showIslandPopup = sharedPreferences.getBoolean("show_island_popup", true),
+                m3eEnabled = sharedPreferences.getBoolean("m3e_enabled", true)
             )
         }
     }
@@ -250,5 +251,10 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
     fun setShowIslandPopup(enabled: Boolean) {
         sharedPreferences.edit { putBoolean("show_island_popup", enabled) }
         _uiState.update { it.copy(showIslandPopup = enabled) }
+    }
+
+    fun setm3eEnabled(enabled: Boolean) {
+        sharedPreferences.edit { putBoolean("m3e_enabled", enabled) }
+        _uiState.update { it.copy(m3eEnabled = enabled) }
     }
 }

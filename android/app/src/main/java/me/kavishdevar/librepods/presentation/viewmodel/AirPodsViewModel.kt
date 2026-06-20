@@ -24,13 +24,14 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.util.Log
 import android.widget.Toast
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -57,7 +58,7 @@ import me.kavishdevar.librepods.services.AirPodsService
 
 @Suppress("ArrayInDataClass")
 data class AirPodsUiState(
-    val deviceName: String,
+    val deviceName: String = "AirPods",
 
     val isLocallyConnected: Boolean = false,
 
@@ -103,24 +104,127 @@ data class AirPodsUiState(
     val customEq: CustomEq = CustomEq(1, 50, 50, 50) // disabled
 )
 
-class AirPodsViewModel(
-    private val service: AirPodsService,
-    private val sharedPreferences: SharedPreferences,
-    private val controlRepo: ControlCommandRepository,
-    private val appContext: Context
-) : ViewModel() {
-    private val _uiState = MutableStateFlow(
-        AirPodsUiState(
-            deviceName = sharedPreferences.getString(
-                "name",
-                "AirPods Pro"
-            ) ?: "AirPods Pro"
-        )
+val demoInstance = AirPodsInstance(
+    name = "AirPods Pro",
+    model = AirPodsModels.getModelByModelNumber("A3064")!!,
+    actualModelNumber = "A3064",
+    serialNumber = "JXF9Q94A40",
+    leftSerialNumber = "L-DEMO",
+    rightSerialNumber = "R-DEMO",
+    version1 = "90.3388000000000000.1786",
+    version2 = "90.3388000000000000.1786",
+    version3 = "9441861",
+)
+
+val demoState = AirPodsUiState(
+    deviceName = demoInstance.name,
+
+    isLocallyConnected = true,
+
+    capabilities = demoInstance.model.capabilities,
+
+    battery = listOf(
+        Battery(BatteryComponent.LEFT, 80, BatteryStatus.OPTIMIZED_CHARGING),
+        Battery(BatteryComponent.RIGHT, 18, BatteryStatus.CHARGING),
+        Battery(BatteryComponent.CASE, 76, BatteryStatus.NOT_CHARGING)
+    ),
+
+    ancMode = 3,
+    offListeningMode = false,
+
+    modelName = demoInstance.model.displayName,
+    actualModel = demoInstance.actualModelNumber,
+    serialNumbers =  listOf(
+        demoInstance.serialNumber?: "",
+        demoInstance.leftSerialNumber?: "",
+        demoInstance.rightSerialNumber?: ""
+    ),
+
+    version1 = demoInstance.version1?: "",
+    version2 = demoInstance.version2?: "",
+    version3 = demoInstance.version3?: "",
+
+    headTrackingActive = true,
+    headGesturesEnabled = true,
+
+    automaticEarDetectionEnabled = true,
+    automaticConnectionEnabled = true,
+
+    leftAction = StemAction.CYCLE_NOISE_CONTROL_MODES,
+    rightAction = StemAction.DIGITAL_ASSISTANT,
+
+    loudSoundReductionEnabled = true,
+
+    isPremium = true,
+    vendorIdHook = true,
+
+    dynamicEndOfCharge = true,
+
+    connectionSuccessful = true,
+
+    customEq = CustomEq(state = 2, low = 65, mid = 50, high = 70),
+
+    controlStates = mapOf(
+        ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG to byteArrayOf(0x01),
+        ControlCommandIdentifiers.STEM_CONFIG to byteArrayOf(0x00),
+        ControlCommandIdentifiers.CLICK_HOLD_INTERVAL to byteArrayOf(0x00),
+        ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL to byteArrayOf(0x00),
+        ControlCommandIdentifiers.VOLUME_SWIPE_INTERVAL to byteArrayOf(0x00),
+        ControlCommandIdentifiers.VOLUME_SWIPE_MODE to byteArrayOf(0x01),
+        ControlCommandIdentifiers.CALL_MANAGEMENT_CONFIG to byteArrayOf(0x00, 0x03),
+        ControlCommandIdentifiers.CHIME_VOLUME to byteArrayOf(0x46, 0x50),
+        ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG to byteArrayOf(0x01),
+        ControlCommandIdentifiers.HEARING_AID to byteArrayOf(0x01, 0x02),
+        ControlCommandIdentifiers.HPS_GAIN_SWIPE to byteArrayOf(0x01),
+        ControlCommandIdentifiers.HEARING_ASSIST_CONFIG to byteArrayOf(0x02),
+        ControlCommandIdentifiers.HRM_STATE to byteArrayOf(0x01),
+        ControlCommandIdentifiers.AUTO_ANC_STRENGTH to byteArrayOf(0x45),
+        ControlCommandIdentifiers.ONE_BUD_ANC_MODE to byteArrayOf(0x01),
+        ControlCommandIdentifiers.SLEEP_DETECTION_CONFIG to byteArrayOf(0x01),
+        ControlCommandIdentifiers.PPE_TOGGLE_CONFIG to byteArrayOf(0x01),
+        ControlCommandIdentifiers.PPE_CAP_LEVEL_CONFIG to byteArrayOf(0x52),
+        ControlCommandIdentifiers.DYNAMIC_END_OF_CHARGE to byteArrayOf(0x01),
+        ControlCommandIdentifiers.LISTENING_MODE to byteArrayOf(0x04)
     )
+)
+
+class AirPodsViewModel(
+
+) : ViewModel() {
+    private lateinit var sharedPreferences: SharedPreferences
+    private lateinit var appContext: Context
+    private lateinit var service: AirPodsService
+    private lateinit var controlRepo: ControlCommandRepository
+
+    var isReady by mutableStateOf(false)
+        private set
+
+    fun init(service: AirPodsService, controlRepo: ControlCommandRepository, sharedPreferences: SharedPreferences, appContext: Context) {
+        this.service = service
+        this.controlRepo = controlRepo
+        this.sharedPreferences = sharedPreferences
+        this.appContext = appContext
+
+        observeBroadcasts()
+        loadName()
+        loadInstance()
+        loadSharedPreferences()
+        observeAACP()
+        loadCurrentStatus()
+        loadEq()
+        loadATT()
+        observeATT()
+        observeSharedPreferences()
+        observeBilling()
+        if (isDemoMode) activateDemoMode()
+        isReady = true
+    }
+
+    private val _uiState = MutableStateFlow(AirPodsUiState())
+
     val uiState: StateFlow<AirPodsUiState> = _uiState
 
     private var isDemoMode = false
-    val demoActivated = MutableSharedFlow<Unit>()
 
     private val listeners =
         mutableMapOf<ControlCommandIdentifiers, AACPManager.ControlCommandListener>()
@@ -129,19 +233,19 @@ class AirPodsViewModel(
 
     private lateinit var broadcastReceiver: BroadcastReceiver
 
-    private val _cameraAction = MutableStateFlow(
-        sharedPreferences.getString("camera_action", null)
-            ?.let { value -> AACPManager.Companion.StemPressType.entries.find { it.name == value } })
-
-    val cameraAction: StateFlow<AACPManager.Companion.StemPressType?> = _cameraAction
-
-    fun setCameraAction(action: AACPManager.Companion.StemPressType?) {
-        sharedPreferences.edit {
-            if (action == null) remove("camera_action")
-            else putString("camera_action", action.name)
-        }
-        _cameraAction.value = action
-    }
+//    private val _cameraAction = MutableStateFlow(
+//        sharedPreferences.getString("camera_action", null)
+//            ?.let { value -> AACPManager.Companion.StemPressType.entries.find { it.name == value } })
+//
+//    val cameraAction: StateFlow<AACPManager.Companion.StemPressType?> = _cameraAction
+//
+//    fun setCameraAction(action: AACPManager.Companion.StemPressType?) {
+//        sharedPreferences.edit {
+//            if (action == null) remove("camera_action")
+//            else putString("camera_action", action.name)
+//        }
+//        _cameraAction.value = action
+//    }
 
     fun setCustomEq(low: Int, mid: Int, high: Int) {
         require(low in 0..100)
@@ -165,29 +269,12 @@ class AirPodsViewModel(
         }
     }
 
-    init {
-        observeBroadcasts()
-        loadName()
-        loadInstance()
-        loadSharedPreferences()
-        observeAACP()
-        loadControlList()
-        loadEq()
-        loadATT()
-        observeATT()
-        observeSharedPreferences()
-        observeBilling()
-        if (isDemoMode) activateDemoMode()
-    }
-
     override fun onCleared() {
         listeners.forEach { (id, listener) ->
             controlRepo.remove(id, listener)
         }
         service.aacpManager.customEqCallback = null
         appContext.unregisterReceiver(broadcastReceiver)
-
-        super.onCleared()
     }
 
     private fun loadName() {
@@ -198,12 +285,7 @@ class AirPodsViewModel(
     private fun observeBilling() {
         if (isDemoMode) return
         viewModelScope.launch {
-//            if (!BuildConfig.PLAY_BUILD) billingFirstCollectDone = true // FOSS doesn't send multiple events
             BillingManager.provider.isPremium.collect { premium ->
-//                if (!billingFirstCollectDone) {
-//                    billingFirstCollectDone = true
-//                    return@collect
-//                }
                 if (premium) {
                     sharedPreferences.edit {
                         remove("premium_expiry_time")
@@ -378,12 +460,15 @@ class AirPodsViewModel(
         }
     }
 
-    fun refreshInitialData() {
+    fun loadCurrentStatus() {
         if (isDemoMode) return
         service.let { service ->
             _uiState.update {
                 it.copy(
-                    isLocallyConnected = BluetoothConnectionManager.getAACPSocket()?.isConnected == true, battery = service.getBattery()
+                    isLocallyConnected = BluetoothConnectionManager.aacpSocket?.isConnected == true,
+                    battery = service.getBattery(),
+                    ancMode = controlRepo.getValue(ControlCommandIdentifiers.LISTENING_MODE)?.get(0)?.toInt() ?: 1,
+                    controlStates = controlRepo.getMap()
                 )
             }
         }
@@ -500,14 +585,6 @@ class AirPodsViewModel(
         }
     }
 
-    private fun loadControlList() {
-        _uiState.update {
-            it.copy(
-                controlStates = controlRepo.getMap()
-            )
-        }
-    }
-
     private fun loadEq() {
         _uiState.update {
             it.copy(
@@ -607,7 +684,6 @@ class AirPodsViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             service.attManager.enableNotification(ATTCCCDHandles.HEARING_AID)
             service.attManager.enableNotification(ATTCCCDHandles.TRANSPARENCY)
-//            service.attManager.enableNotification(ATTCCCDHandles.LOUD_SOUND_REDUCTION)
         }
         service.attManager.setOnNotificationReceived { handle, value ->
             when (handle) {
@@ -655,40 +731,7 @@ class AirPodsViewModel(
 
     fun activateDemoMode() {
         isDemoMode = true
-        viewModelScope.launch {
-            demoActivated.emit(Unit)
-        }
-        val fakeInstance = AirPodsInstance(
-            name = "AirPods Pro (Demo)",
-            model = AirPodsModels.getModelByModelNumber("A3049")!!,
-            actualModelNumber = "A3049",
-            serialNumber = "DEMO123",
-            leftSerialNumber = "L-DEMO",
-            rightSerialNumber = "R-DEMO",
-            version1 = "1.0",
-            version2 = "1.0",
-            version3 = "1.0",
-        )
-
-        _uiState.update {
-            it.copy(
-                isLocallyConnected = true,
-                instance = fakeInstance,
-                capabilities = fakeInstance.model.capabilities,
-
-                battery = listOf(
-                    Battery(BatteryComponent.LEFT, 85, BatteryStatus.CHARGING),
-                    Battery(BatteryComponent.RIGHT, 25, BatteryStatus.NOT_CHARGING),
-                    Battery(BatteryComponent.CASE, 85, BatteryStatus.CHARGING),
-                ),
-
-                modelName = fakeInstance.model.displayName,
-                actualModel = fakeInstance.actualModelNumber,
-                serialNumbers = listOf("DEMO", "DEMO", "DEMO"),
-                version3 = "Demo Firmware",
-                isPremium = true
-            )
-        }
+        _uiState.update {demoState}
     }
 
     fun sendPhoneMediaEQ(eq: FloatArray, phoneByte: Byte, mediaByte: Byte) {
@@ -725,10 +768,19 @@ class AirPodsViewModel(
     }
 
     fun disconnect() {
-        service.disconnectAirPods()
-        if (appContext.checkSelfPermission("android.permission.BLUETOOTH_PRIVILEGED") != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(appContext, "App has disconnected, disconnect from Android Settings.",
-                Toast.LENGTH_LONG).show()
+        if (isDemoMode) {
+            isDemoMode = false
+            _uiState.update {
+                it.copy(isLocallyConnected = false)
+            }
+        } else {
+            service.disconnectAirPods()
+            if (appContext.checkSelfPermission("android.permission.BLUETOOTH_PRIVILEGED") != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(
+                    appContext, "App has disconnected, disconnect from Android Settings.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 }

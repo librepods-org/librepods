@@ -275,8 +275,19 @@
     <string name="describe_your_issue">Describe your issue</string>
     <string name="optimized_charging">Optimized Charge Limit</string>
     <string name="optimized_charging_description">AirPods can learn from your daily usage and determine when to charge to an optmized limit and when to allow or full charge. This limit adapts to your daily usage and preserves your battery lifespan over time.\nThis setting may not affect unsupported AirPods, or AirPods on an older firmware version.</string>
-    <string name="enable_app_in_xposed_or_update_device">Enable LibrePods in Xposed or update your device to proceed.</string>
+    <string name="enable_app_in_xposed_or_update_device">Update your device or enable LibrePods in Xposed and reopen the app to proceed.</string>
     <string name="play_foss_premium_banner">Due to an error in billing, premium access will expire in %1$d days. If you already upgraded the app, please click on this message to email billing@kavish.xyz to restore or verify access. Apologies for the inconvenience.</string>
     <string name="custom">Custom</string>
     <string name="recommended">Recommended</string>
+    <string name="appearance">Appearance</string>
+    <string name="use_material3e">Use Material 3 Expressive</string>
+    <string name="material3e">Material 3 Expressive</string>
+    <string name="update_m3e_description">LibrePods now supports a whole new look based on Material 3 Expressive including updated typography and adaptive color schemes.\nYou can switch back to the Apple look from the app\'s settings.</string>
+    <string name="update_equalizer_description">Available only on the latest AirPods Beta firmware. An Apple device running OS version 27 is required to install the beta firmware.</string>
+    <string name="what_s_new">What\'s New</string>
+    <string name="reconnecting">Reconnecting</string>
+    <string name="tap_to_reconnect">Tap to reconnect</string>
+    <string name="permissions">Permissions</string>
+    <string name="privacy_policy">Privacy Policy</string>
+    <string name="i_agree">I agree</string>
 </resources>

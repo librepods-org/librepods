@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.BatteryStatus
+import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
@@ -66,7 +68,6 @@ fun BatteryIndicator(
     previousCharging: Boolean = false,
 ) {
     val isDarkTheme = isSystemInDarkTheme()
-    val backgroundColor = if (isDarkTheme) Color.Black else Color(0xFFF2F2F7)
     val batteryTextColor = if (isDarkTheme) Color.White else Color.Black
     val batteryFillColor =
         if (batteryPercentage > 25) if (isDarkTheme) Color(0xFF2ED158) else Color(0xFF35C759)
@@ -82,7 +83,7 @@ fun BatteryIndicator(
     }
 
     Column(
-        modifier = Modifier.background(backgroundColor).padding(4.dp), // just for haze to work
+        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainer).padding(4.dp), // just for haze to work
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -200,10 +201,7 @@ fun BatteryIndicator(
 @Preview(uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 fun BatteryIndicatorPreview() {
-    val bg = if (isSystemInDarkTheme()) Color.Black else Color(0xFFF2F2F7)
-    Box(
-        modifier = Modifier.background(bg)
-    ) {
+    LibrePodsTheme(m3eEnabled = false) {
         BatteryIndicator(
             batteryPercentage = 50,
             status = BatteryStatus.OPTIMIZED_CHARGING,

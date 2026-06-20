@@ -20,16 +20,21 @@ package me.kavishdevar.librepods.presentation.screens
 
 import android.annotation.SuppressLint
 import android.util.Log
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,10 +46,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import kotlinx.coroutines.Job
 import me.kavishdevar.librepods.R
@@ -52,9 +53,10 @@ import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.data.HearingAidSettings
 import me.kavishdevar.librepods.data.parseHearingAidSettingsResponse
 import me.kavishdevar.librepods.data.sendHearingAidSettings
-import me.kavishdevar.librepods.presentation.components.StyledScaffold
 import me.kavishdevar.librepods.presentation.components.StyledSlider
 import me.kavishdevar.librepods.presentation.components.StyledToggle
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.presentation.viewmodel.AirPodsViewModel
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -65,11 +67,8 @@ private const val TAG = "HearingAidAdjustments"
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
 fun HearingAidAdjustmentsScreen(viewModel: AirPodsViewModel) {
-    isSystemInDarkTheme()
     val verticalScrollState = rememberScrollState()
-    val hazeState = remember { HazeState() }
     val state by viewModel.uiState.collectAsState()
-    val backdrop = rememberLayerBackdrop()
 
     val debounceJob = remember { mutableStateOf<Job?>(null) }
 
@@ -144,81 +143,83 @@ fun HearingAidAdjustmentsScreen(viewModel: AirPodsViewModel) {
         sendHearingAidSettings(state.hearingAidData, hearingAidSettings.value, debounceJob, viewModel::setATTCharacteristicValue)
     }
 
-    StyledScaffold(title = stringResource(R.string.adjustments)) { spacerHeight ->
-        Column(
-            modifier = Modifier
-                .hazeSource(hazeState)
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
-                .verticalScroll(verticalScrollState)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(spacerHeight))
+    val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
+    val topPadding = if (m3eEnabled) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp
+    val bottomPadding = if (m3eEnabled) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
 
-            StyledSlider(
-                label = stringResource(R.string.amplification),
-                valueRange = -1f..1f,
-                value = amplificationSliderValue.floatValue,
-                onValueChange = {
-                    amplificationSliderValue.floatValue = it
-                },
-                startIcon = "􀊥",
-                endIcon = "􀊩",
-                independent = true,
-            )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .verticalScroll(verticalScrollState)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(topPadding))
 
-            StyledToggle(
-                label = stringResource(R.string.swipe_to_control_amplification),
-                checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE]?.getOrNull(0) == 0x01.toByte(),
-                onCheckedChange = { viewModel.setControlCommandBoolean(AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE, it) },
-                description = stringResource(R.string.swipe_amplification_description)
-            )
+        StyledSlider(
+            label = stringResource(R.string.amplification),
+            valueRange = -1f..1f,
+            value = amplificationSliderValue.floatValue,
+            onValueChange = {
+                amplificationSliderValue.floatValue = it
+            },
+            startIcon = "􀊥",
+            endIcon = "􀊩",
+            independent = true,
+        )
 
-            StyledSlider(
-                label = stringResource(R.string.balance),
-                valueRange = -1f..1f,
-                value = balanceSliderValue.floatValue,
-                onValueChange = {
-                    balanceSliderValue.floatValue = it
-                },
-                snapPoints = listOf(-1f, 0f, 1f),
-                startLabel = stringResource(R.string.left),
-                endLabel = stringResource(R.string.right),
-                independent = true,
-            )
+        StyledToggle(
+            label = stringResource(R.string.swipe_to_control_amplification),
+            checked = state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE]?.getOrNull(0) == 0x01.toByte(),
+            onCheckedChange = { viewModel.setControlCommandBoolean(AACPManager.Companion.ControlCommandIdentifiers.HPS_GAIN_SWIPE, it) },
+            description = stringResource(R.string.swipe_amplification_description)
+        )
 
-            StyledSlider(
-                label = stringResource(R.string.tone),
-                valueRange = -1f..1f,
-                value = toneSliderValue.floatValue,
-                onValueChange = {
-                    toneSliderValue.floatValue = it
-                },
-                startLabel = stringResource(R.string.darker),
-                endLabel = stringResource(R.string.brighter),
-                independent = true,
-            )
+        StyledSlider(
+            label = stringResource(R.string.balance),
+            valueRange = -1f..1f,
+            value = balanceSliderValue.floatValue,
+            onValueChange = {
+                balanceSliderValue.floatValue = it
+            },
+            snapPoints = listOf(-1f, 0f, 1f),
+            startLabel = stringResource(R.string.left),
+            endLabel = stringResource(R.string.right),
+            independent = true,
+        )
 
-            StyledSlider(
-                label = stringResource(R.string.ambient_noise_reduction),
-                valueRange = 0f..1f,
-                value = ambientNoiseReductionSliderValue.floatValue,
-                onValueChange = {
-                    ambientNoiseReductionSliderValue.floatValue = it
-                },
-                startLabel = stringResource(R.string.less),
-                endLabel = stringResource(R.string.more),
-                independent = true,
-            )
+        StyledSlider(
+            label = stringResource(R.string.tone),
+            valueRange = -1f..1f,
+            value = toneSliderValue.floatValue,
+            onValueChange = {
+                toneSliderValue.floatValue = it
+            },
+            startLabel = stringResource(R.string.darker),
+            endLabel = stringResource(R.string.brighter),
+            independent = true,
+        )
 
-            StyledToggle(
-                label = stringResource(R.string.conversation_boost),
-                checked = conversationBoostEnabled.value,
-                onCheckedChange = { conversationBoostEnabled.value = it },
-                independent = true,
-                description = stringResource(R.string.conversation_boost_description)
-            )
-        }
+        StyledSlider(
+            label = stringResource(R.string.ambient_noise_reduction),
+            valueRange = 0f..1f,
+            value = ambientNoiseReductionSliderValue.floatValue,
+            onValueChange = {
+                ambientNoiseReductionSliderValue.floatValue = it
+            },
+            startLabel = stringResource(R.string.less),
+            endLabel = stringResource(R.string.more),
+            independent = true,
+        )
+
+        StyledToggle(
+            label = stringResource(R.string.conversation_boost),
+            checked = conversationBoostEnabled.value,
+            onCheckedChange = { conversationBoostEnabled.value = it },
+            description = stringResource(R.string.conversation_boost_description)
+        )
+
+        Spacer(modifier = Modifier.height(bottomPadding))
     }
 }
