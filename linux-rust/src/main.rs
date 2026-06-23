@@ -1,5 +1,6 @@
 mod bluetooth;
 mod devices;
+mod headless;
 mod media_controller;
 mod ui;
 mod utils;
@@ -8,6 +9,7 @@ use crate::bluetooth::discovery::{find_connected_airpods, find_other_managed_dev
 use crate::bluetooth::le::start_le_monitor;
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
+use crate::headless::run_headless_console;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
 use crate::utils::{get_app_settings_path, get_devices_path};
@@ -47,6 +49,24 @@ struct Args {
     version: bool
 }
 
+/// Default log filter: global level at `app_level`, with known-noisy external crates kept quiet
+/// unless the user already set `RUST_LOG` themselves, in which case that takes precedence.
+fn default_log_filter(debug: bool, le_debug: bool) -> String {
+    let app_level = if debug { "debug" } else { "info" };
+    let le_level = if le_debug { "debug" } else { "info" };
+    format!(
+        "{app_level},zbus=warn,winit=warn,tracing=warn,iced_wgpu=warn,wgpu_hal=warn,wgpu_core=warn,cosmic_text=warn,naga=warn,iced_winit=warn,librepods::bluetooth::le={le_level}"
+    )
+}
+
+fn init_logging(debug: bool, le_debug: bool) {
+    let env = env_logger::Env::default()
+        .filter_or("RUST_LOG", default_log_filter(debug, le_debug));
+    env_logger::Builder::from_env(env)
+        .format_timestamp_secs()
+        .init();
+}
+
 fn main() -> iced::Result {
     let args = Args::parse();
 
@@ -58,24 +78,11 @@ fn main() -> iced::Result {
         return Ok(());
     }
 
-    let log_level = if args.debug { "debug" } else { "info" };
     // let wayland_display = env::var("WAYLAND_DISPLAY").is_ok();
     // if wayland_display && env::var("WGPU_BACKEND").is_err() {
     //     unsafe { env::set_var("WGPU_BACKEND", "gl") };
     // }
-    if env::var("RUST_LOG").is_err() {
-        unsafe {
-            env::set_var(
-                "RUST_LOG",
-                log_level.to_owned()
-                    + &format!(
-                        ",zbus=warn,winit=warn,tracing=warn,iced_wgpu=warn,wgpu_hal=warn,wgpu_core=warn,cosmic_text=warn,naga=warn,iced_winit=warn,librepods::bluetooth::le={}",
-                        if args.le_debug { "debug" } else { "info" }
-                    ),
-            )
-        };
-    }
-    env_logger::init();
+    init_logging(args.debug, args.le_debug);
 
     let (ui_tx, ui_rx) = unbounded_channel::<BluetoothUIMessage>();
 
@@ -87,6 +94,7 @@ fn main() -> iced::Result {
         // Run headless without UI
         info!("Running in headless mode (no GUI)");
         let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.spawn(run_headless_console(ui_rx));
         rt.block_on(async_main(ui_tx, device_managers)).unwrap();
         Ok(())
     } else {
