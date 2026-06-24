@@ -1307,7 +1307,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         MediaController.sendPlay()
                         MediaController.iPausedTheMedia = false
                     }
-                } else {
+                } else if (newInEarData != listOf(false, false)) {
+                    // The "both removed" case is already handled by the sendPause(force=true) branch above.
                     MediaController.sendPause()
                 }
             }
