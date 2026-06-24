@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+    <id>me.kavishdevar.librepods</id>
+
+    <name>LibrePods</name>
+    <summary>Liberate AirPods from Apple&apos;s ecosystem</summary>
+
+    <metadata_license>CC-BY-SA-4.0</metadata_license>
+    <project_license>AGPL-3.0-only</project_license>
+
+    <description>
+        <p>
+            Key  - Noise Control Modes: Easily switch between noise control modes without having to reach out to your AirPods to long  - Ear Detection: Controls your music automatically when you put your AirPods in or take them out, and switch to phone speaker when you take them out - Battery Status: Accurate battery levels - Conversational Awareness: Volume automatically lowers when you speak - Hearing Aid: Setup Hearing Aid, even in an unsupported region
+        </p>
+    </description>
+
+    <launchable type="desktop-id">me.kavishdevar.librepods.desktop</launchable>
+    <screenshots>
+        <screenshot type="default">
+            <image>https://raw.githubusercontent.com/kavishdevar/librepods/refs/heads/main/linux/imgs/main-app.png</image>
+        </screenshot>
+    </screenshots>
+</component>
