@@ -676,6 +676,7 @@ private slots:
                     writePacketToSocket(AirPodsPackets::Connection::REQUEST_NOTIFICATIONS, "Request notifications packet written: ");
                 }
             });
+            writePacketToSocket(AirPodsPackets::Connection::STEM_CONFIG_ENABLE, "Stem config enable packet written: ");
         }
         // Magic Cloud Keys Response
         else if (data.startsWith(AirPodsPackets::MagicPairing::MAGIC_CLOUD_KEYS_HEADER))
@@ -753,9 +754,28 @@ private slots:
                 LOG_INFO("One Bud ANC mode received: " << m_deviceInfo->oneBudANCMode());
             }
         }
+        else if (data.startsWith(AirPodsPackets::StemPress::HEADER))
+        {
+            if (auto ev = AirPodsPackets::StemPress::parseEvent(data))
+                handleStemPress(*ev);
+        }
         else
         {
             LOG_DEBUG("Unrecognized packet format: " << data.toHex());
+        }
+    }
+
+    void handleStemPress(const AirPodsPackets::StemPress::Event &ev)
+    {
+        using AirPodsPackets::StemPress::Type;
+        LOG_INFO("Stem press type=0x" << QString::number(static_cast<int>(ev.type), 16)
+                 << " bud=0x" << QString::number(static_cast<int>(ev.bud), 16));
+        switch (ev.type)
+        {
+            case Type::Double: mediaController->nextTrack();      break;
+            case Type::Triple: mediaController->previousTrack();  break;
+            case Type::Single:
+            case Type::Long:   mediaController->togglePlayPause(); break; // long = cycle ANC on Android; PlayPause fallback
         }
     }
 
