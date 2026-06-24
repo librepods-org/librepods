@@ -43,7 +43,7 @@ A native Linux application to control your AirPods, with support for:
 
    ```bash
    # For Arch Linux / EndeavourOS
-   sudo pacman -S qt6-base qt6-connectivity qt6-multimedia-ffmpeg qt6-multimedia
+   sudo pacman -S qt6-base qt6-connectivity qt6-multimedia-ffmpeg qt6-multimedia qt6-tools
 
    # For Debian
    sudo apt-get install qt6-base-dev qt6-declarative-dev qt6-connectivity-dev qt6-multimedia-dev \
