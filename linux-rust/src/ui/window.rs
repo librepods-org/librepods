@@ -382,6 +382,7 @@ impl App {
                                         status.identifier == ControlCommandIdentifiers::AllowOffOption &&
                                         matches!(status.value.as_slice(), [0x01])
                                     }),
+                                    hires_mic_enabled: false,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {

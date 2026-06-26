@@ -362,6 +362,59 @@ pub fn airpods_view<'a>(
             )
     };
 
+    let hires_mic_toggle = {
+        let aacp_manager_mic = aacp_manager.clone();
+        let mac = mac.clone();
+        let state = state.clone();
+        container(row![
+            column![
+                text("Hi-Res Microphone").size(16),
+                text("Captures the AirPods' proprietary 64 kHz AAC-ELD uplink and exposes it as an 'AirPodsHiRes' input. Higher quality than the standard HFP mic.").size(12).style(
+                    |theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    }
+                ).width(Length::Fill)
+            ].width(Length::Fill),
+            toggler(state.hires_mic_enabled)
+                .on_toggle(move |is_enabled| {
+                    let aacp_manager = aacp_manager_mic.clone();
+                    run_async_in_thread(async move {
+                        if is_enabled {
+                            aacp_manager.start_hires_mic().await;
+                        } else {
+                            aacp_manager.stop_hires_mic().await;
+                        }
+                    });
+                    let mut state = state.clone();
+                    state.hires_mic_enabled = is_enabled;
+                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                })
+            .spacing(0)
+            .size(20)
+        ]
+            .align_y(Center)
+            .spacing(8)
+        )
+            .padding(Padding{
+                top: 5.0,
+                bottom: 5.0,
+                left: 18.0,
+                right: 18.0,
+            })
+            .style(
+                |theme: &Theme| {
+                    let mut style = container::Style::default();
+                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                    let mut border = Border::default();
+                    border.color = theme.palette().primary.scale_alpha(0.5);
+                    style.border = border.rounded(16);
+                    style
+                }
+            )
+    };
+
     let mut information_col = column![];
     if let Some(device) = devices_list.get(mac_information.as_str()) {
         if let Some(DeviceInformation::AirPods(ref airpods_info)) = device.information {
@@ -515,6 +568,8 @@ pub fn airpods_view<'a>(
         audio_settings_col,
         Space::new().height(Length::from(20)),
         off_listening_mode_toggle,
+        Space::new().height(Length::from(20)),
+        hires_mic_toggle,
         Space::new().height(Length::from(20)),
         information_col
     ])
