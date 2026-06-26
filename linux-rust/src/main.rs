@@ -1,3 +1,4 @@
+mod audio;
 mod bluetooth;
 mod devices;
 mod media_controller;
@@ -10,7 +11,7 @@ use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
-use crate::utils::{get_app_settings_path, get_devices_path};
+use crate::utils::{ensure_device_registered, get_app_settings_path, get_devices_path};
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -22,6 +23,7 @@ use ksni::TrayMethods;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::env;
+use std::time::Duration;
 use std::sync::atomic::{AtomicBool};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -145,8 +147,16 @@ async fn async_main(
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
-        let handle = tray.spawn().await.unwrap();
-        Some(handle)
+        match tray.spawn().await {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                log::warn!(
+                    "Failed to start system tray ({e}); continuing without tray. \
+                     Your environment may lack a StatusNotifier/AppIndicator watcher."
+                );
+                None
+            }
+        }
     };
 
     let session = bluer::Session::new().await?;
@@ -171,9 +181,15 @@ async fn async_main(
                 .await?
                 .unwrap_or_else(|| "Unknown".to_string());
             info!("Found connected AirPods: {}, initializing.", name);
+            ensure_device_registered(
+                &device.address().to_string(),
+                &name,
+                devices::enums::DeviceType::AirPods,
+            );
             let airpods_device =
                 AirPodsDevice::new(device.address(), tray_handle.clone(), ui_tx.clone()).await;
 
+            let hires_aacp = airpods_device.aacp_manager.clone();
             let mut managers = device_managers.write().await;
             // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
             let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
@@ -186,6 +202,14 @@ async fn async_main(
                 device.address().to_string(),
             )) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
+            }
+            // LIBREPODS_HIRES_MIC=1: auto-start the proprietary hi-res mic on
+            // connect (useful headless and for verification without the GUI).
+            if env::var("LIBREPODS_HIRES_MIC").is_ok() {
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    hires_aacp.start_hires_mic().await;
+                });
             }
         }
         Err(_) => {
@@ -309,6 +333,7 @@ async fn async_main(
             .get::<String>("org.bluez.Device1", "Name")
             .unwrap_or_else(|_| "Unknown".to_string());
         info!("AirPods connected: {}, initializing", name);
+        ensure_device_registered(&addr_str, &name, devices::enums::DeviceType::AirPods);
         let handle_clone = tray_handle.clone();
         let ui_tx_clone = ui_tx.clone();
         let device_managers = device_managers.clone();

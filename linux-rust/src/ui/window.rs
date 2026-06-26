@@ -108,6 +108,7 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    MicLevelTick,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -263,6 +264,7 @@ impl App {
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
+            Message::MicLevelTick => Task::none(),
             Message::BluetoothMessage(ui_message) => {
                 match ui_message {
                     BluetoothUIMessage::NoOp => {
@@ -382,6 +384,7 @@ impl App {
                                         status.identifier == ControlCommandIdentifiers::AllowOffOption &&
                                         matches!(status.value.as_slice(), [0x01])
                                     }),
+                                    hires_mic_enabled: false,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -1301,7 +1304,21 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        window::close_events().map(Message::WindowClosed)
+        let close = window::close_events().map(Message::WindowClosed);
+
+        // Only tick while a hi-res mic is capturing.
+        let mic_active = self
+            .device_states
+            .values()
+            .any(|s| matches!(s, DeviceState::AirPods(a) if a.hires_mic_enabled));
+
+        if mic_active {
+            let tick = iced::time::every(std::time::Duration::from_millis(50))
+                .map(|_| Message::MicLevelTick);
+            Subscription::batch([close, tick])
+        } else {
+            close
+        }
     }
 }
 

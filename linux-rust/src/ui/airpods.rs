@@ -362,6 +362,68 @@ pub fn airpods_view<'a>(
             )
     };
 
+    let hires_mic_toggle = {
+        let aacp_manager_mic = aacp_manager.clone();
+        let mac = mac.clone();
+        let state = state.clone();
+        let mic_enabled = state.hires_mic_enabled;
+        let level = aacp_manager.mic_level().clamp(0.0, 1.0);
+
+        let header = row![
+            column![
+                text("Hi-Res Microphone").size(16),
+                text("Captures the AirPods' proprietary 64 kHz AAC-ELD uplink and exposes it as an 'AirPodsHiRes' input. Higher quality than the standard HFP mic.").size(12).style(
+                    |theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    }
+                ).width(Length::Fill)
+            ].width(Length::Fill),
+            toggler(state.hires_mic_enabled)
+                .on_toggle(move |is_enabled| {
+                    let aacp_manager = aacp_manager_mic.clone();
+                    run_async_in_thread(async move {
+                        if is_enabled {
+                            aacp_manager.start_hires_mic().await;
+                        } else {
+                            aacp_manager.stop_hires_mic().await;
+                        }
+                    });
+                    let mut state = state.clone();
+                    state.hires_mic_enabled = is_enabled;
+                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                })
+            .spacing(0)
+            .size(20)
+        ]
+            .align_y(Center)
+            .spacing(8);
+
+        let mut content = column![header].spacing(10);
+        if mic_enabled {
+            content = content.push(level_meter(level));
+        }
+
+        container(content)
+            .padding(Padding{
+                top: 5.0,
+                bottom: 5.0,
+                left: 18.0,
+                right: 18.0,
+            })
+            .style(
+                |theme: &Theme| {
+                    let mut style = container::Style::default();
+                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                    let mut border = Border::default();
+                    border.color = theme.palette().primary.scale_alpha(0.5);
+                    style.border = border.rounded(16);
+                    style
+                }
+            )
+    };
+
     let mut information_col = column![];
     if let Some(device) = devices_list.get(mac_information.as_str()) {
         if let Some(DeviceInformation::AirPods(ref airpods_info)) = device.information {
@@ -516,11 +578,65 @@ pub fn airpods_view<'a>(
         Space::new().height(Length::from(20)),
         off_listening_mode_toggle,
         Space::new().height(Length::from(20)),
+        hires_mic_toggle,
+        Space::new().height(Length::from(20)),
         information_col
     ])
     .padding(20)
     .center_x(Length::Fill)
     .height(Length::Fill)
+}
+
+fn level_meter<'a>(level: f32) -> iced::widget::Container<'a, Message> {
+    let filled = (level * 1000.0).round() as u16;
+    let rest = 1000u16.saturating_sub(filled);
+    let hot = level >= 0.9;
+
+    let bar = container(
+        row![
+            container(Space::new())
+                .width(Length::FillPortion(filled))
+                .height(Length::Fill)
+                .style(move |theme: &Theme| {
+                    let mut s = container::Style::default();
+                    let color = if hot {
+                        theme.palette().warning
+                    } else {
+                        theme.palette().success
+                    };
+                    s.background = Some(Background::Color(color));
+                    s.border = Border::default().rounded(4);
+                    s
+                }),
+            container(Space::new()).width(Length::FillPortion(rest)),
+        ]
+        .height(Length::Fill),
+    )
+    .width(Length::Fill)
+    .height(Length::from(10))
+    .style(|theme: &Theme| {
+        let mut s = container::Style::default();
+        s.background = Some(Background::Color(theme.palette().text.scale_alpha(0.12)));
+        s.border = Border::default().rounded(4);
+        s
+    });
+
+    container(
+        column![
+            text("Input level").size(12).style(|theme: &Theme| {
+                let mut style = text::Style::default();
+                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                style
+            }),
+            bar,
+        ]
+        .spacing(4),
+    )
+    .width(Length::Fill)
+    .padding(Padding {
+        bottom: 6.0,
+        ..Padding::ZERO
+    })
 }
 
 fn run_async_in_thread<F>(fut: F)

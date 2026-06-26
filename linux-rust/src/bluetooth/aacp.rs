@@ -20,6 +20,25 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const HEADER_BYTES: [u8; 4] = [0x04, 0x00, 0x04, 0x00];
 
+/// L2CAP recv buffer. 0x58 hi-res audio SDUs can exceed 1 KB; SOCK_SEQPACKET
+/// silently truncates an undersized buffer, so this must comfortably exceed the
+/// largest SDU
+const RECV_BUF_LEN: usize = 4096;
+
+/// 0x58 microphone-stream control packets (include the 04 00 04 00 header).
+const AACP_START_AUDIO: [u8; 19] = [
+    0x04, 0x00, 0x04, 0x00, 0x58, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x01, 0x82, 0x00, 0x00, 0x00,
+    0x04, 0x96, 0x00,
+];
+const AACP_STOP_AUDIO: [u8; 12] = [
+    0x04, 0x00, 0x04, 0x00, 0x58, 0x00, 0x00, 0x00, 0x02, 0x00, 0x03, 0x01,
+];
+
+/// Bound for the audio SDU forwarding channel. Realtime: if the decoder falls
+/// behind we drop SDUs (a brief glitch) rather than back-pressure the L2CAP
+/// recv loop, which would stall control traffic too.
+const AUDIO_CHANNEL_CAP: usize = 256;
+
 pub mod opcodes {
     pub const SET_FEATURE_FLAGS: u8 = 0x4D;
     pub const REQUEST_NOTIFICATIONS: u8 = 0x0F;
@@ -330,6 +349,8 @@ pub struct AACPManagerState {
     event_tx: Option<mpsc::UnboundedSender<AACPEvent>>,
     pub devices: HashMap<String, DeviceData>,
     pub airpods_mac: Option<Address>,
+    /// When set, recv_thread forwards raw 0x58 audio SDUs here (hi-res mic).
+    pub audio_tx: Option<mpsc::Sender<Vec<u8>>>,
 }
 
 impl AACPManagerState {
@@ -353,6 +374,7 @@ impl AACPManagerState {
             event_tx: None,
             devices,
             airpods_mac: None,
+            audio_tx: None,
         }
     }
 }
@@ -361,6 +383,9 @@ impl AACPManagerState {
 pub struct AACPManager {
     pub state: Arc<Mutex<AACPManagerState>>,
     tasks: Arc<Mutex<JoinSet<()>>>,
+    /// Active hi-res microphone capture, if any (proprietary 0x58 stream).
+    hires_mic: Arc<Mutex<Option<crate::audio::hires_mic::HiResMic>>>,
+    mic_level: crate::audio::hires_mic::MicLevel,
 }
 
 impl AACPManager {
@@ -368,7 +393,39 @@ impl AACPManager {
         AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
             tasks: Arc::new(Mutex::new(JoinSet::new())),
+            hires_mic: Arc::new(Mutex::new(None)),
+            mic_level: crate::audio::hires_mic::MicLevel::new(),
         }
+    }
+
+    pub fn mic_level(&self) -> f32 {
+        self.mic_level.get()
+    }
+
+    /// Start the proprietary hi-res microphone capture. No-op if already active.
+    pub async fn start_hires_mic(&self) {
+        let mut guard = self.hires_mic.lock().await;
+        if guard.is_some() {
+            return;
+        }
+        let addr = self.state.lock().await.airpods_mac.map(|a| a.to_string());
+        let Some(addr) = addr else {
+            error!("Cannot start hi-res mic: no AirPods address known");
+            return;
+        };
+        match crate::audio::hires_mic::HiResMic::start(self, addr, self.mic_level.clone()).await {
+            Some(mic) => *guard = Some(mic),
+            None => error!("Failed to start hi-res microphone"),
+        }
+    }
+
+    /// Stop the hi-res microphone capture. No-op if not active.
+    pub async fn stop_hires_mic(&self) {
+        let mic = self.hires_mic.lock().await.take();
+        if let Some(mic) = mic {
+            mic.stop(self).await;
+        }
+        self.mic_level.set(0.0);
     }
 
     pub async fn connect(&mut self, addr: Address) {
@@ -921,6 +978,32 @@ impl AACPManager {
         }
     }
 
+    /// Create the channel that recv_thread forwards 0x58 audio SDUs to, and
+    /// return the receiving half for the hi-res decode task. Replaces any
+    /// previously installed channel.
+    pub async fn take_audio_channel(&self) -> mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = mpsc::channel(AUDIO_CHANNEL_CAP);
+        let mut state = self.state.lock().await;
+        state.audio_tx = Some(tx);
+        rx
+    }
+
+    /// Stop forwarding audio SDUs
+    pub async fn clear_audio_channel(&self) {
+        let mut state = self.state.lock().await;
+        state.audio_tx = None;
+    }
+
+    /// Start the proprietary hi-res microphone stream (0x58 START).
+    pub async fn send_start_audio(&self) -> Result<()> {
+        self.send_packet(&AACP_START_AUDIO).await
+    }
+
+    /// Stop the proprietary hi-res microphone stream (0x58 STOP).
+    pub async fn send_stop_audio(&self) -> Result<()> {
+        self.send_packet(&AACP_STOP_AUDIO).await
+    }
+
     pub async fn send_notification_request(&self) -> Result<()> {
         let opcode = [opcodes::REQUEST_NOTIFICATIONS, 0x00];
         let data = [0xFF, 0xFF, 0xFF, 0xFF];
@@ -1203,7 +1286,7 @@ impl AACPManager {
 }
 
 async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
-    let mut buf = vec![0u8; 1024];
+    let mut buf = vec![0u8; RECV_BUF_LEN];
     loop {
         match sp.recv(&mut buf).await {
             Ok(0) => {
@@ -1212,6 +1295,19 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
             Ok(n) => {
                 let data = &buf[..n];
+
+                // Forward audio SDUs to the audio thread, leaving control SDUs for the control thread.
+                if crate::bluetooth::aacp_audio::is_audio(data) {
+                    let audio_tx = {
+                        let state = manager.state.lock().await;
+                        state.audio_tx.clone()
+                    };
+                    if let Some(tx) = audio_tx {
+                        let _ = tx.try_send(data.to_vec());
+                    }
+                    continue;
+                }
+
                 debug!("Received {} bytes: {}", n, hex::encode(data));
                 manager.receive_packet(data).await;
             }
@@ -1236,20 +1332,20 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
     while let Some(data) = rx.recv().await {
         let mut attempts = 0;
         loop {
-          match sp.send(&data).await {
-            Ok(_) => {
-              debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
-              break;
+            match sp.send(&data).await {
+                Ok(_) => {
+                    debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
+                    break;
+                }
+                Err(e) if e.raw_os_error() == Some(107) && attempts < 10 => {
+                    attempts += 1;
+                    sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => {
+                    error!("Failed to send data: {}", e);
+                    return;
+                }
             }
-            Err(e) if e.raw_os_error() == Some(107) && attempts < 10 => {
-              attempts += 1;
-              sleep(Duration::from_millis(100)).await;
-            }
-            Err(e) => {
-              error!("Failed to send data: {}", e);
-              return;
-            }
-          }
         }
     }
     info!("Send thread finished.");
