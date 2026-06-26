@@ -116,11 +116,16 @@ impl Output {
         })
     }
 
-    // Write interleaved s16 PCM into the sink
-    pub fn write(&mut self, pcm: &[i16]) -> Result<(), ()> {
+    // Write s16 PCM into the sink
+    pub fn write(&mut self, pcm: &[i16]) -> Result<f32, ()> {
         let mut pcm = pcm.to_vec();
 
         self.agc.process(&mut pcm);
+
+        let peak = pcm
+            .iter()
+            .map(|&s| (s as f32 / 32768.0).abs())
+            .fold(0.0f32, f32::max);
 
         let bytes = unsafe {
             std::slice::from_raw_parts(
@@ -130,9 +135,10 @@ impl Output {
         };
 
         match &self.simple {
-            Some(s) => s.write(bytes).map_err(|e| {
-                error!("hi-res playback stream broke: {}", e);
-            }),
+            Some(s) => s
+                .write(bytes)
+                .map(|_| peak)
+                .map_err(|e| error!("hi-res playback stream broke: {}", e)),
             None => Err(()),
         }
     }

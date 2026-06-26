@@ -1,6 +1,8 @@
 //! Hi-res microphone lifecycle: ties together the AACP 0x58 control stream, the
 //! AAC-ELD decoder, and the PipeWire output.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -15,6 +17,25 @@ use crate::bluetooth::aacp_audio;
 /// Delay after sending 0x58 START before resetting the A2DP transport
 const A2DP_RESET_DELAY: Duration = Duration::from_millis(800);
 
+const LEVEL_RELEASE: f32 = 0.85;
+
+#[derive(Clone, Default)]
+pub struct MicLevel(Arc<AtomicU32>);
+
+impl MicLevel {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicU32::new(0)))
+    }
+
+    pub fn set(&self, level: f32) {
+        self.0.store(level.to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
+    }
+}
+
 pub struct HiResMic {
     addr: String,
     decode_thread: Option<JoinHandle<()>>,
@@ -27,13 +48,13 @@ impl HiResMic {
     // - spawn the decode thread
     // - send 0x58 START
     // - schedule the A2DP transport reset
-    pub async fn start(aacp: &AACPManager, addr: String) -> Option<HiResMic> {
+    pub async fn start(aacp: &AACPManager, addr: String, level: MicLevel) -> Option<HiResMic> {
         let decoder = EldDecoder::new()?;
         let output = Output::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8)?;
 
         // Arm recv routing BEFORE the device starts emitting audio.
         let rx = aacp.take_audio_channel().await;
-        let decode_thread = spawn_decode_thread(rx, decoder, output);
+        let decode_thread = spawn_decode_thread(rx, decoder, output, level);
 
         if let Err(e) = aacp.send_start_audio().await {
             error!("failed to send 0x58 START: {}", e);
@@ -84,12 +105,14 @@ fn spawn_decode_thread(
     mut rx: mpsc::Receiver<Vec<u8>>,
     mut decoder: EldDecoder,
     mut output: Output,
+    level: MicLevel,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("hires-decode".into())
         .spawn(move || {
             let mut frames: u64 = 0;
             let mut errors: u64 = 0;
+            let mut env: f32 = 0.0;
             let mut pcm: Vec<i16> = Vec::with_capacity(4096);
 
             while let Some(sdu) = rx.blocking_recv() {
@@ -100,19 +123,34 @@ fn spawn_decode_thread(
                     None => errors += 1,
                 });
 
-                if !pcm.is_empty() && output.write(&pcm).is_err() {
-                    warn!("hi-res output broke; stopping decode loop");
-                    break;
-                }
+                let peak = if pcm.is_empty() {
+                    0.0
+                } else {
+                    match output.write(&pcm) {
+                        Ok(peak) => peak,
+                        Err(()) => {
+                            warn!("hi-res output broke; stopping decode loop");
+                            break;
+                        }
+                    }
+                };
+
+                env = if peak >= env {
+                    peak
+                } else {
+                    env * LEVEL_RELEASE
+                };
+                level.set(env);
 
                 if frames > 0 && frames % 400 == 0 {
                     let secs = frames as f64 * ELD_FRAME_SAMPLES as f64 / ELD_SAMPLE_RATE as f64;
                     info!(
-                        "[audio] {} frames ({:.0}s), {} errors",
-                        frames, secs, errors
+                        "[audio] {} frames ({:.0}s), {} errors, level {:.2}",
+                        frames, secs, errors, env
                     );
                 }
             }
+            level.set(0.0);
             info!(
                 "[audio] hi-res decode loop ended ({} frames, {} errors)",
                 frames, errors

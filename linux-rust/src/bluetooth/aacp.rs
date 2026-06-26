@@ -385,6 +385,7 @@ pub struct AACPManager {
     tasks: Arc<Mutex<JoinSet<()>>>,
     /// Active hi-res microphone capture, if any (proprietary 0x58 stream).
     hires_mic: Arc<Mutex<Option<crate::audio::hires_mic::HiResMic>>>,
+    mic_level: crate::audio::hires_mic::MicLevel,
 }
 
 impl AACPManager {
@@ -393,7 +394,12 @@ impl AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
             tasks: Arc::new(Mutex::new(JoinSet::new())),
             hires_mic: Arc::new(Mutex::new(None)),
+            mic_level: crate::audio::hires_mic::MicLevel::new(),
         }
+    }
+
+    pub fn mic_level(&self) -> f32 {
+        self.mic_level.get()
     }
 
     /// Start the proprietary hi-res microphone capture. No-op if already active.
@@ -407,7 +413,7 @@ impl AACPManager {
             error!("Cannot start hi-res mic: no AirPods address known");
             return;
         };
-        match crate::audio::hires_mic::HiResMic::start(self, addr).await {
+        match crate::audio::hires_mic::HiResMic::start(self, addr, self.mic_level.clone()).await {
             Some(mic) => *guard = Some(mic),
             None => error!("Failed to start hi-res microphone"),
         }
@@ -419,6 +425,7 @@ impl AACPManager {
         if let Some(mic) = mic {
             mic.stop(self).await;
         }
+        self.mic_level.set(0.0);
     }
 
     pub async fn connect(&mut self, addr: Address) {
