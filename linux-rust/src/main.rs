@@ -10,7 +10,7 @@ use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
-use crate::utils::{get_app_settings_path, get_devices_path};
+use crate::utils::{ensure_device_registered, get_app_settings_path, get_devices_path};
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -145,8 +145,16 @@ async fn async_main(
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
-        let handle = tray.spawn().await.unwrap();
-        Some(handle)
+        match tray.spawn().await {
+            Ok(handle) => Some(handle),
+            Err(e) => {
+                log::warn!(
+                    "Failed to start system tray ({e}); continuing without tray. \
+                     Your environment may lack a StatusNotifier/AppIndicator watcher."
+                );
+                None
+            }
+        }
     };
 
     let session = bluer::Session::new().await?;
@@ -171,6 +179,11 @@ async fn async_main(
                 .await?
                 .unwrap_or_else(|| "Unknown".to_string());
             info!("Found connected AirPods: {}, initializing.", name);
+            ensure_device_registered(
+                &device.address().to_string(),
+                &name,
+                devices::enums::DeviceType::AirPods,
+            );
             let airpods_device =
                 AirPodsDevice::new(device.address(), tray_handle.clone(), ui_tx.clone()).await;
 
@@ -309,6 +322,7 @@ async fn async_main(
             .get::<String>("org.bluez.Device1", "Name")
             .unwrap_or_else(|_| "Unknown".to_string());
         info!("AirPods connected: {}, initializing", name);
+        ensure_device_registered(&addr_str, &name, devices::enums::DeviceType::AirPods);
         let handle_clone = tray_handle.clone();
         let ui_tx_clone = ui_tx.clone();
         let device_managers = device_managers.clone();

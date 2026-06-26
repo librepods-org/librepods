@@ -13,6 +13,47 @@ pub fn get_devices_path() -> PathBuf {
         .join("devices.json")
 }
 
+/// Ensure a connected device is recorded in the devices file so it shows up in
+/// the UI sidebar. Auto-detected AirPods don't go through the (currently
+/// disabled) manual "add device" flow, so we persist them here on connect.
+/// No-op if the device is already registered.
+pub fn ensure_device_registered(
+    mac: &str,
+    name: &str,
+    type_: crate::devices::enums::DeviceType,
+) {
+    use crate::devices::enums::DeviceData;
+    use std::collections::HashMap;
+
+    let path = get_devices_path();
+    let json = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
+    let mut devices: HashMap<String, DeviceData> =
+        serde_json::from_str(&json).unwrap_or_default();
+    if devices.contains_key(mac) {
+        return;
+    }
+    log::info!("Registering device {} ({}) as {:?}", name, mac, type_);
+    devices.insert(
+        mac.to_string(),
+        DeviceData {
+            name: name.to_string(),
+            type_,
+            information: None,
+        },
+    );
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match serde_json::to_string(&devices) {
+        Ok(updated) => {
+            if let Err(e) = std::fs::write(&path, updated) {
+                log::error!("Failed to write devices file: {}", e);
+            }
+        }
+        Err(e) => log::error!("Failed to serialize devices file: {}", e),
+    }
+}
+
 pub fn get_preferences_path() -> PathBuf {
     let config_dir = std::env::var("XDG_CONFIG_HOME")
         .unwrap_or_else(|_| format!("{}/.config", std::env::var("HOME").unwrap_or_default()));
