@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
@@ -383,9 +384,12 @@ impl AACPManagerState {
 pub struct AACPManager {
     pub state: Arc<Mutex<AACPManagerState>>,
     tasks: Arc<Mutex<JoinSet<()>>>,
-    /// Active hi-res microphone capture, if any (proprietary 0x58 stream).
+    hires_enabled: Arc<AtomicBool>,
     hires_mic: Arc<Mutex<Option<crate::audio::hires_mic::HiResMic>>>,
-    mic_level: crate::audio::hires_mic::MicLevel,
+    mic_status: crate::audio::hires_mic::MicStatus,
+    /// Handle to the long-lived backend runtime, so the hi-res monitor task
+    /// survives even when armed from a throwaway runtime (the UI toggle thread).
+    runtime: tokio::runtime::Handle,
 }
 
 impl AACPManager {
@@ -393,39 +397,65 @@ impl AACPManager {
         AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
             tasks: Arc::new(Mutex::new(JoinSet::new())),
+            hires_enabled: Arc::new(AtomicBool::new(true)),
             hires_mic: Arc::new(Mutex::new(None)),
-            mic_level: crate::audio::hires_mic::MicLevel::new(),
+            mic_status: crate::audio::hires_mic::MicStatus::new(),
+            runtime: tokio::runtime::Handle::current(),
         }
     }
 
     pub fn mic_level(&self) -> f32 {
-        self.mic_level.get()
+        self.mic_status.level()
     }
 
-    /// Start the proprietary hi-res microphone capture. No-op if already active.
-    pub async fn start_hires_mic(&self) {
+    pub fn mic_active(&self) -> bool {
+        self.mic_status.active()
+    }
+
+    pub fn mic_app(&self) -> Option<String> {
+        self.mic_status.app()
+    }
+
+    pub fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
+    }
+
+    pub async fn set_hires_mic_enabled(&self, enabled: bool) {
+        self.hires_enabled.store(enabled, Ordering::Relaxed);
+        if enabled {
+            self.arm_hires_mic().await;
+        } else {
+            self.disarm_hires_mic().await;
+        }
+    }
+
+    // Create the virtual device + monitor if the feature is enabled, AirPods are
+    // connected, and it is not already armed. Called on enable and on connect.
+    pub async fn arm_hires_mic(&self) {
+        if !self.hires_enabled.load(Ordering::Relaxed) {
+            return;
+        }
         let mut guard = self.hires_mic.lock().await;
         if guard.is_some() {
             return;
         }
         let addr = self.state.lock().await.airpods_mac.map(|a| a.to_string());
         let Some(addr) = addr else {
-            error!("Cannot start hi-res mic: no AirPods address known");
             return;
         };
-        match crate::audio::hires_mic::HiResMic::start(self, addr, self.mic_level.clone()).await {
+        match crate::audio::hires_mic::HiResMic::start(self, addr, self.mic_status.clone()).await {
             Some(mic) => *guard = Some(mic),
             None => error!("Failed to start hi-res microphone"),
         }
     }
 
-    /// Stop the hi-res microphone capture. No-op if not active.
-    pub async fn stop_hires_mic(&self) {
+    // Tear down the virtual device + monitor without clearing the enabled flag,
+    // so a later reconnect re-arms. Called on disable and on disconnect.
+    pub async fn disarm_hires_mic(&self) {
         let mic = self.hires_mic.lock().await.take();
         if let Some(mic) = mic {
-            mic.stop(self).await;
+            mic.stop().await;
         }
-        self.mic_level.set(0.0);
     }
 
     pub async fn connect(&mut self, addr: Address) {
@@ -1287,6 +1317,7 @@ impl AACPManager {
 
 async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
     let mut buf = vec![0u8; RECV_BUF_LEN];
+    manager.arm_hires_mic().await;
     loop {
         match sp.recv(&mut buf).await {
             Ok(0) => {
@@ -1324,8 +1355,11 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
         }
     }
-    let mut state = manager.state.lock().await;
-    state.sender = None;
+    {
+        let mut state = manager.state.lock().await;
+        state.sender = None;
+    }
+    manager.disarm_hires_mic().await;
 }
 
 async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {

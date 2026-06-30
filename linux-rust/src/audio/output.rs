@@ -16,21 +16,17 @@ use std::rc::Rc;
 use crate::audio::agc::Agc;
 
 const SINK_NAME: &str = "AirPodsHiRes_raw";
-const SOURCE_NAME: &str = "AirPodsHiRes";
+pub const SOURCE_NAME: &str = "AirPodsHiRes";
 
-pub struct Output {
-    simple: Option<Simple>,
-    agc: Agc,
+pub struct VirtualMic {
     sink_module: u32,
     source_module: u32,
 }
 
-unsafe impl Send for Output {}
+unsafe impl Send for VirtualMic {}
 
-impl Output {
-    // Create the virtual mic (null-sink + remap-source) and open the playback
-    // stream into it. Returns None on failure.
-    pub fn open(sample_rate: u32, channels: u8) -> Option<Output> {
+impl VirtualMic {
+    pub fn open(channels: u8) -> Option<VirtualMic> {
         unload_stale_modules();
 
         let chan_map = if channels == 1 {
@@ -64,6 +60,34 @@ impl Output {
             }
         };
 
+        info!(
+            "[pw] hi-res mic ready: select '{}' as your microphone",
+            SOURCE_NAME
+        );
+        Some(VirtualMic {
+            sink_module,
+            source_module,
+        })
+    }
+}
+
+impl Drop for VirtualMic {
+    fn drop(&mut self) {
+        unload_module(self.source_module);
+        unload_module(self.sink_module);
+    }
+}
+
+// Playback stream feeding the null-sink. Opened only while an app is recording.
+pub struct Output {
+    simple: Simple,
+    agc: Agc,
+}
+
+unsafe impl Send for Output {}
+
+impl Output {
+    pub fn open(sample_rate: u32, channels: u8) -> Option<Output> {
         let spec = Spec {
             format: Format::S16le,
             channels,
@@ -71,8 +95,6 @@ impl Output {
         };
         if !spec.is_valid() {
             error!("invalid sample spec: {} Hz, {} ch", sample_rate, channels);
-            unload_module(source_module);
-            unload_module(sink_module);
             return None;
         }
 
@@ -98,25 +120,17 @@ impl Output {
             Ok(s) => s,
             Err(e) => {
                 error!("could not open hi-res playback stream: {}", e);
-                unload_module(source_module);
-                unload_module(sink_module);
                 return None;
             }
         };
 
-        info!(
-            "[pw] hi-res mic ready: select '{}' as your microphone",
-            SOURCE_NAME
-        );
         Some(Output {
-            simple: Some(simple),
+            simple,
             agc: Agc::new(),
-            sink_module,
-            source_module,
         })
     }
 
-    // Write s16 PCM into the sink
+    // Write s16 PCM into the sink, returning the post-AGC peak
     pub fn write(&mut self, pcm: &[i16]) -> Result<f32, ()> {
         let mut pcm = pcm.to_vec();
 
@@ -134,22 +148,56 @@ impl Output {
             )
         };
 
-        match &self.simple {
-            Some(s) => s
-                .write(bytes)
-                .map(|_| peak)
-                .map_err(|e| error!("hi-res playback stream broke: {}", e)),
-            None => Err(()),
-        }
+        self.simple
+            .write(bytes)
+            .map(|_| peak)
+            .map_err(|e| error!("hi-res playback stream broke: {}", e))
     }
 }
 
-impl Drop for Output {
-    fn drop(&mut self) {
-        self.simple.take();
-        unload_module(self.source_module);
-        unload_module(self.sink_module);
+// Name of the application recording from the virtual source, or None if idle.
+pub fn source_consumer(name: &str) -> Option<String> {
+    let (mut mainloop, context) = connect()?;
+    let introspect = context.introspect();
+
+    let index = Rc::new(Cell::new(u32::MAX));
+    let op = introspect.get_source_info_by_name(name, {
+        let index = index.clone();
+        move |result| {
+            if let ListResult::Item(item) = result {
+                index.set(item.index);
+            }
+        }
+    });
+    while op.get_state() == OperationState::Running {
+        mainloop.iterate(false);
     }
+
+    let app = Rc::new(RefCell::new(None::<String>));
+    let idx = index.get();
+    if idx != u32::MAX {
+        let op = introspect.get_source_output_info_list({
+            let app = app.clone();
+            move |result| {
+                if let ListResult::Item(item) = result {
+                    if item.source == idx && app.borrow().is_none() {
+                        let label = item
+                            .proplist
+                            .get_str("application.name")
+                            .or_else(|| item.name.as_ref().map(|n| n.to_string()));
+                        app.replace(label);
+                    }
+                }
+            }
+        });
+        while op.get_state() == OperationState::Running {
+            mainloop.iterate(false);
+        }
+    }
+    mainloop.quit(Retval(0));
+
+    let result = app.borrow().clone();
+    result
 }
 
 // A2DP transport reset:

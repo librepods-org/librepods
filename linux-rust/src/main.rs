@@ -23,7 +23,6 @@ use ksni::TrayMethods;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::env;
-use std::time::Duration;
 use std::sync::atomic::{AtomicBool};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -203,12 +202,10 @@ async fn async_main(
             )) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
             }
-            // LIBREPODS_HIRES_MIC=1: auto-start the proprietary hi-res mic on
-            // connect (useful headless and for verification without the GUI).
+            // LIBREPODS_HIRES_MIC=1: enable the hi-res mic feature headlessly.
             if env::var("LIBREPODS_HIRES_MIC").is_ok() {
                 tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    hires_aacp.start_hires_mic().await;
+                    hires_aacp.set_hires_mic_enabled(true).await;
                 });
             }
         }

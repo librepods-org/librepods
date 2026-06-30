@@ -366,7 +366,8 @@ pub fn airpods_view<'a>(
         let aacp_manager_mic = aacp_manager.clone();
         let mac = mac.clone();
         let state = state.clone();
-        let mic_enabled = state.hires_mic_enabled;
+        let mic_active = aacp_manager.mic_active();
+        let mic_app = aacp_manager.mic_app();
         let level = aacp_manager.mic_level().clamp(0.0, 1.0);
 
         let header = row![
@@ -384,11 +385,7 @@ pub fn airpods_view<'a>(
                 .on_toggle(move |is_enabled| {
                     let aacp_manager = aacp_manager_mic.clone();
                     run_async_in_thread(async move {
-                        if is_enabled {
-                            aacp_manager.start_hires_mic().await;
-                        } else {
-                            aacp_manager.stop_hires_mic().await;
-                        }
+                        aacp_manager.set_hires_mic_enabled(is_enabled).await;
                     });
                     let mut state = state.clone();
                     state.hires_mic_enabled = is_enabled;
@@ -401,8 +398,8 @@ pub fn airpods_view<'a>(
             .spacing(8);
 
         let mut content = column![header].spacing(10);
-        if mic_enabled {
-            content = content.push(level_meter(level));
+        if mic_active {
+            content = content.push(level_meter(level, mic_app));
         }
 
         container(content)
@@ -587,10 +584,14 @@ pub fn airpods_view<'a>(
     .height(Length::Fill)
 }
 
-fn level_meter<'a>(level: f32) -> iced::widget::Container<'a, Message> {
+fn level_meter<'a>(level: f32, app: Option<String>) -> iced::widget::Container<'a, Message> {
     let filled = (level * 1000.0).round() as u16;
     let rest = 1000u16.saturating_sub(filled);
     let hot = level >= 0.9;
+    let label = match app {
+        Some(app) => format!("In use by {}", app),
+        None => "Input level".to_string(),
+    };
 
     let bar = container(
         row![
@@ -623,7 +624,7 @@ fn level_meter<'a>(level: f32) -> iced::widget::Container<'a, Message> {
 
     container(
         column![
-            text("Input level").size(12).style(|theme: &Theme| {
+            text(label).size(12).style(|theme: &Theme| {
                 let mut style = text::Style::default();
                 style.color = Some(theme.palette().text.scale_alpha(0.7));
                 style
