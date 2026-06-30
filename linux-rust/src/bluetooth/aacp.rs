@@ -397,7 +397,9 @@ impl AACPManager {
         AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
             tasks: Arc::new(Mutex::new(JoinSet::new())),
-            hires_enabled: Arc::new(AtomicBool::new(true)),
+            hires_enabled: Arc::new(AtomicBool::new(
+                crate::utils::AppSettings::load().hires_mic_enabled,
+            )),
             hires_mic: Arc::new(Mutex::new(None)),
             mic_status: crate::audio::hires_mic::MicStatus::new(),
             runtime: tokio::runtime::Handle::current(),

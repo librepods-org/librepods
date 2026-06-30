@@ -9,7 +9,7 @@ use crate::devices::enums::{
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path};
+use crate::utils::{AppSettings, MyTheme, get_devices_path};
 use bluer::{Address};
 use iced::border::Radius;
 use iced::overlay::menu;
@@ -76,6 +76,7 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    hires_mic_enabled: bool,
 }
 
 pub struct BluetoothState {
@@ -148,25 +149,11 @@ impl App {
             (Some(id), open.map(Message::WindowOpened))
         };
 
-        let app_settings_path = get_app_settings_path();
-        let settings = std::fs::read_to_string(&app_settings_path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
-        let selected_theme = settings
-            .clone()
-            .and_then(|v| v.get("theme").cloned())
-            .and_then(|t| serde_json::from_value(t).ok())
-            .unwrap_or(MyTheme::Dark);
-        let tray_text_mode = settings
-            .clone()
-            .and_then(|v| v.get("tray_text_mode").cloned())
-            .and_then(|ttm| serde_json::from_value(ttm).ok())
-            .unwrap_or(false);
-        let stem_control = settings
-            .clone()
-            .and_then(|v| v.get("stem_control").cloned())
-            .and_then(|s| serde_json::from_value(s).ok())
-            .unwrap_or(false);
+        let app_settings = AppSettings::load();
+        let selected_theme = app_settings.theme;
+        let tray_text_mode = app_settings.tray_text_mode;
+        let stem_control = app_settings.stem_control;
+        let hires_mic_enabled = app_settings.hires_mic_enabled;
 
         let bluetooth_state = BluetoothState::new();
 
@@ -218,9 +205,20 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                hires_mic_enabled,
             },
             Task::batch(vec![open_task, wait_task]),
         )
+    }
+
+    fn save_settings(&self) {
+        AppSettings {
+            theme: self.selected_theme,
+            tray_text_mode: self.tray_text_mode,
+            stem_control: self.stem_control,
+            hires_mic_enabled: self.hires_mic_enabled,
+        }
+        .save();
     }
 
     fn title(&self, _id: window::Id) -> String {
@@ -249,18 +247,7 @@ impl App {
             }
             Message::ThemeSelected(theme) => {
                 self.selected_theme = theme;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
@@ -384,7 +371,7 @@ impl App {
                                         status.identifier == ControlCommandIdentifiers::AllowOffOption &&
                                         matches!(status.value.as_slice(), [0x01])
                                     }),
-                                    hires_mic_enabled: true,
+                                    hires_mic_enabled: self.hires_mic_enabled,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -595,6 +582,12 @@ impl App {
                 Task::none()
             }
             Message::StateChanged(mac, state) => {
+                if let DeviceState::AirPods(a) = &state
+                    && a.hires_mic_enabled != self.hires_mic_enabled
+                {
+                    self.hires_mic_enabled = a.hires_mic_enabled;
+                    self.save_settings();
+                }
                 self.device_states.insert(mac.clone(), state);
                 // if airpods, update the noise control state combo box based on allow off mode
                 let type_ = {
@@ -629,34 +622,12 @@ impl App {
             }
             Message::TrayTextModeChanged(is_enabled) => {
                 self.tray_text_mode = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
             Message::StemControlChanged(is_enabled) => {
                 self.stem_control = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
         }
