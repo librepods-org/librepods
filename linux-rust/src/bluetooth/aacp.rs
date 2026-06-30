@@ -1331,6 +1331,8 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
 
                 // Forward audio SDUs to the audio thread, leaving control SDUs for the control thread.
                 if crate::bluetooth::aacp_audio::is_audio(data) {
+                    // Device-level liveness for the hi-res stall watchdog.
+                    manager.mic_status.mark_sdu();
                     let audio_tx = {
                         let state = manager.state.lock().await;
                         state.audio_tx.clone()

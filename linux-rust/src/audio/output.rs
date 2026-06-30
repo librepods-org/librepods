@@ -98,9 +98,10 @@ impl Output {
             return None;
         }
 
-        let tlength = (sample_rate * channels as u32 * 2 / 100).max(1);
+        let bytes_per_sec = sample_rate * channels as u32 * 2;
+        let tlength = (bytes_per_sec * 80 / 1000).max(1); // ~80 ms target
         let attr = BufferAttr {
-            maxlength: u32::MAX,
+            maxlength: (bytes_per_sec * 150 / 1000).max(tlength), // ~150 ms cap
             tlength,
             prebuf: u32::MAX,
             minreq: u32::MAX,
@@ -124,7 +125,9 @@ impl Output {
             }
         };
 
-        let agc = crate::utils::AppSettings::load().hires_mic_agc.then(Agc::new);
+        let agc = crate::utils::AppSettings::load()
+            .hires_mic_agc
+            .then(Agc::new);
         if agc.is_none() {
             info!("[pw] AGC disabled; passing through raw hi-res capture");
         }
