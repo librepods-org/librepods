@@ -166,6 +166,7 @@ pub struct AppSettings {
     pub tray_text_mode: bool,
     pub stem_control: bool,
     pub hires_mic_enabled: bool,
+    pub a2dp_reset: bool,
 }
 
 impl Default for AppSettings {
@@ -175,6 +176,7 @@ impl Default for AppSettings {
             tray_text_mode: false,
             stem_control: false,
             hires_mic_enabled: true,
+            a2dp_reset: true,
         }
     }
 }

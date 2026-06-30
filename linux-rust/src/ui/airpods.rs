@@ -159,7 +159,7 @@ pub fn airpods_view<'a>(
                     selected_background: Background::Color(
                         theme.palette().primary.scale_alpha(0.3),
                     ),
-                    shadow: Default::default()
+                    shadow: Default::default(),
                 })
             }
         ]
@@ -373,7 +373,7 @@ pub fn airpods_view<'a>(
         let header = row![
             column![
                 text("Hi-Res Microphone").size(16),
-                text("Captures the AirPods' proprietary 64 kHz AAC-ELD uplink and exposes it as an 'AirPodsHiRes' input. Higher quality than the standard HFP mic.").size(12).style(
+                text("Captures the AirPods' high-quality AAC-ELD microphone stream and exposes it as an 'AirPodsHiRes' input.").size(12).style(
                     |theme: &Theme| {
                         let mut style = text::Style::default();
                         style.color = Some(theme.palette().text.scale_alpha(0.7));
@@ -403,22 +403,21 @@ pub fn airpods_view<'a>(
         }
 
         container(content)
-            .padding(Padding{
+            .padding(Padding {
                 top: 5.0,
                 bottom: 5.0,
                 left: 18.0,
                 right: 18.0,
             })
-            .style(
-                |theme: &Theme| {
-                    let mut style = container::Style::default();
-                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                    let mut border = Border::default();
-                    border.color = theme.palette().primary.scale_alpha(0.5);
-                    style.border = border.rounded(16);
-                    style
-                }
-            )
+            .style(|theme: &Theme| {
+                let mut style = container::Style::default();
+                style.background =
+                    Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                let mut border = Border::default();
+                border.color = theme.palette().primary.scale_alpha(0.5);
+                style.border = border.rounded(16);
+                style
+            })
     };
 
     let mut information_col = column![];

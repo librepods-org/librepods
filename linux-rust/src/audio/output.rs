@@ -204,6 +204,9 @@ pub fn source_consumer(name: &str) -> Option<String> {
 // We found that in some cases A2DP has to be suspended and resumed after a 0x58 mic start/stop
 // to avoid a corrupted transport state of the airpods.
 pub fn reset_a2dp(bdaddr: &str) {
+    if !crate::utils::AppSettings::load().a2dp_reset {
+        return;
+    }
     let sink = format!("bluez_output.{}.1", bdaddr.replace(':', "_"));
     let Some((mut mainloop, mut context)) = connect() else {
         return;
