@@ -26,7 +26,7 @@ use std::env;
 use std::sync::atomic::{AtomicBool};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 #[derive(Parser)]
 struct Args {
@@ -127,6 +127,9 @@ async fn async_main(
         }
     }
 
+    let (shutdown_tx, shutdown_rx) = unbounded_channel::<()>();
+    spawn_shutdown_handler(device_managers.clone(), shutdown_rx);
+
     let tray_handle = if args.no_tray {
         None
     } else {
@@ -145,6 +148,7 @@ async fn async_main(
             allow_off_option: None,
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
+            shutdown_tx: Some(shutdown_tx.clone()),
         };
         match tray.spawn().await {
             Ok(handle) => Some(handle),
@@ -355,4 +359,49 @@ async fn async_main(
     loop {
         conn.process(std::time::Duration::from_millis(1000))?;
     }
+}
+
+fn spawn_shutdown_handler(
+    device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    mut shutdown_rx: UnboundedReceiver<()>,
+) {
+    tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut sigterm = signal(SignalKind::terminate()).ok();
+        let mut sigint = signal(SignalKind::interrupt()).ok();
+        let sigterm = async {
+            match sigterm.as_mut() {
+                Some(s) => s.recv().await.map(|_| ()),
+                None => std::future::pending().await,
+            }
+        };
+        let sigint = async {
+            match sigint.as_mut() {
+                Some(s) => s.recv().await.map(|_| ()),
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = shutdown_rx.recv() => {}
+            _ = sigterm => {}
+            _ = sigint => {}
+        }
+
+        info!("Shutting down: tearing down hi-res mic streams...");
+        let cleanup = async {
+            let managers = device_managers.read().await;
+            for dm in managers.values() {
+                if let Some(aacp) = dm.get_aacp() {
+                    aacp.disarm_hires_mic().await;
+                }
+            }
+        };
+        if tokio::time::timeout(std::time::Duration::from_secs(3), cleanup)
+            .await
+            .is_err()
+        {
+            warn!("Shutdown cleanup timed out; exiting anyway");
+        }
+        std::process::exit(0);
+    });
 }
