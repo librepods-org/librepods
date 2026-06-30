@@ -81,7 +81,7 @@ impl Drop for VirtualMic {
 // Playback stream feeding the null-sink. Opened only while an app is recording.
 pub struct Output {
     simple: Simple,
-    agc: Agc,
+    agc: Option<Agc>,
 }
 
 unsafe impl Send for Output {}
@@ -124,17 +124,24 @@ impl Output {
             }
         };
 
-        Some(Output {
-            simple,
-            agc: Agc::new(),
-        })
+        let agc = crate::utils::AppSettings::load().hires_mic_agc.then(Agc::new);
+        if agc.is_none() {
+            info!("[pw] AGC disabled; passing through raw hi-res capture");
+        }
+        Some(Output { simple, agc })
     }
 
-    // Write s16 PCM into the sink, returning the post-AGC peak
+    // Write s16 PCM into the sink, returning the (post-AGC) peak
     pub fn write(&mut self, pcm: &[i16]) -> Result<f32, ()> {
-        let mut pcm = pcm.to_vec();
-
-        self.agc.process(&mut pcm);
+        let processed;
+        let pcm: &[i16] = if let Some(agc) = &mut self.agc {
+            let mut buf = pcm.to_vec();
+            agc.process(&mut buf);
+            processed = buf;
+            &processed
+        } else {
+            pcm
+        };
 
         let peak = pcm
             .iter()
@@ -142,10 +149,7 @@ impl Output {
             .fold(0.0f32, f32::max);
 
         let bytes = unsafe {
-            std::slice::from_raw_parts(
-                pcm.as_ptr() as *const u8,
-                std::mem::size_of_val(pcm.as_slice()),
-            )
+            std::slice::from_raw_parts(pcm.as_ptr() as *const u8, std::mem::size_of_val(pcm))
         };
 
         self.simple

@@ -84,6 +84,7 @@ pub struct App {
     tray_text_mode: bool,
     stem_control: bool,
     hires_mic_enabled: bool,
+    hires_mic_agc: bool,
     a2dp_reset: bool,
 }
 
@@ -118,6 +119,7 @@ pub enum Message {
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
     A2dpResetChanged(bool),
+    HiResMicAgcChanged(bool),
     MicLevelTick,
 }
 
@@ -162,6 +164,7 @@ impl App {
         let tray_text_mode = app_settings.tray_text_mode;
         let stem_control = app_settings.stem_control;
         let hires_mic_enabled = app_settings.hires_mic_enabled;
+        let hires_mic_agc = app_settings.hires_mic_agc;
         let a2dp_reset = app_settings.a2dp_reset;
 
         let bluetooth_state = BluetoothState::new();
@@ -215,6 +218,7 @@ impl App {
                 tray_text_mode,
                 stem_control,
                 hires_mic_enabled,
+                hires_mic_agc,
                 a2dp_reset,
             },
             Task::batch(vec![open_task, wait_task]),
@@ -227,6 +231,7 @@ impl App {
             tray_text_mode: self.tray_text_mode,
             stem_control: self.stem_control,
             hires_mic_enabled: self.hires_mic_enabled,
+            hires_mic_agc: self.hires_mic_agc,
             a2dp_reset: self.a2dp_reset,
         }
         .save();
@@ -644,6 +649,11 @@ impl App {
             }
             Message::A2dpResetChanged(is_enabled) => {
                 self.a2dp_reset = is_enabled;
+                self.save_settings();
+                Task::none()
+            }
+            Message::HiResMicAgcChanged(is_enabled) => {
+                self.hires_mic_agc = is_enabled;
                 self.save_settings();
                 Task::none()
             }
@@ -1128,6 +1138,47 @@ impl App {
                                         )
                                     .align_y(Center);
 
+                            let hires_mic_agc_value = self.hires_mic_agc;
+                            let hires_mic_agc_toggle = container(
+                                row![
+                                    column![
+                                        text("Hi-res mic auto gain").size(16),
+                                        text("Automatically normalizes the hi-res microphone level. For most usecases this should remain on. Disable for a raw, unprocessed capture.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(hires_mic_agc_value)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::HiResMicAgcChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
                             let controls_settings_col = column![
                                 container(
                                     text("Controls").size(20).style(
@@ -1157,6 +1208,8 @@ impl App {
                                     controls_settings_col,
                                     Space::new().height(Length::from(20)),
                                     a2dp_reset_toggle,
+                                    Space::new().height(Length::from(20)),
+                                    hires_mic_agc_toggle,
                                 ]
                             )
                                 .padding(20)

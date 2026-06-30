@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{error, info, warn};
 use tokio::sync::Notify;
@@ -21,6 +21,9 @@ use crate::bluetooth::aacp_audio;
 const A2DP_RESET_DELAY: Duration = Duration::from_millis(800);
 /// How often the monitor polls the virtual source for activity
 const POLL_INTERVAL: Duration = Duration::from_millis(400);
+/// If no audio SDUs arrive for this long while a capture is active, the stream
+/// is considered stalled and the capture is torn down and restarted.
+const STALL_TIMEOUT: Duration = Duration::from_millis(2000);
 const LEVEL_RELEASE: f32 = 0.85;
 
 #[derive(Clone, Default)]
@@ -99,11 +102,24 @@ impl HiResMic {
 // thread, started when an app opens the mic.
 struct Capture {
     decode_thread: Option<JoinHandle<()>>,
+    base: Instant,
+    last_sdu: Arc<AtomicU64>,
+}
+
+impl Capture {
+    fn stalled(&self) -> bool {
+        let elapsed = self.base.elapsed().as_millis() as u64;
+        elapsed.saturating_sub(self.last_sdu.load(Ordering::Relaxed))
+            > STALL_TIMEOUT.as_millis() as u64
+    }
 }
 
 async fn monitor_loop(aacp: AACPManager, addr: String, status: MicStatus, stop: Arc<Notify>) {
     let mut capture: Option<Capture> = None;
-    info!("[hires] activity monitor started, watching '{}'", output::SOURCE_NAME);
+    info!(
+        "[hires] activity monitor started, watching '{}'",
+        output::SOURCE_NAME
+    );
 
     loop {
         tokio::select! {
@@ -128,7 +144,21 @@ async fn monitor_loop(aacp: AACPManager, addr: String, status: MicStatus, stop: 
                 stop_capture(capture.take().unwrap(), &aacp, &addr).await;
                 status.reset();
             }
-            (true, true) => status.set_capture(app),
+            (true, true) => {
+                status.set_capture(app);
+                if capture.as_ref().is_some_and(Capture::stalled) {
+                    warn!(
+                        "[hires] no audio for {}ms, restarting capture",
+                        STALL_TIMEOUT.as_millis()
+                    );
+                    stop_capture(capture.take().unwrap(), &aacp, &addr).await;
+                    capture = start_capture(&aacp, &addr, &status).await;
+                    if capture.is_none() {
+                        warn!("[hires] capture restart failed; will retry on next poll");
+                        status.reset();
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -144,7 +174,10 @@ async fn start_capture(aacp: &AACPManager, addr: &str, status: &MicStatus) -> Op
     let output = Output::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8)?;
 
     let rx = aacp.take_audio_channel().await;
-    let decode_thread = spawn_decode_thread(rx, decoder, output, status.clone());
+    let base = Instant::now();
+    let last_sdu = Arc::new(AtomicU64::new(0));
+    let decode_thread =
+        spawn_decode_thread(rx, decoder, output, status.clone(), base, last_sdu.clone());
 
     if let Err(e) = aacp.send_start_audio().await {
         error!("failed to send 0x58 START: {}", e);
@@ -161,6 +194,8 @@ async fn start_capture(aacp: &AACPManager, addr: &str, status: &MicStatus) -> Op
 
     Some(Capture {
         decode_thread: Some(decode_thread),
+        base,
+        last_sdu,
     })
 }
 
@@ -183,6 +218,8 @@ fn spawn_decode_thread(
     mut decoder: EldDecoder,
     mut output: Output,
     status: MicStatus,
+    base: Instant,
+    last_sdu: Arc<AtomicU64>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("hires-decode".into())
@@ -193,10 +230,15 @@ fn spawn_decode_thread(
             let mut pcm: Vec<i16> = Vec::with_capacity(4096);
 
             while let Some(sdu) = rx.blocking_recv() {
+                last_sdu.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                 pcm.clear();
                 aacp_audio::demux_type58(&sdu, |au| match decoder.decode(au, &mut pcm) {
                     Some(_) => frames += 1,
-                    None => errors += 1,
+                    None => {
+                        // insert a silent frame
+                        errors += 1;
+                        pcm.resize(pcm.len() + ELD_FRAME_SAMPLES * ELD_CHANNELS as usize, 0);
+                    }
                 });
 
                 let peak = if pcm.is_empty() {
@@ -211,7 +253,11 @@ fn spawn_decode_thread(
                     }
                 };
 
-                env = if peak >= env { peak } else { env * LEVEL_RELEASE };
+                env = if peak >= env {
+                    peak
+                } else {
+                    env * LEVEL_RELEASE
+                };
                 status.set_level(env);
 
                 if frames > 0 && frames % 400 == 0 {
