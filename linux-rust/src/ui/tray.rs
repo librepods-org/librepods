@@ -24,6 +24,7 @@ pub struct MyTray {
     pub allow_off_option: Option<u8>,
     pub command_tx: Option<UnboundedSender<(ControlCommandIdentifiers, Vec<u8>)>>,
     pub ui_tx: Option<UnboundedSender<BluetoothUIMessage>>,
+    pub shutdown_tx: Option<UnboundedSender<()>>,
 }
 
 impl ksni::Tray for MyTray {
@@ -185,7 +186,12 @@ impl ksni::Tray for MyTray {
             StandardItem {
                 label: "Exit".into(),
                 icon_name: "application-exit".into(),
-                activate: Box::new(|_| std::process::exit(0)),
+                activate: Box::new(|this: &mut Self| match &this.shutdown_tx {
+                    Some(tx) => {
+                        let _ = tx.send(());
+                    }
+                    None => std::process::exit(0),
+                }),
                 ..Default::default()
             }
             .into(),

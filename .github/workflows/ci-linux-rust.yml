@@ -21,7 +21,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev appstream just libfuse2
+          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev appstream just libfuse2 \
+            libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavdevice-dev libswresample-dev libswscale-dev
 
       - name: Install AppImage tools
         run: |

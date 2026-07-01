@@ -13,6 +13,38 @@ pub fn get_devices_path() -> PathBuf {
         .join("devices.json")
 }
 
+pub fn ensure_device_registered(mac: &str, name: &str, type_: crate::devices::enums::DeviceType) {
+    use crate::devices::enums::DeviceData;
+    use std::collections::HashMap;
+
+    let path = get_devices_path();
+    let json = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
+    let mut devices: HashMap<String, DeviceData> = serde_json::from_str(&json).unwrap_or_default();
+    if devices.contains_key(mac) {
+        return;
+    }
+    log::info!("Registering device {} ({}) as {:?}", name, mac, type_);
+    devices.insert(
+        mac.to_string(),
+        DeviceData {
+            name: name.to_string(),
+            type_,
+            information: None,
+        },
+    );
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match serde_json::to_string(&devices) {
+        Ok(updated) => {
+            if let Err(e) = std::fs::write(&path, updated) {
+                log::error!("Failed to write devices file: {}", e);
+            }
+        }
+        Err(e) => log::error!("Failed to serialize devices file: {}", e),
+    }
+}
+
 pub fn get_preferences_path() -> PathBuf {
     let config_dir = std::env::var("XDG_CONFIG_HOME")
         .unwrap_or_else(|_| format!("{}/.config", std::env::var("HOME").unwrap_or_default()));
@@ -24,18 +56,17 @@ pub fn get_preferences_path() -> PathBuf {
 pub fn get_app_settings_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
 
-    let config_dir = std::env::var("XDG_CONFIG_HOME")
-        .unwrap_or_else(|_| format!("{}/.config", home));
+    let config_dir =
+        std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", home));
 
-    let data_dir = std::env::var("XDG_DATA_HOME")
-        .unwrap_or_else(|_| format!("{}/.local/share", home));
+    let data_dir =
+        std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| format!("{}/.local/share", home));
 
     let new_path = PathBuf::from(&config_dir)
         .join("librepods")
         .join("app_settings.json");
 
-    let old_path = PathBuf::from(&data_dir)
-        .join("app_settings.json");
+    let old_path = PathBuf::from(&data_dir).join("app_settings.json");
 
     // migrate if needed
     if old_path.exists() && !new_path.exists() {
@@ -125,6 +156,54 @@ impl std::fmt::Display for MyTheme {
             Self::Oxocarbon => "Oxocarbon",
             Self::Ferra => "Ferra",
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppSettings {
+    pub theme: MyTheme,
+    pub tray_text_mode: bool,
+    pub stem_control: bool,
+    pub hires_mic_enabled: bool,
+    pub hires_mic_agc: bool,
+    pub a2dp_reset: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            theme: MyTheme::Dark,
+            tray_text_mode: false,
+            stem_control: false,
+            hires_mic_enabled: true,
+            hires_mic_agc: true,
+            a2dp_reset: true,
+        }
+    }
+}
+
+impl AppSettings {
+    pub fn load() -> Self {
+        std::fs::read_to_string(get_app_settings_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self) {
+        let path = get_app_settings_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    log::error!("Failed to write app settings: {}", e);
+                }
+            }
+            Err(e) => log::error!("Failed to serialize app settings: {}", e),
+        }
     }
 }
 

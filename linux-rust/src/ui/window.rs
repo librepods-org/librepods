@@ -9,21 +9,24 @@ use crate::devices::enums::{
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path};
-use bluer::{Address};
+use crate::utils::{AppSettings, MyTheme, get_devices_path};
+use bluer::Address;
 use iced::border::Radius;
 use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
     Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
-    text_input, toggler
+    text_input, toggler,
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
+use iced::{
+    Background, Border, Center, Element, Font, Length, Padding, Program, Settings, Size,
+    Subscription, Task, Theme, daemon, window,
+};
 use log::{debug, error};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
 
@@ -53,7 +56,11 @@ pub fn start_ui(
     .title(App::title)
     .settings(Settings {
         id: Some("librepods".to_string()),
-        fonts: vec![include_bytes!("../../assets/font/sf_pro.otf").as_slice().into()],
+        fonts: vec![
+            include_bytes!("../../assets/font/sf_pro.otf")
+                .as_slice()
+                .into(),
+        ],
         default_font: Font::with_name("SF Pro Text"),
         ..Settings::default()
     })
@@ -76,6 +83,9 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    hires_mic_enabled: bool,
+    hires_mic_agc: bool,
+    a2dp_reset: bool,
 }
 
 pub struct BluetoothState {
@@ -108,6 +118,9 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    A2dpResetChanged(bool),
+    HiResMicAgcChanged(bool),
+    MicLevelTick,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -134,7 +147,6 @@ impl App {
         let split = panes.split(pane_grid::Axis::Vertical, first_pane, Pane::Content);
         panes.resize(split.unwrap().1, 0.2);
 
-
         let wait_task = Task::perform(wait_for_message(Arc::clone(&ui_rx)), |msg| msg);
 
         let (window, open_task) = if start_minimized {
@@ -147,25 +159,13 @@ impl App {
             (Some(id), open.map(Message::WindowOpened))
         };
 
-        let app_settings_path = get_app_settings_path();
-        let settings = std::fs::read_to_string(&app_settings_path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
-        let selected_theme = settings
-            .clone()
-            .and_then(|v| v.get("theme").cloned())
-            .and_then(|t| serde_json::from_value(t).ok())
-            .unwrap_or(MyTheme::Dark);
-        let tray_text_mode = settings
-            .clone()
-            .and_then(|v| v.get("tray_text_mode").cloned())
-            .and_then(|ttm| serde_json::from_value(ttm).ok())
-            .unwrap_or(false);
-        let stem_control = settings
-            .clone()
-            .and_then(|v| v.get("stem_control").cloned())
-            .and_then(|s| serde_json::from_value(s).ok())
-            .unwrap_or(false);
+        let app_settings = AppSettings::load();
+        let selected_theme = app_settings.theme;
+        let tray_text_mode = app_settings.tray_text_mode;
+        let stem_control = app_settings.stem_control;
+        let hires_mic_enabled = app_settings.hires_mic_enabled;
+        let hires_mic_agc = app_settings.hires_mic_agc;
+        let a2dp_reset = app_settings.a2dp_reset;
 
         let bluetooth_state = BluetoothState::new();
 
@@ -217,9 +217,24 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                hires_mic_enabled,
+                hires_mic_agc,
+                a2dp_reset,
             },
             Task::batch(vec![open_task, wait_task]),
         )
+    }
+
+    fn save_settings(&self) {
+        AppSettings {
+            theme: self.selected_theme,
+            tray_text_mode: self.tray_text_mode,
+            stem_control: self.stem_control,
+            hires_mic_enabled: self.hires_mic_enabled,
+            hires_mic_agc: self.hires_mic_agc,
+            a2dp_reset: self.a2dp_reset,
+        }
+        .save();
     }
 
     fn title(&self, _id: window::Id) -> String {
@@ -248,21 +263,11 @@ impl App {
             }
             Message::ThemeSelected(theme) => {
                 self.selected_theme = theme;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
+            Message::MicLevelTick => Task::none(),
             Message::BluetoothMessage(ui_message) => {
                 match ui_message {
                     BluetoothUIMessage::NoOp => {
@@ -382,6 +387,7 @@ impl App {
                                         status.identifier == ControlCommandIdentifiers::AllowOffOption &&
                                         matches!(status.value.as_slice(), [0x01])
                                     }),
+                                    hires_mic_enabled: self.hires_mic_enabled,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -416,7 +422,8 @@ impl App {
 
                         self.device_states.remove(&mac);
 
-                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac) {
+                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac)
+                        {
                             self.selected_tab = Tab::Device("none".to_string());
                         }
 
@@ -592,6 +599,12 @@ impl App {
                 Task::none()
             }
             Message::StateChanged(mac, state) => {
+                if let DeviceState::AirPods(a) = &state
+                    && a.hires_mic_enabled != self.hires_mic_enabled
+                {
+                    self.hires_mic_enabled = a.hires_mic_enabled;
+                    self.save_settings();
+                }
                 self.device_states.insert(mac.clone(), state);
                 // if airpods, update the noise control state combo box based on allow off mode
                 let type_ = {
@@ -626,34 +639,22 @@ impl App {
             }
             Message::TrayTextModeChanged(is_enabled) => {
                 self.tray_text_mode = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
             Message::StemControlChanged(is_enabled) => {
                 self.stem_control = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
+                Task::none()
+            }
+            Message::A2dpResetChanged(is_enabled) => {
+                self.a2dp_reset = is_enabled;
+                self.save_settings();
+                Task::none()
+            }
+            Message::HiResMicAgcChanged(is_enabled) => {
+                self.hires_mic_agc = is_enabled;
+                self.save_settings();
                 Task::none()
             }
         }
@@ -1096,6 +1097,88 @@ impl App {
                                         )
                                     .align_y(Center);
 
+                            let a2dp_reset_value = self.a2dp_reset;
+                            let a2dp_reset_toggle = container(
+                                row![
+                                    column![
+                                        text("Reset A2DP transport").size(16),
+                                        text("Briefly suspends and resumes A2DP after the hi-res mic starts or stops. Disabling removes the short pause/stutter when the mic turns on or off, but on some setups it causes playback on one AirPod to drop once capture ends.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(a2dp_reset_value)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::A2dpResetChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
+                            let hires_mic_agc_value = self.hires_mic_agc;
+                            let hires_mic_agc_toggle = container(
+                                row![
+                                    column![
+                                        text("Hi-res mic auto gain").size(16),
+                                        text("Automatically normalizes the hi-res microphone level. For most usecases this should remain on. Disable for a raw, unprocessed capture.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(hires_mic_agc_value)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::HiResMicAgcChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
                             let controls_settings_col = column![
                                 container(
                                     text("Controls").size(20).style(
@@ -1123,6 +1206,10 @@ impl App {
                                     tray_text_mode_toggle,
                                     Space::new().height(Length::from(20)),
                                     controls_settings_col,
+                                    Space::new().height(Length::from(20)),
+                                    a2dp_reset_toggle,
+                                    Space::new().height(Length::from(20)),
+                                    hires_mic_agc_toggle,
                                 ]
                             )
                                 .padding(20)
@@ -1301,7 +1388,21 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        window::close_events().map(Message::WindowClosed)
+        let close = window::close_events().map(Message::WindowClosed);
+
+        // Only tick while a hi-res mic is capturing.
+        let mic_active = self
+            .device_states
+            .values()
+            .any(|s| matches!(s, DeviceState::AirPods(a) if a.hires_mic_enabled));
+
+        if mic_active {
+            let tick = iced::time::every(std::time::Duration::from_millis(50))
+                .map(|_| Message::MicLevelTick);
+            Subscription::batch([close, tick])
+        } else {
+            close
+        }
     }
 }
 
