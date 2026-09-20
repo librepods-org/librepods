@@ -172,6 +172,10 @@ CStreamEngine::AllocateRtPackets(
     m_PacketSize = PacketSize;
     m_FirstPacketOffset = firstPacketOffset;
 
+    // LibrePods: tell the mic ring how much this client pulls per tick, so its
+    // latency trim never leaves less than a packet buffered.
+    MicPipeSetPacketSize(PacketSize);
+
 exit:
     if (packetBuffer)
     {

@@ -87,4 +87,15 @@ MicPipeRead(
     _In_                    ULONG Len
 );
 
+//
+// Publish how many bytes the capture side pulls per tick (called from
+// CStreamEngine::AllocateRtPackets). The ring's latency trim keeps at least two
+// of these buffered, so a client that captures in large chunks doesn't underrun
+// on every read.
+//
+VOID
+MicPipeSetPacketSize(
+    _In_ ULONG PacketSize
+);
+
 EXTERN_C_END

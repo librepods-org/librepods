@@ -32,6 +32,12 @@ Done and in daily use:
   control device `\\.\LibrePodsMic` with `IOCTL_LIBREPODS_MIC_WRITE_PCM`
   (`0x0022A000`). `StreamEngine::ProcessPacket` drains the ring instead of the
   sample's WAV/tone dummy; an underrun reads as silence.
+- [x] **Bounded latency** — the uplink and the capture timer run on independent
+  clocks, so the ring used to creep up to full and stay there, adding its whole
+  capacity (~1.36 s) as a fixed delay. It now trims back to ~32 ms whenever the
+  backlog passes ~64 ms (never below two capture packets), so mic latency stays
+  put instead of drifting. Thanks to [@Gab4545](https://github.com/Gab4545) for
+  diagnosing it.
 - [x] **Capture-activity counter** — `IOCTL_LIBREPODS_MIC_STATUS` advances while an
   app records, which is how the daemon auto-starts and auto-stops the AAP uplink.
 - [x] The capture circuit is restricted to **48 kHz mono 16-bit** (what the decoded

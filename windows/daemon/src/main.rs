@@ -1460,7 +1460,13 @@ fn run_receiver(ctx: Ctx) {
                             last_audio = Instant::now(); // watchdog: stream alive
                             if decoder.is_none() {
                                 decoder = eld::Decoder::new();
-                                ctx.pipe.write(&[0i16; 3840]); // ~80 ms cushion
+                                // Prime the ring with silence so the first real
+                                // AUs don't land in an empty buffer. The driver
+                                // trims this back to its steady-state target on
+                                // the same write (MicPipe.cpp), and trimmed
+                                // silence costs nothing — so err on the generous
+                                // side here rather than risk an opening underrun.
+                                ctx.pipe.write(&[0i16; 3840]);
                             }
                             if let Some(dec) = decoder.as_mut() {
                                 let mut out: Vec<i16> = Vec::new();
