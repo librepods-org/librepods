@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -87,6 +88,14 @@ import me.kavishdevar.librepods.presentation.navigation.LocalSharedTransitionSco
 import me.kavishdevar.librepods.presentation.navigation.LocalTransitionProgress
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import me.kavishdevar.librepods.R
+import top.yukonga.miuix.kmp.basic.Icon as MiuixIcon
+import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
+import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar as MiuixSmallTopAppBar
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -173,6 +182,72 @@ fun StyledScaffold(
                         .hazeSource(hazeState)
                 ) {
                     content(paddingValues.calculateTopPadding(), paddingValues.calculateBottomPadding())
+                }
+            }
+        }
+        DesignSystem.Miuix -> {
+            val miuixSurface = MiuixTheme.colorScheme.surface
+            MiuixScaffold(
+                // In Miuix it is surface that is the page canvas (pure black in dark mode);
+                // background is the grey a card is filled with. This layer stays behind even
+                // when the top bar is hidden, so the wrong one greys out the whole page.
+                containerColor = MiuixTheme.colorScheme.surface,
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                topBar = {
+                    // Deliberately not wrapped in AnimatedVisibility: a top bar sliding in
+                    // from above makes a pushed screen look assembled in pieces, where MIUI
+                    // brings the whole page in with the navigation transition and the bar is
+                    // already complete on the first frame.
+                    if (visible) {
+                        // This has to be SmallTopAppBar. The Miuix TopAppBar carries a large
+                        // collapsing title driven by a scrollBehavior, and content here is a
+                        // generic lambda with nothing to hang nestedScroll on, so the large
+                        // title would stay permanently expanded and leave a gap on every page.
+                        MiuixSmallTopAppBar(
+                            title = title,
+                            // Transparent plus a haze effect makes the bar frosted glass over
+                            // the content scrolling under it, the way MIUI's own bars read.
+                            color = Color.Transparent,
+                            modifier = Modifier.hazeEffect(state = hazeState) {
+                                backgroundColor = miuixSurface
+                                tints = listOf(HazeTint(miuixSurface.copy(alpha = 0.8f)))
+                                blurRadius = 6.dp
+                            },
+                            navigationIcon = {
+                                if (navigateBack != null) {
+                                    MiuixIconButton(onClick = navigateBack) {
+                                        MiuixIcon(
+                                            imageVector = MiuixIcons.Back,
+                                            contentDescription = stringResource(R.string.back),
+                                            tint = MiuixTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                }
+                            },
+                            actions = {
+                                actionButtons.forEach { actionButton ->
+                                    actionButton(rememberLayerBackdrop())
+                                }
+                            }
+                        )
+                    }
+                }
+            ) { paddingValues ->
+                Box(
+                    modifier = modifier
+                        .then(
+                            if (visible) Modifier.padding(
+                                start = paddingValues.calculateStartPadding(LocalLayoutDirection.current),
+                                end = paddingValues.calculateEndPadding(LocalLayoutDirection.current)
+                            ) else Modifier
+                        )
+                        .fillMaxSize()
+                        .hazeSource(hazeState)
+                ) {
+                    content(
+                        paddingValues.calculateTopPadding(),
+                        paddingValues.calculateBottomPadding()
+                    )
                 }
             }
         }

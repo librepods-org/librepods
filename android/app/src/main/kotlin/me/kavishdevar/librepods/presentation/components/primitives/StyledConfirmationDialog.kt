@@ -59,6 +59,9 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.basic.ButtonDefaults as MiuixButtonDefaults
+import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,6 +121,28 @@ fun StyledConfirmationDialog(
                                 )
                             }
                         }
+                    }
+                }
+            }
+            DesignSystem.Miuix -> {
+                WindowDialog(
+                    show = showDialog.value,
+                    title = title,
+                    summary = message,
+                    onDismissRequest = onDismiss
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MiuixTextButton(
+                            text = dismissText,
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiuixTextButton(
+                            text = confirmText,
+                            onClick = onConfirm,
+                            modifier = Modifier.weight(1f),
+                            colors = MiuixButtonDefaults.textButtonColorsPrimary()
+                        )
                     }
                 }
             }

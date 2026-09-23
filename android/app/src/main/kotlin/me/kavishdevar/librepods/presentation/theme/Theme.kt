@@ -33,6 +33,9 @@ import androidx.compose.ui.platform.LocalContext
 import me.kavishdevar.librepods.presentation.icons.AppleIcons
 import me.kavishdevar.librepods.presentation.icons.LocalIcons
 import me.kavishdevar.librepods.presentation.icons.MaterialIcons
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.darkColorScheme as miuixDarkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme as miuixLightColorScheme
 
 val ColorScheme.sectionHeader: Color
     get() = onBackground.copy(alpha = 0.6f)
@@ -80,16 +83,54 @@ fun LibrePodsTheme(
     overrideMaterialColor: Color? = null,
     content: @Composable () -> Unit
 ) {
+    val miuixColors = if (darkTheme) miuixDarkColorScheme() else miuixLightColorScheme()
+
     val colorScheme = when(designSystem) {
         DesignSystem.Material -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        // The Material scheme has to be derived from the Miuix palette here rather than
+        // from dynamic color: the screens paint their canvas with
+        // MaterialTheme.colorScheme.surfaceContainer, so two unrelated palettes leave the
+        // page background and the Miuix cards on top of it in different colours.
+        DesignSystem.Miuix -> {
+            val base = if (darkTheme) darkColorScheme() else lightColorScheme()
+            // Miuix and Material use the surface roles in opposite senses:
+            //   miuix surface          = the page canvas (pure black in dark mode)
+            //   miuix surfaceContainer = the card fill (#242424 in dark mode)
+            // while the screens here paint the page with Material's surfaceContainer and
+            // the cards with surface. The mapping is crossed for that reason; matching the
+            // roles by name would give the page and its cards the same colour.
+            base.copy(
+                background = miuixColors.surface,
+                onBackground = miuixColors.onSurface,
+                surface = miuixColors.surfaceContainer,
+                onSurface = miuixColors.onSurfaceContainer,
+                surfaceContainer = miuixColors.surface,
+                surfaceContainerHigh = miuixColors.surfaceContainerHigh,
+                surfaceContainerHighest = miuixColors.surfaceContainerHighest,
+                surfaceVariant = miuixColors.surfaceVariant,
+                surfaceDim = miuixColors.windowDimming,
+                primary = miuixColors.primary,
+                onPrimary = miuixColors.onPrimary,
+                primaryContainer = miuixColors.primaryContainer,
+                onPrimaryContainer = miuixColors.onPrimaryContainer,
+                secondary = miuixColors.secondary,
+                onSecondary = miuixColors.onSecondary,
+                secondaryContainer = miuixColors.secondaryContainer,
+                onSecondaryContainer = miuixColors.onSecondaryContainer,
+                outline = miuixColors.outline,
+                error = miuixColors.error,
+                onError = miuixColors.onError
+            )
         }
         DesignSystem.Apple -> if (darkTheme) AppleDarkColorScheme else AppleLightColorScheme
     }
 
     val typography = when(designSystem) {
         DesignSystem.Material -> MaterialTypography
+        DesignSystem.Miuix -> MiuixTypography
         DesignSystem.Apple -> AppleTypography
     }
 
@@ -97,6 +138,9 @@ fun LibrePodsTheme(
         LocalDesignSystem provides designSystem,
         LocalIcons provides when (designSystem) {
             DesignSystem.Material -> MaterialIcons
+            // Miuix draws its own glyphs where it needs them; everything routed through
+            // LocalIcons is shared UI, so it keeps the Material set.
+            DesignSystem.Miuix -> MaterialIcons
             DesignSystem.Apple -> AppleIcons
         }
     ) {
@@ -109,8 +153,15 @@ fun LibrePodsTheme(
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
             motionScheme = MotionScheme.expressive(),
-            typography = typography,
-            content = content
-        )
+            typography = typography
+        ) {
+            // MiuixTheme has to sit inside the Material one: the Miuix widgets read their
+            // colours from it, while everything shared still reads MaterialTheme.
+            if (designSystem == DesignSystem.Miuix) {
+                MiuixTheme(colors = miuixColors, content = content)
+            } else {
+                content()
+            }
+        }
     }
 }

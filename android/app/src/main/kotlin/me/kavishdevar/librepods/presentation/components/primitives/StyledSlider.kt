@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -98,6 +99,11 @@ import me.kavishdevar.librepods.presentation.icons.LocalIcons
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.basic.Slider as MiuixSlider
+import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import me.kavishdevar.librepods.utils.inspectDragGestures
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -376,6 +382,41 @@ fun StyledSlider(
             }
         }
 
+        DesignSystem.Miuix -> {
+            // Same shape as StyledList under Miuix: the whole block sits in a Miuix Card and
+            // the label is a SmallTitle rather than a hand-drawn one.
+            Column {
+                label?.let {
+                    MiuixSmallTitle(
+                        it,
+                        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                MiuixCard(insideMargin = PaddingValues(0.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 16.dp)
+                    ) {
+                        MiuixSlider(
+                            value = value,
+                            onValueChange = onValueChange,
+                            valueRange = valueRange,
+                            enabled = enabled,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                description?.let {
+                    MiuixText(
+                        text = it,
+                        color = MiuixTheme.colorScheme.onBackgroundVariant,
+                        fontSize = MiuixTheme.textStyles.footnote1.fontSize,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
         DesignSystem.Apple -> {
             val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
             val trackColor =

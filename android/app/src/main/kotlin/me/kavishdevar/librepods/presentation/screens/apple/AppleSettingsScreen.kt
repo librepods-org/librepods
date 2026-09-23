@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,6 +72,7 @@ import me.kavishdevar.librepods.presentation.components.primitives.StyledSlider
 import me.kavishdevar.librepods.presentation.components.primitives.StyledToggle
 import me.kavishdevar.librepods.presentation.icons.LocalIcons
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
 import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import me.kavishdevar.librepods.presentation.viewmodel.AppleUiState
 import me.kavishdevar.librepods.presentation.viewmodel.AppleViewModel
@@ -175,6 +177,78 @@ fun AppleSettingsScreen(
     val spec = AirPodsSpecs.getSpec(metadata.model)
 
     val baseCapabilities = spec.baseCapabilities
+    val designSystem = LocalDesignSystem.current
+
+    // HyperOS puts the listening-mode control directly under the battery card, before
+    // the device name, so under Miuix this block moves up there. Everywhere else it
+    // keeps its place between the hearing-health and the recording groups.
+    val listeningModeItems: LazyListScope.() -> Unit = {
+        if (baseCapabilities.contains(BaseCapability.LISTENING_MODE)) {
+            if (designSystem != DesignSystem.Miuix) {
+                item(key = "spacer_noise") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+            item(key = "noise_control") {
+                NoiseControlSettings(
+                    showOffListeningMode = state.controlStates[ControlCommandIdentifier.ALLOW_OFF_OPTION]?.getOrNull(0)?.toInt() == 1,
+                    noiseControlModeValue = state.controlStates[ControlCommandIdentifier.LISTENING_MODE]?.getOrNull(0)?.toInt() ?: 3,
+                    onNoiseControlModeChanged = {
+                        setControlCommandInt(
+                            ControlCommandIdentifier.LISTENING_MODE, it
+                        )
+                    },
+                )
+            }
+
+            if (baseCapabilities.contains(BaseCapability.ADAPTIVE_AUDIO)) {
+                item(key = "adaptive_strength") {
+                    AnimatedVisibility(
+                        visible = state.controlStates[ControlCommandIdentifier.LISTENING_MODE]?.getOrNull(0)?.toInt() == 4,
+                        enter = remember {
+                            fadeIn() + slideInVertically()
+                        },
+                        exit = remember {
+                            fadeOut() + slideOutVertically()
+                        }
+                    ) {
+                        val sliderValue = remember {
+                            mutableFloatStateOf(
+                                100f - (state.controlStates[ControlCommandIdentifier.AUTO_ANC_STRENGTH]?.getOrNull(
+                                    0
+                                )?.toFloat() ?: 50f)
+                            )
+                        }
+
+                        LaunchedEffect(sliderValue) {
+                            snapshotFlow { sliderValue.floatValue }
+                                .debounce(100.milliseconds)
+                                .collect { value ->
+                                    setControlCommandInt(
+                                        ControlCommandIdentifier.AUTO_ANC_STRENGTH,
+                                        (100 - value).toInt()
+                                    )
+                                }
+                        }
+
+                        StyledSlider(
+                            value = sliderValue.floatValue,
+                            onValueChange = { sliderValue.floatValue = it },
+                            valueRange = 0f..100f,
+                            snapPoints = listOf(0f, 50f, 100f),
+                            startImageVector = LocalIcons.current.SpeakerMin,
+                            endImageVector = LocalIcons.current.SpeakerMax,
+                            independent = true,
+                            description = stringResource(R.string.adaptive_audio_description),
+                            enabled = uiState.isPremium
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+            }
+        }
+    }
 
     StyledScaffold(
         title = uiState.metadata.name,
@@ -192,6 +266,7 @@ fun AppleSettingsScreen(
                     caseImageRes = spec.caseImageRes ?: R.drawable.img_airpods_pro_2_case // TODO
                 )
             }
+            if (designSystem == DesignSystem.Miuix) listeningModeItems()
             item(key = "spacer_battery") {
                 Spacer(modifier = Modifier.height(32.dp))
             }
@@ -223,70 +298,7 @@ fun AppleSettingsScreen(
                     )
                 }
             }
-
-            if (baseCapabilities.contains(BaseCapability.LISTENING_MODE)) {
-                item(key = "spacer_noise") {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                item(key = "noise_control") {
-                    NoiseControlSettings(
-                        showOffListeningMode = state.controlStates[ControlCommandIdentifier.ALLOW_OFF_OPTION]?.getOrNull(0)?.toInt() == 1,
-                        noiseControlModeValue = state.controlStates[ControlCommandIdentifier.LISTENING_MODE]?.getOrNull(0)?.toInt() ?: 3,
-                        onNoiseControlModeChanged = {
-                            setControlCommandInt(
-                                ControlCommandIdentifier.LISTENING_MODE, it
-                            )
-                        },
-                    )
-                }
-
-                if (baseCapabilities.contains(BaseCapability.ADAPTIVE_AUDIO)) {
-                    item(key = "adaptive_strength") {
-                        AnimatedVisibility(
-                            visible = state.controlStates[ControlCommandIdentifier.LISTENING_MODE]?.getOrNull(0)?.toInt() == 4,
-                            enter = remember {
-                                fadeIn() + slideInVertically()
-                            },
-                            exit = remember {
-                                fadeOut() + slideOutVertically()
-                            }
-                        ) {
-                            val sliderValue = remember {
-                                mutableFloatStateOf(
-                                    100f - (state.controlStates[ControlCommandIdentifier.AUTO_ANC_STRENGTH]?.getOrNull(
-                                        0
-                                    )?.toFloat() ?: 50f)
-                                )
-                            }
-
-                            LaunchedEffect(sliderValue) {
-                                snapshotFlow { sliderValue.floatValue }
-                                    .debounce(100.milliseconds)
-                                    .collect { value ->
-                                        setControlCommandInt(
-                                            ControlCommandIdentifier.AUTO_ANC_STRENGTH,
-                                            (100 - value).toInt()
-                                        )
-                                    }
-                            }
-
-                            StyledSlider(
-                                value = sliderValue.floatValue,
-                                onValueChange = { sliderValue.floatValue = it },
-                                valueRange = 0f..100f,
-                                snapPoints = listOf(0f, 50f, 100f),
-                                startImageVector = LocalIcons.current.SpeakerMin,
-                                endImageVector = LocalIcons.current.SpeakerMax,
-                                independent = true,
-                                description = stringResource(R.string.adaptive_audio_description),
-                                enabled = uiState.isPremium
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-                        }
-                    }
-                }
-            }
+            if (designSystem != DesignSystem.Miuix) listeningModeItems()
 
             if (metadata.version3.isNotBlank() && metadata.version3.first().digitToInt() >= 8) {
                 item(key = "spacer_recording") {

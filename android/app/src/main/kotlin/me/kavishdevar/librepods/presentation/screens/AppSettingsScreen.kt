@@ -202,6 +202,13 @@ fun AppSettingsScreen(
                         onClick = { viewModel.updateSettings { it.copy(designSystem = DesignSystem.Material) } },
                         enabled = state.isPremium
                     )
+
+                    StyledListItem(
+                        contentText = stringResource(R.string.miuix),
+                        selected = state.settings.designSystem == DesignSystem.Miuix,
+                        onClick = { viewModel.updateSettings { it.copy(designSystem = DesignSystem.Miuix) } },
+                        enabled = state.isPremium
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))

@@ -281,6 +281,7 @@
     <string name="recommended">Recommended</string>
     <string name="appearance">Appearance</string>
     <string name="material3e">Material 3 Expressive</string>
+    <string name="miuix" translatable="false">Miuix</string>
     <string name="update_m3e_description">LibrePods now supports a whole new look based on Material 3 Expressive including updated typography and adaptive color schemes.\nYou can switch back to the Apple look from the app\'s settings.</string>
     <string name="update_equalizer_description">Available only on the latest AirPods Beta firmware. An Apple device running OS version 27 is required to install the beta firmware.</string>
     <string name="what_s_new">What\'s New</string>

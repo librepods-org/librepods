@@ -168,6 +168,10 @@ val labelEmphasized = robotoFlex(
 )
 
 
+// Miuix uses the platform default family: on HyperOS that is MiSans, and bundling
+// another face would make the app look wrong rather than native.
+val MiuixTypography = Typography()
+
 val MaterialTypography = Typography().run {
     copy(
         titleSmall = titleSmall.copy(

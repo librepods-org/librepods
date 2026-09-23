@@ -43,6 +43,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import me.kavishdevar.librepods.R
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import me.kavishdevar.librepods.presentation.components.miuix.MiuixBatteryCard
+import me.kavishdevar.librepods.presentation.components.miuix.MiuixDeviceImage
 import me.kavishdevar.librepods.devices.Battery
 import me.kavishdevar.librepods.devices.BatteryComponent
 import me.kavishdevar.librepods.devices.BatteryStatus
@@ -54,6 +58,17 @@ fun BatteryView(
     primaryImageRes: Int,
     caseImageRes: Int
 ) {
+    if (LocalDesignSystem.current == DesignSystem.Miuix) {
+        // HyperOS shows the hardware above a three-column battery card rather than a
+        // battery reading per image, so the Miuix header is a different composition
+        // rather than a restyling of the one below.
+        Column {
+            MiuixDeviceImage(budsRes = primaryImageRes, caseRes = caseImageRes)
+            MiuixBatteryCard(batteryList = batteryList)
+        }
+        return
+    }
+
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center

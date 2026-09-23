@@ -60,6 +60,11 @@ import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import androidx.compose.foundation.layout.PaddingValues
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
 import me.kavishdevar.librepods.presentation.theme.sectionHeader
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -81,6 +86,29 @@ fun StyledToggle(
         selectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     )
 ) {
+    if (LocalDesignSystem.current == DesignSystem.Miuix) {
+        Column {
+            title?.let {
+                MiuixSmallTitle(
+                    it,
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            MiuixCard(insideMargin = PaddingValues(0.dp)) {
+                StyledToggleContent(
+                    label = label,
+                    description = description,
+                    checked = checked,
+                    enabled = enabled,
+                    onCheckedChange = onCheckedChange,
+                    index = 0,
+                    count = 1
+                )
+            }
+        }
+        return
+    }
+
     val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
     Column(modifier = Modifier.padding(vertical = 12.dp)) {
         title?.let {
@@ -189,6 +217,23 @@ private fun StyledToggleContent(
 
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+
+    if (LocalDesignSystem.current == DesignSystem.Miuix) {
+        BasicComponent(
+            title = label,
+            summary = description,
+            enabled = enabled,
+            onClick = { onCheckedChange(!currentChecked) },
+            endActions = {
+                MiuixSwitch(
+                    checked = currentChecked,
+                    onCheckedChange = onCheckedChange,
+                    enabled = enabled
+                )
+            }
+        )
+        return
+    }
 
     val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
 

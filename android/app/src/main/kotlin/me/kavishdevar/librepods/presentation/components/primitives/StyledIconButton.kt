@@ -83,6 +83,7 @@ import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.presentation.icons.LocalIcons
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
 import me.kavishdevar.librepods.utils.inspectDragGestures
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -139,6 +140,15 @@ fun StyledIconButton(
                         content()
                     }
                 }
+            }
+        }
+        DesignSystem.Miuix -> {
+            MiuixIconButton(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = Modifier.size(52.dp)
+            ) {
+                content()
             }
         }
         DesignSystem.Apple -> {

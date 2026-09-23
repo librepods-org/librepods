@@ -22,11 +22,13 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,6 +68,9 @@ import me.kavishdevar.librepods.presentation.icons.LocalIcons
 import me.kavishdevar.librepods.presentation.icons.richText
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.RadioButton as MiuixRadioButton
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import me.kavishdevar.librepods.presentation.theme.sectionHeader
 
 @Composable
@@ -121,10 +126,18 @@ fun StyledListItem(
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .background(
-                    if (m3eEnabled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
-                    RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp)
+                    when (LocalDesignSystem.current) {
+                        DesignSystem.Material -> Color.Transparent
+                        // Under Miuix, Material's surface role carries the Miuix card fill and
+                        // surfaceContainer the page canvas - the two are crossed in
+                        // LibrePodsTheme, so a card painted with surfaceContainer would vanish
+                        // into the page.
+                        DesignSystem.Miuix -> MaterialTheme.colorScheme.surface
+                        DesignSystem.Apple -> MaterialTheme.colorScheme.surfaceContainer
+                    },
+                    RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp)
                 )
-                .clip(RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp))
+                .clip(RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp))
         ) {
             StyledListItemContent(
                 onClick = onClick,
@@ -195,13 +208,22 @@ fun StyledListItem(
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .background(
-                    if (m3eEnabled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
-                    RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp)
+                    when (LocalDesignSystem.current) {
+                        DesignSystem.Material -> Color.Transparent
+                        // Under Miuix, Material's surface role carries the Miuix card fill and
+                        // surfaceContainer the page canvas - the two are crossed in
+                        // LibrePodsTheme, so a card painted with surfaceContainer would vanish
+                        // into the page.
+                        DesignSystem.Miuix -> MaterialTheme.colorScheme.surface
+                        DesignSystem.Apple -> MaterialTheme.colorScheme.surfaceContainer
+                    },
+                    RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp)
                 )
-                .clip(RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp))
+                .clip(RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp))
         ) {
             StyledListItemContent(
                 onClick = onClick,
+                contentText = contentText,
                 content = {
                     when (LocalDesignSystem.current) {
                         DesignSystem.Apple -> {
@@ -212,7 +234,7 @@ fun StyledListItem(
                             )
                         }
 
-                        DesignSystem.Material -> {
+                        DesignSystem.Material, DesignSystem.Miuix -> {
                             Text(
                                 text = contentText,
                                 style = MaterialTheme.typography.labelMediumEmphasized,
@@ -287,13 +309,22 @@ fun StyledListItem(
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .background(
-                    if (m3eEnabled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
-                    RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp)
+                    when (LocalDesignSystem.current) {
+                        DesignSystem.Material -> Color.Transparent
+                        // Under Miuix, Material's surface role carries the Miuix card fill and
+                        // surfaceContainer the page canvas - the two are crossed in
+                        // LibrePodsTheme, so a card painted with surfaceContainer would vanish
+                        // into the page.
+                        DesignSystem.Miuix -> MaterialTheme.colorScheme.surface
+                        DesignSystem.Apple -> MaterialTheme.colorScheme.surfaceContainer
+                    },
+                    RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp)
                 )
-                .clip(RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp))
+                .clip(RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp))
         ) {
             StyledListItemContent(
                 onClick = onClick,
+                contentText = contentText,
                 content = {
                     when (LocalDesignSystem.current) {
                         DesignSystem.Apple -> {
@@ -304,7 +335,7 @@ fun StyledListItem(
                             )
                         }
 
-                        DesignSystem.Material -> {
+                        DesignSystem.Material, DesignSystem.Miuix -> {
                             Text(
                                 text = contentText,
                                 style = MaterialTheme.typography.labelMediumEmphasized,
@@ -379,13 +410,22 @@ fun StyledListItem(
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .background(
-                    if (m3eEnabled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
-                    RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp)
+                    when (LocalDesignSystem.current) {
+                        DesignSystem.Material -> Color.Transparent
+                        // Under Miuix, Material's surface role carries the Miuix card fill and
+                        // surfaceContainer the page canvas - the two are crossed in
+                        // LibrePodsTheme, so a card painted with surfaceContainer would vanish
+                        // into the page.
+                        DesignSystem.Miuix -> MaterialTheme.colorScheme.surface
+                        DesignSystem.Apple -> MaterialTheme.colorScheme.surfaceContainer
+                    },
+                    RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp)
                 )
-                .clip(RoundedCornerShape(if (m3eEnabled) 16.dp else 28.dp))
+                .clip(RoundedCornerShape(if (LocalDesignSystem.current == DesignSystem.Apple) 28.dp else 16.dp))
         ) {
             StyledListItemContent(
                 onClick = onClick,
+                contentText = contentText,
                 content = {
                     when (LocalDesignSystem.current) {
                         DesignSystem.Apple -> {
@@ -396,7 +436,7 @@ fun StyledListItem(
                             )
                         }
 
-                        DesignSystem.Material -> {
+                        DesignSystem.Material, DesignSystem.Miuix -> {
                             Text(
                                 text = contentText,
                                 style = MaterialTheme.typography.labelMediumEmphasized,
@@ -404,6 +444,7 @@ fun StyledListItem(
                         }
                     }
                 },
+                supportingText = supportingText,
                 supportingContent = if (supportingText != null && (LocalDesignSystem.current == DesignSystem.Material || orientation == StyledListItemOrientation.Horizontal)) {
                     @Composable {
                         Text(
@@ -471,6 +512,7 @@ fun StyledListScope.StyledListItem(
     item { index, count ->
         StyledListItemContent(
             onClick = onClick,
+            contentText = contentText,
             content = {
                 when (LocalDesignSystem.current) {
                     DesignSystem.Apple -> {
@@ -481,7 +523,7 @@ fun StyledListScope.StyledListItem(
                         )
                     }
 
-                    DesignSystem.Material -> {
+                    DesignSystem.Material, DesignSystem.Miuix -> {
                         Text(
                             text = contentText,
                             style = MaterialTheme.typography.labelMediumEmphasized,
@@ -581,6 +623,7 @@ fun StyledListScope.StyledListItem(
     item { index, count ->
         StyledListItemContent(
             onClick = onClick,
+            contentText = contentText,
             content = {
                 when (LocalDesignSystem.current) {
                     DesignSystem.Apple -> {
@@ -591,7 +634,7 @@ fun StyledListScope.StyledListItem(
                         )
                     }
 
-                    DesignSystem.Material -> {
+                    DesignSystem.Material, DesignSystem.Miuix -> {
                         Text(
                             text = contentText,
                             style = MaterialTheme.typography.labelMediumEmphasized,
@@ -645,6 +688,7 @@ fun StyledListScope.StyledListItem(
     item { index, count ->
         StyledListItemContent(
             onClick = onClick,
+            contentText = contentText,
             content = {
                 when (LocalDesignSystem.current) {
                     DesignSystem.Apple -> {
@@ -655,7 +699,7 @@ fun StyledListScope.StyledListItem(
                         )
                     }
 
-                    DesignSystem.Material -> {
+                    DesignSystem.Material, DesignSystem.Miuix -> {
                         Text(
                             text = contentText,
                             style = MaterialTheme.typography.labelMediumEmphasized,
@@ -663,6 +707,7 @@ fun StyledListScope.StyledListItem(
                     }
                 }
             },
+            supportingText = supportingText,
             supportingContent = if (supportingText != null) {
                    @Composable {
                         Text(
@@ -696,6 +741,12 @@ private fun StyledListItemContent(
     onClick: (() -> Unit)?,
     content: @Composable () -> Unit,
     supportingContent: (@Composable () -> Unit)? = null,
+    // Plain-text forms of content / supportingContent. Miuix's own row components take
+    // strings rather than slots, and they carry MIUI's metrics — row height, insets, the
+    // chevron — that a hand-rolled row does not match, so the text is passed alongside the
+    // composables and the Miuix branch below prefers it when the caller had it to give.
+    contentText: String? = null,
+    supportingText: String? = null,
     height: Dp = 58.dp,
     enabled: Boolean = true,
     index: Int,
@@ -726,6 +777,61 @@ private fun StyledListItemContent(
     val scope = rememberCoroutineScope()
 
     when (LocalDesignSystem.current) {
+        DesignSystem.Miuix -> {
+            val endActions: @Composable RowScope.() -> Unit = {
+                when {
+                    trailingContent != null -> trailingContent()
+                    selected != null -> MiuixRadioButton(
+                        selected = selected,
+                        onClick = onClick,
+                        enabled = enabled
+                    )
+                }
+            }
+            when {
+                // A row that navigates gets ArrowPreference, so the chevron is drawn by Miuix
+                // to MIUI's spec. Rows that carry a control of their own, or none at all, get
+                // the plain component: a chevron there would promise a screen that isn't there.
+                contentText != null && onClick != null && selected == null && trailingContent == null ->
+                    ArrowPreference(
+                        modifier = modifier,
+                        title = contentText,
+                        summary = supportingText,
+                        enabled = enabled,
+                        onClick = onClick,
+                        // holdDownState stays false: it is a permanently pressed background,
+                        // meant for a row that keeps its press while its dialog is open.
+                        startAction = leadingContent
+                    )
+
+                contentText != null -> BasicComponent(
+                    modifier = modifier,
+                    title = contentText,
+                    summary = supportingText,
+                    enabled = enabled,
+                    onClick = onClick,
+                    startAction = leadingContent,
+                    endActions = endActions
+                )
+
+                // Slot-only callers (the debug packet list, the heart-rate readout) have no
+                // text to hand over, so the row is laid out here with Miuix's own insets.
+                else -> Row(
+                    modifier = modifier
+                        .fillMaxWidth()
+                        .then(if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    leadingContent?.invoke()
+                    Column(modifier = Modifier.weight(1f)) {
+                        content()
+                        supportingContent?.invoke()
+                    }
+                    endActions()
+                }
+            }
+        }
         DesignSystem.Apple -> {
             val surfaceColor = colors.containerColor
             val pressedColor = MaterialTheme.colorScheme.surfaceContainerLow

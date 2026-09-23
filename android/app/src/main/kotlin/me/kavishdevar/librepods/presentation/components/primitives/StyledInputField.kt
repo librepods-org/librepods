@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import me.kavishdevar.librepods.presentation.icons.LocalIcons
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 
 
 @Composable
@@ -55,6 +56,27 @@ fun StyledInputField(
         selectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
     )
 ) {
+    if (LocalDesignSystem.current == DesignSystem.Miuix && !forceApple) {
+        MiuixTextField(
+            state = inputState,
+            label = placeholder,
+            // The Miuix label floats above the text by default; what is wanted here is a
+            // placeholder, so it has to be told that explicitly.
+            useLabelAsPlaceholder = true,
+            lineLimits = if (singleLine) {
+                TextFieldLineLimits.SingleLine
+            } else {
+                TextFieldLineLimits.Default
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+        )
+        return
+    }
+
+
+
     val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material && !forceApple
 
     if(m3eEnabled) {

@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import me.kavishdevar.librepods.presentation.theme.DesignSystem
+import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.window.WindowBottomSheet as MiuixWindowBottomSheet
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -35,6 +38,20 @@ fun StyledBottomSheet(
     content: @Composable (innerBackdrop: LayerBackdrop, progress: Float) -> Unit
 ) {
     if (!visible) return
+
+    if (LocalDesignSystem.current == DesignSystem.Miuix) {
+        // The Miuix sheet brings its own handle, corners and window scrim, so none of the
+        // hand-drawn backdrop below applies. The content callback still wants a backdrop and
+        // a progress value: it gets a local backdrop and a constant, fully-expanded progress.
+        MiuixWindowBottomSheet(
+            show = true,
+            onDismissRequest = onDismiss
+        ) {
+            val innerBackdrop = rememberLayerBackdrop()
+            content(innerBackdrop, 1f)
+        }
+        return
+    }
 
     val isDarkTheme = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val sheetState = rememberModalBottomSheetState(false) // move this to parent composable

@@ -28,6 +28,11 @@ import androidx.compose.ui.unit.dp
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import androidx.compose.foundation.layout.PaddingValues
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import me.kavishdevar.librepods.presentation.theme.sectionHeader
 
 @Composable
@@ -52,6 +57,35 @@ fun StyledList(
     }
 
     val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
+
+    if (LocalDesignSystem.current == DesignSystem.Miuix) {
+        // MIUI groups are a SmallTitle over a single card, and the card is a squircle drawn
+        // by Miuix rather than a RoundedCornerShape. The title inset is 16 instead of the
+        // component default of 28: the secondary pages already pad their column by 12, and
+        // 12 + 16 is what lines the title up with the card's own row content.
+        Column(modifier = modifier) {
+            title?.let {
+                MiuixSmallTitle(
+                    it,
+                    insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            MiuixCard(insideMargin = PaddingValues(0.dp)) {
+                scope.items.forEachIndexed { index, item ->
+                    item(index, scope.items.size)
+                }
+            }
+            description?.let {
+                MiuixText(
+                    text = it,
+                    color = MiuixTheme.colorScheme.onBackgroundVariant,
+                    fontSize = MiuixTheme.textStyles.footnote1.fontSize,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+        return
+    }
 
     Column (modifier = modifier) {
         title?.let {

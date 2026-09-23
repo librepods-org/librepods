@@ -70,6 +70,8 @@ import com.kyant.backdrop.highlight.Highlight
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import top.yukonga.miuix.kmp.basic.Button as MiuixButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults as MiuixButtonDefaults
 import me.kavishdevar.librepods.utils.inspectDragGestures
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -136,6 +138,19 @@ fun StyledButton(
                     )
                 }
             }
+        }
+        DesignSystem.Miuix -> {
+            MiuixButton(
+                onClick = onClick,
+                modifier = modifier.height(48.dp),
+                enabled = enabled,
+                colors = if (materialButtonStyle == MaterialButtonStyle.Filled) {
+                    MiuixButtonDefaults.buttonColorsPrimary()
+                } else {
+                    MiuixButtonDefaults.buttonColors()
+                },
+                content = content
+            )
         }
         DesignSystem.Apple -> {
             val defaultButtonColor = MaterialTheme.colorScheme.surfaceContainerHigh

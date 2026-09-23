@@ -24,7 +24,7 @@ val update1_0_0 = listOf(
                     DesignSystem.Apple -> {
                         EqualizerScreenPreviewApple()
                     }
-                    DesignSystem.Material -> {
+                    DesignSystem.Material, DesignSystem.Miuix -> {
                         EqualizerScreenPreviewMaterial()
                     }
                 }

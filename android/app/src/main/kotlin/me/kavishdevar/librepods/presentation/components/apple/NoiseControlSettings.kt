@@ -79,6 +79,7 @@ import me.kavishdevar.librepods.devices.NoiseControlMode
 import me.kavishdevar.librepods.presentation.theme.DesignSystem
 import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import me.kavishdevar.librepods.presentation.theme.LocalDesignSystem
+import me.kavishdevar.librepods.presentation.components.miuix.MiuixNoiseControlCard
 import me.kavishdevar.librepods.presentation.theme.sectionHeader
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.roundToInt
@@ -93,6 +94,19 @@ fun NoiseControlSettings(
     showLabels: Boolean = true
 ) {
     when (LocalDesignSystem.current) {
+        DesignSystem.Miuix -> {
+            // The value on the wire is 1-based and follows the declaration order of the enum.
+            val currentMode = NoiseControlMode.entries[
+                (noiseControlModeValue - 1).coerceIn(0, NoiseControlMode.entries.lastIndex)
+            ]
+            MiuixNoiseControlCard(
+                showOffOption = showOffListeningMode,
+                currentMode = currentMode,
+                onModeChange = { mode ->
+                    onNoiseControlModeChanged(NoiseControlMode.entries.indexOf(mode) + 1)
+                }
+            )
+        }
         DesignSystem.Material -> {
             val options = buildList {
                 if (showOffListeningMode) {
