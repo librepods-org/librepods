@@ -1338,7 +1338,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         MediaController.sendPlay()
                         MediaController.iPausedTheMedia = false
 
-                        try { context.unregisterReceiver(this) } catch (_: IllegalArgumentException) {}
+                        try { this@AirPodsService.unregisterReceiver(this) } catch (_: IllegalArgumentException) {}
                     }
                 }
             }
