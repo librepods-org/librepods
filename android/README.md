@@ -34,6 +34,13 @@ you can install the root module. This is optional and only provides extra featur
 > [!IMPORTANT]
 > When using the root module, do not install the Play Store version. There might be issues because of the signature mismatch between the Play Store version and the root module.
 
+#### On HyperOS
+
+HyperOS ships its own AirPods adapter that opens an AAP L2CAP session on the same channel LibrePods uses. The root module gates that adapter off at boot so LibrePods is the only AAP session holder.
+
+> [!WARNING]
+> The same config file gates the system's own AirPods features, so with the module installed HyperOS's built-in AirPods noise-control card disappears. Uninstalling the module restores it. See [docs/hyperos-aap-channel.md](../docs/hyperos-aap-channel.md) for the mechanism and the trade-off.
+
 ## Nightly/Development Builds
 
 Want to try the latest features before they're officially released? You can grab nightly builds from the [latest nightly release](https://github.com/kavishdevar/librepods/releases?q=nightly).
