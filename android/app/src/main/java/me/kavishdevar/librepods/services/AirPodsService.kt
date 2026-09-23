@@ -1356,6 +1356,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             try {
                 unregisterReceiver(a2dpConnectionStateReceiver)
                 Log.d("MediaController", "A2DP play-on-connect expired without a connection")
+                // A stuck pausedWhileTakingOver blocks every later takeover (MediaController gates on it).
+                MediaController.pausedWhileTakingOver = false
             } catch (_: IllegalArgumentException) {}
         }, 15_000)
     }
