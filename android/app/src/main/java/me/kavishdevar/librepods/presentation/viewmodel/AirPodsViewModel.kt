@@ -88,6 +88,7 @@ data class AirPodsUiState(
 
     val leftAction: StemAction = StemAction.CYCLE_NOISE_CONTROL_MODES,
     val rightAction: StemAction = StemAction.CYCLE_NOISE_CONTROL_MODES,
+    val pressActions: Map<String, StemAction> = emptyMap(),
 
     val loudSoundReductionEnabled: Boolean = false,
     val transparencyData: ByteArray = byteArrayOf(),
@@ -184,6 +185,15 @@ val demoState = AirPodsUiState(
         ControlCommandIdentifiers.DYNAMIC_END_OF_CHARGE to byteArrayOf(0x01),
         ControlCommandIdentifiers.LISTENING_MODE to byteArrayOf(0x04)
     )
+)
+
+
+// Must match AirPodsService's fallbacks so the UI shows what the service actually does.
+val PRESS_ACTION_DEFAULTS: Map<String, StemAction> = linkedMapOf(
+    "left_double_press_action" to StemAction.PREVIOUS_TRACK,
+    "right_double_press_action" to StemAction.NEXT_TRACK,
+    "left_triple_press_action" to StemAction.PREVIOUS_TRACK,
+    "right_triple_press_action" to StemAction.PREVIOUS_TRACK,
 )
 
 class AirPodsViewModel(
@@ -492,6 +502,9 @@ class AirPodsViewModel(
             ) ?: "CYCLE_NOISE_CONTROL_MODES"
         )
         val vendorIdHook = xposedRemotePref.getBoolean("vendor_id_hook", false)
+        val pressActions = PRESS_ACTION_DEFAULTS.mapValues { (key, default) ->
+            StemAction.fromString(sharedPreferences.getString(key, default.name) ?: default.name) ?: default
+        }
         val dynamicEndOfCharge = sharedPreferences.getBoolean("dynamic_end_of_charge", false)
 
         val connectionSuccessful = sharedPreferences.getBoolean("connection_successful", false)
@@ -505,6 +518,7 @@ class AirPodsViewModel(
                 leftAction = leftAction,
                 rightAction = rightAction,
                 vendorIdHook = vendorIdHook,
+                pressActions = pressActions,
                 dynamicEndOfCharge = dynamicEndOfCharge,
                 connectionSuccessful = connectionSuccessful,
             )
@@ -742,6 +756,11 @@ class AirPodsViewModel(
         _uiState.update {
             if (side.lowercase() == "left") it.copy(leftAction = action) else it.copy(rightAction = action)
         }
+    }
+
+    fun setPressAction(prefKey: String, action: StemAction) {
+        sharedPreferences.edit { putString(prefKey, action.name) }
+        _uiState.update { it.copy(pressActions = it.pressActions + (prefKey to action)) }
     }
 
     private fun countEnabledModes(byteValue: Int): Int {
