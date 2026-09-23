@@ -40,6 +40,12 @@ object MediaController {
     var userPlayedTheMedia = false
     private lateinit var sharedPreferences: SharedPreferences
     private val handler = Handler(Looper.getMainLooper())
+    private val trailingPlaybackCheck: Runnable = Runnable {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Log.d("MediaController", "Re-checking playback after debounced burst")
+            cb.onPlaybackConfigChanged(audioManager.activePlaybackConfigurations.toMutableList())
+        }
+    }
     private lateinit var preferenceChangeListener: SharedPreferences.OnSharedPreferenceChangeListener
 
     var pausedWhileTakingOver = false
@@ -96,7 +102,7 @@ object MediaController {
         audioManager.registerAudioPlaybackCallback(cb, null)
     }
 
-    val cb = object : AudioManager.AudioPlaybackCallback() {
+    val cb: AudioManager.AudioPlaybackCallback = object : AudioManager.AudioPlaybackCallback() {
         @RequiresApi(Build.VERSION_CODES.R)
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
             super.onPlaybackConfigChanged(configs)
@@ -115,8 +121,12 @@ object MediaController {
             if (now - lastPlaybackCallbackAt < PLAYBACK_DEBOUNCE_MS) {
                 Log.d("MediaController", "Ignoring playback callback due to debounce (${now - lastPlaybackCallbackAt}ms)")
                 lastPlaybackCallbackAt = now
+                // The first callback of a burst often has 0 configs; re-check once the burst settles so the real one isn't lost.
+                handler.removeCallbacks(trailingPlaybackCheck)
+                handler.postDelayed(trailingPlaybackCheck, PLAYBACK_DEBOUNCE_MS + 20)
                 return
             }
+            handler.removeCallbacks(trailingPlaybackCheck)
             lastPlaybackCallbackAt = now
 
             if (now - lastSelfActionAt < SELF_ACTION_IGNORE_MS) {
