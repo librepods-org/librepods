@@ -2740,12 +2740,18 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             }
             this@AirPodsService.device = device
             BluetoothConnectionManager.aacpSocket?.let {
-                aacpManager.sendPacket(aacpManager.createHandshakePacket())
-                aacpManager.sendSetFeatureFlagsPacket()
-                aacpManager.sendNotificationRequest()
-                Log.d(TAG, "Requesting proximity keys")
-                aacpManager.sendRequestProximityKeys((AACPManager.Companion.ProximityKeyType.IRK.value + AACPManager.Companion.ProximityKeyType.ENC_KEY.value).toByte())
                 CoroutineScope(Dispatchers.IO).launch {
+                    aacpManager.sendPacket(aacpManager.createHandshakePacket())
+                    delay(200)
+                    aacpManager.sendSetFeatureFlagsPacket()
+                    delay(200)
+                    aacpManager.sendNotificationRequest()
+                    delay(200)
+                    Log.d(TAG, "Requesting proximity keys")
+                    aacpManager.sendRequestProximityKeys(
+                        (AACPManager.Companion.ProximityKeyType.IRK.value +
+                            AACPManager.Companion.ProximityKeyType.ENC_KEY.value).toByte()
+                    )
                     delay(200)
                     aacpManager.sendPacket(aacpManager.createHandshakePacket())
                     delay(200)
