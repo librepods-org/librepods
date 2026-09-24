@@ -1,7 +1,9 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
-import QtQuick.Window 2.15
+// KeysQRDialog.qml
+// Modified by LibrePods HiiT: Theme colors and Departure Mono font.
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import QtQuick.Window
 
 Window {
     id: root
@@ -9,9 +11,7 @@ Window {
     flags: Qt.Dialog
     modality: Qt.WindowModal
 
-    // Use system palette for dynamic theming
-    SystemPalette { id: systemPalette }
-    color: systemPalette.window // Background adapts to theme
+    color: Theme.background
 
     width: Math.min(Screen.width * 0.8, 300)
     height: Math.min(Screen.height * 0.7, 350)
@@ -30,9 +30,9 @@ Window {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: width
-            radius: 4
-            color: systemPalette.base
-            border.color: systemPalette.mid
+            radius: Theme.radiusLarge
+            color: "white" // QR codes need a light quiet zone to scan in dark mode too
+            border.color: Theme.border
 
             Image {
                 id: qrCodeImage
@@ -51,7 +51,9 @@ Window {
                     anchors.centerIn: parent
                     visible: qrCodeImage.status === Image.Error
                     text: "Failed to generate QR code"
-                    color: systemPalette.text // Dynamic text color
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSize
+                    color: "#09090b"
                 }
             }
         }
@@ -62,8 +64,9 @@ Window {
             text: "Scan this QR code to transfer\nthe Magic Cloud Keys to another device"
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            color: systemPalette.text // Adapts to dark/light mode
-            font.pixelSize: 14
+            color: Theme.foreground
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSize
         }
     }
 }

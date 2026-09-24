@@ -16,6 +16,7 @@
 #include <QLibraryInfo>
 #include <QDir>
 #include <QStandardPaths>
+#include <QFontDatabase>
 
 #include "airpods_packets.h"
 #include "logger.h"
@@ -29,6 +30,7 @@
 #include "ble/blemanager.h"
 #include "ble/bleutils.h"
 #include "QRCodeImageProvider.hpp"
+#include "IconImageProvider.hpp"
 #include "systemsleepmonitor.hpp"
 
 using namespace AirpodsTrayApp::Enums;
@@ -1042,6 +1044,10 @@ int main(int argc, char *argv[]) {
             hideOnStart = true;
     }
 
+    // LibrePods HiiT: UI font, referenced by family name in Theme.qml
+    if (QFontDatabase::addApplicationFont(":/icons/assets/fonts/DepartureMono-Regular.otf") < 0)
+        LOG_WARN("Failed to load the Departure Mono font");
+
     QQmlApplicationEngine engine;
     qmlRegisterType<Battery>("me.kavishdevar.Battery", 1, 0, "Battery");
     qmlRegisterType<DeviceInfo>("me.kavishdevar.DeviceInfo", 1, 0, "DeviceInfo");
@@ -1058,6 +1064,7 @@ int main(int argc, char *argv[]) {
     }
 
     engine.addImageProvider("qrcode", new QRCodeImageProvider());
+    engine.addImageProvider("icon", new IconImageProvider());
     trayApp->loadMainModule();
 
     QLocalServer server;

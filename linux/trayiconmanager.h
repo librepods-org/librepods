@@ -35,12 +35,15 @@ public:
 
     void resetTrayIcon()
     {
-        trayIcon->setIcon(QIcon(":/icons/assets/airpods.png"));
+        trayIcon->setIcon(defaultIcon());
         trayIcon->setToolTip("");
     }
 
 signals:
     void notificationsEnabledChanged(bool enabled);
+
+private:
+    static QIcon defaultIcon();
 
 private slots:
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);

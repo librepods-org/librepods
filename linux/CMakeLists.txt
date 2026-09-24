@@ -4,7 +4,7 @@ project(linux VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Bluetooth DBus LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Svg Bluetooth DBus LinguistTools)
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PULSEAUDIO REQUIRED libpulse)
@@ -40,11 +40,14 @@ qt_add_executable(librepods
     thirdparty/QR-Code-generator/qrcodegen.cpp
     thirdparty/QR-Code-generator/qrcodegen.hpp
     QRCodeImageProvider.hpp
+    IconImageProvider.hpp
     eardetection.hpp
     media/playerstatuswatcher.cpp
     media/playerstatuswatcher.h
     systemsleepmonitor.hpp
 )
+
+set_source_files_properties(Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(librepods
     URI linux
@@ -56,26 +59,62 @@ qt_add_qml_module(librepods
         PodColumn.qml
         Icon.qml
         KeysQRDialog.qml
+        Theme.qml
+        UiBadge.qml
+        UiButton.qml
+        UiCard.qml
+        UiSelect.qml
+        UiSlider.qml
+        UiSpinBox.qml
+        UiSwitch.qml
+        UiTextField.qml
+        UiToolTip.qml
 )
 
 # Add the resource file
 qt_add_resources(librepods "resources"
     PREFIX "/icons"
     FILES
-        assets/airpods.png
-        assets/pod.png
-        assets/pod_case.png
-        assets/pod3.png
-        assets/pod3_case.png
-        assets/pod4_case.png
-        assets/podpro.png
-        assets/podpro_case.png
-        assets/podmax.png
-        assets/fonts/SF-Symbols-6.ttf
+        assets/fonts/DepartureMono-Regular.otf
+        assets/icons/arrow-left.svg
+        assets/icons/audio-lines.svg
+        assets/icons/battery-charging.svg
+        assets/icons/battery-full.svg
+        assets/icons/battery-low.svg
+        assets/icons/battery-medium.svg
+        assets/icons/battery-warning.svg
+        assets/icons/bell.svg
+        assets/icons/bluetooth-connected.svg
+        assets/icons/bluetooth-off.svg
+        assets/icons/bluetooth-searching.svg
+        assets/icons/check.svg
+        assets/icons/chevron-down.svg
+        assets/icons/circle-alert.svg
+        assets/icons/circle-check.svg
+        assets/icons/circle-off.svg
+        assets/icons/ear-off.svg
+        assets/icons/ear.svg
+        assets/icons/headphone-off.svg
+        assets/icons/info.svg
+        assets/icons/key-round.svg
+        assets/icons/loader-circle.svg
+        assets/icons/pencil.svg
+        assets/icons/power.svg
+        assets/icons/qr-code.svg
+        assets/icons/refresh-cw.svg
+        assets/icons/settings.svg
+        assets/icons/sliders-horizontal.svg
+        assets/icons/smartphone.svg
+        assets/icons/speech.svg
+        assets/icons/triangle-alert.svg
+        assets/icons/x.svg
+        assets/illustrations/bud.svg
+        assets/illustrations/case.svg
+        assets/illustrations/headphones.svg
 )
 
 target_link_libraries(librepods
-    PRIVATE Qt6::Quick Qt6::Widgets Qt6::Bluetooth Qt6::DBus OpenSSL::SSL OpenSSL::Crypto ${PULSEAUDIO_LIBRARIES}
+    PRIVATE Qt6::Quick Qt6::Widgets Qt6::Svg Qt6::Bluetooth Qt6::DBus OpenSSL::SSL OpenSSL::Crypto ${PULSEAUDIO_LIBRARIES}
 )
 
 qt_add_executable(librepods-ctl

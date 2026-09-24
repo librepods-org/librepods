@@ -1,13 +1,17 @@
 // Icon.qml
-import QtQuick 2.15
+// LibrePods HiiT: Lucide icon or device illustration, tinted through IconImageProvider.
+import QtQuick
 
-Text {
-    property string icon: ""
-    font.family: iconFont.name
-    text: icon
+Image {
+    id: root
 
-    FontLoader {
-        id: iconFont
-        source: "qrc:/icons/assets/fonts/SF-Symbols-6.ttf"
-    }
+    property string name: ""
+    property color color: Theme.foreground
+    property int size: Theme.iconSize
+
+    width: size
+    height: size
+    sourceSize: Qt.size(width, height)
+    fillMode: Image.PreserveAspectFit
+    source: name !== "" ? "image://icon/" + name + "/" + color.toString().substring(1) : ""
 }

@@ -1,0 +1,7 @@
+<!-- LibrePods HiiT: generic over-ear headphones illustration -->
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M10 27v-5a14 14 0 0 1 28 0v5" />
+  <path d="M14 11.5a14 14 0 0 1 20 0" stroke-width="1" />
+  <rect x="6" y="25" width="9" height="15" rx="3" />
+  <rect x="33" y="25" width="9" height="15" rx="3" />
+</svg>

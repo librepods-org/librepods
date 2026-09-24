@@ -1,39 +1,56 @@
-import QtQuick 2.15
+// PodColumn.qml
+// Modified by LibrePods HiiT: original line-art illustrations instead of product photos,
+// and an "out of ear" label in addition to the dimmed opacity.
+import QtQuick
 
 Column {
     id: root
     property bool inEar: true
-    property string iconSource
+    property string illustration: "bud" // bud, case or headphones (assets/illustrations)
     property int batteryLevel: 0
     property bool isCharging: false
     property string indicator: ""
+    property bool showsEarState: indicator !== ""
     property real targetOpacity: inEar ? 1 : 0.5
 
     Timer {
         id: opacityTimer
         interval: 50
-        onTriggered: root.opacity = root.targetOpacity
+        onTriggered: illustrationIcon.opacity = root.targetOpacity
     }
 
     onInEarChanged: {
         opacityTimer.restart()
     }
 
-    spacing: 5
+    spacing: 10
 
-    Image {
-        source: parent.iconSource
-        width: parent.indicator === "" ? 92 : 72
-        height: 72
-        fillMode: Image.PreserveAspectFit
-        mipmap: true
-        mirror: parent.indicator === "R"
+    Icon {
+        id: illustrationIcon
+        name: root.illustration
+        color: Theme.foreground
+        size: 72
+        mirror: root.indicator === "R"
         anchors.horizontalCenter: parent.horizontalCenter
+
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.animationDuration }
+        }
     }
 
     BatteryIndicator {
-        batteryLevel: parent.batteryLevel
-        isCharging: parent.isCharging
-        indicator: parent.indicator
+        anchors.horizontalCenter: parent.horizontalCenter
+        batteryLevel: root.batteryLevel
+        isCharging: root.isCharging
+        indicator: root.indicator
+    }
+
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        visible: root.showsEarState
+        text: root.inEar ? qsTr("In ear") : qsTr("Out of ear")
+        font.family: Theme.fontFamily
+        font.pixelSize: Theme.fontSize
+        color: Theme.mutedForeground
     }
 }

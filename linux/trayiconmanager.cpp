@@ -8,13 +8,16 @@
 #include <QFont>
 #include <QColor>
 #include <QActionGroup>
+#include <QPalette>
+
+#include "IconImageProvider.hpp"
 
 using namespace AirpodsTrayApp::Enums;
 
 TrayIconManager::TrayIconManager(QObject *parent) : QObject(parent)
 {
     // Initialize tray icon
-    trayIcon = new QSystemTrayIcon(QIcon(":/icons/assets/airpods.png"), this);
+    trayIcon = new QSystemTrayIcon(defaultIcon(), this);
     trayMenu = new QMenu();
 
     // Setup basic menu actions
@@ -144,3 +147,10 @@ void TrayIconManager::onTrayIconActivated(QSystemTrayIcon::ActivationReason reas
     }
 }
 
+
+// LibrePods HiiT: generic headphones illustration instead of a product photo
+QIcon TrayIconManager::defaultIcon()
+{
+    const QColor color = QApplication::palette().color(QPalette::WindowText);
+    return QIcon(QPixmap::fromImage(IconImageProvider::render("headphones", color, QSize(64, 64))));
+}

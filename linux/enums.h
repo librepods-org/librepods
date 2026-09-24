@@ -71,23 +71,12 @@ namespace AirpodsTrayApp
         // Return icons based on model
         inline QPair<QString, QString> getModelIcon(AirPodsModel model) {
             switch (model) {
-                case AirPodsModel::AirPods1:
-                case AirPodsModel::AirPods2:
-                    return {"pod.png", "pod_case.png"};
-                case AirPodsModel::AirPods3:
-                    return {"pod3.png", "pod3_case.png"};
-                case AirPodsModel::AirPods4:
-                case AirPodsModel::AirPods4ANC:
-                    return {"pod3.png", "pod4_case.png"};
-                case AirPodsModel::AirPodsPro:
-                case AirPodsModel::AirPodsPro2Lightning:
-                case AirPodsModel::AirPodsPro2USBC:
-                    return {"podpro.png", "podpro_case.png"};
+                // LibrePods HiiT: generic illustrations from assets/illustrations
                 case AirPodsModel::AirPodsMaxLightning:
                 case AirPodsModel::AirPodsMaxUSBC:
-                    return {"podmax.png", "max_case.png"};
+                    return {"headphones", "case"};
                 default:
-                    return {"pod.png", "pod_case.png"}; // Default icon for unknown models
+                    return {"bud", "case"};
             }
         }
 

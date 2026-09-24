@@ -1,30 +1,47 @@
+// SegmentedControl.qml
+// Modified by LibrePods HiiT: shadcn/ui "Tabs" look with an icon per option. `currentIndex`
+// now only follows its binding; user choices are reported through `activated`, so
+// changes coming from the device or the tray keep showing up after the first click.
 pragma ComponentBehavior: Bound
 
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls.Basic
 
 Control {
     id: root
 
     // Properties
     property var model: ["Option 1", "Option 2"] // Default model
+    property var icons: [] // Optional icon name per option
     property int currentIndex: 0
 
-    // Colors using system palette
-    readonly property color backgroundColor: palette.light
-    readonly property color selectedColor: palette.highlight
-    readonly property color textColor: palette.buttonText
-    readonly property color selectedTextColor: palette.highlightedText
+    // Option picked by the user and not yet confirmed through `currentIndex`
+    property int pendingIndex: -1
 
-    // System palette
-    SystemPalette {
-        id: palette
+    signal activated(int index)
+
+    function activate(index) {
+        if (index < 0 || index >= model.length || index === currentIndex)
+            return;
+        pendingIndex = index;
+        pendingTimer.restart();
+        activated(index);
+    }
+
+    onCurrentIndexChanged: pendingIndex = -1
+
+    Timer {
+        id: pendingTimer
+        interval: 3000
+        onTriggered: root.pendingIndex = -1
     }
 
     // Internal properties
-    padding: 6
-    implicitHeight: 32
-    // Removed: implicitWidth: Math.max(200, model.length * 100)
+    padding: 4
+    implicitWidth: 360
+    implicitHeight: 72
+    font.family: Theme.fontFamily
+    font.pixelSize: Theme.fontSize
 
     // Set focus policy to enable keyboard navigation
     focusPolicy: Qt.StrongFocus
@@ -32,10 +49,19 @@ Control {
 
     // Styling
     background: Rectangle {
-        radius: height / 2
-        color: root.backgroundColor
-        border.width: root.activeFocus ? 1 : 0
-        border.color: root.selectedColor
+        radius: Theme.radiusLarge
+        color: Theme.muted
+
+        // Focus ring
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -3
+            radius: Theme.radiusLarge + 3
+            color: "transparent"
+            border.width: 2
+            border.color: Theme.ring
+            visible: root.visualFocus
+        }
     }
 
     contentItem: Row {
@@ -44,45 +70,57 @@ Control {
         Repeater {
             model: root.model
 
-            delegate: Button {
+            delegate: AbstractButton {
                 id: segmentButton
                 required property int index
                 required property string modelData
-                text: modelData
-                // Removed: width: (root.availableWidth - (root.model.length - 1) * root.padding) / root.model.length
-                height: root.availableHeight
-                focusPolicy: Qt.NoFocus // Let the root control handle focus
+                readonly property bool selected: root.currentIndex === index
+                readonly property bool pending: root.pendingIndex === index
 
-                // Add explicit text color
-                contentItem: Text {
-                    text: segmentButton.text
-                    font: segmentButton.font
-                    color: root.currentIndex === segmentButton.index ? root.selectedTextColor : root.textColor
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: 2
-                    rightPadding: 2
-                    elide: Text.ElideRight
+                width: (root.availableWidth - (root.model.length - 1) * root.padding) / root.model.length
+                height: root.availableHeight
+                text: modelData
+                focusPolicy: Qt.NoFocus // Let the root control handle focus
+                Accessible.role: Accessible.RadioButton
+                Accessible.checked: selected
+
+                contentItem: Column {
+                    spacing: 6
+                    topPadding: 8
+
+                    Icon {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible: name !== ""
+                        name: root.icons[segmentButton.index] ?? ""
+                        color: segmentButton.selected ? Theme.foreground : Theme.mutedForeground
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: segmentButton.text
+                        font: root.font
+                        color: segmentButton.selected ? Theme.foreground : Theme.mutedForeground
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
                 }
 
                 background: Rectangle {
-                    radius: height / 2
-                    color: root.currentIndex === segmentButton.index ? root.selectedColor : "transparent"
-                    border.width: 0
+                    radius: Theme.radius
+                    color: segmentButton.selected ? Theme.background
+                         : segmentButton.pending || segmentButton.hovered ? Theme.accent
+                         : "transparent"
+                    border.width: segmentButton.selected || segmentButton.pending ? 1 : 0
+                    border.color: segmentButton.pending ? Theme.ring : Theme.border
 
                     Behavior on color {
-                        ColorAnimation {
-                            duration: 600
-                            easing.type: Easing.OutQuad
-                        }
+                        ColorAnimation { duration: Theme.animationDuration }
                     }
                 }
 
-                onClicked: {
-                    if (root.currentIndex !== index) {
-                        root.currentIndex = index;
-                    }
-                }
+                onClicked: root.activate(index)
             }
         }
     }
@@ -90,27 +128,20 @@ Control {
     // Handle key events for navigation
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Left) {
-            if (root.currentIndex > 0) {
-                root.currentIndex--;
-                event.accepted = true;
-            }
+            root.activate(root.currentIndex - 1);
+            event.accepted = true;
         } else if (event.key === Qt.Key_Right) {
-            if (root.currentIndex < root.model.length - 1) {
-                root.currentIndex++;
-                event.accepted = true;
-            }
+            root.activate(root.currentIndex + 1);
+            event.accepted = true;
         } else if (event.key === Qt.Key_Home) {
-            root.currentIndex = 0;
+            root.activate(0);
             event.accepted = true;
         } else if (event.key === Qt.Key_End) {
-            root.currentIndex = root.model.length - 1;
+            root.activate(root.model.length - 1);
             event.accepted = true;
         } else if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
-            const index = event.key - Qt.Key_1;
-            if (index <= root.model.length) {
-                root.currentIndex = index;
-                event.accepted = true;
-            }
+            root.activate(event.key - Qt.Key_1);
+            event.accepted = true;
         }
     }
 }
