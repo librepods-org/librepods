@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Controls.HeartRateCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- Heart rate (AirPods Pro 3, experimental) -->
+    <Border Style="{StaticResource Card}">
+        <StackPanel Spacing="8">
+            <TextBlock Text="{Binding [HeartRateTitle_Text], Source={StaticResource Loc}}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <TextBlock Text="{Binding [HeartRateSubtitle_Text], Source={StaticResource Loc}}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Style="{ThemeResource CaptionTextBlockStyle}"
+                       TextWrapping="Wrap" />
+            <!-- Honest heads-up: the feature is a work-in-progress test and may
+                 not produce readings yet. Non-closable so it always shows. -->
+            <InfoBar Title="{Binding [HeartRateWarning_Title], Source={StaticResource Loc}}" Message="{Binding [HeartRateWarning_Message], Source={StaticResource Loc}}"
+                     Severity="Warning"
+                     IsOpen="True"
+                     IsClosable="False" />
+            <ToggleSwitch OnContent="{Binding [Toggle_On], Source={StaticResource Loc}}" OffContent="{Binding [Toggle_Off], Source={StaticResource Loc}}" x:Name="HeartRateSwitch"
+                          Header="{Binding [HeartRateSwitch_Header], Source={StaticResource Loc}}"
+                          Toggled="HeartRate_Toggled" />
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                <TextBlock x:Name="HeartRateBpm"
+                           Text="—"
+                           Style="{ThemeResource TitleTextBlockStyle}"
+                           Foreground="{ThemeResource LibrePodsAccentBrush}" />
+                <TextBlock Text="{Binding [HeartRateBpmLabel_Text], Source={StaticResource Loc}}"
+                           VerticalAlignment="Bottom"
+                           Margin="0,0,0,4"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

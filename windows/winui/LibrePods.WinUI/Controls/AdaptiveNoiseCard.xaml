@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Controls.AdaptiveNoiseCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- Adaptive Audio noise strength -->
+    <Border Style="{StaticResource Card}">
+        <StackPanel Spacing="8">
+            <TextBlock Text="{Binding [AdaptiveNoiseTitle_Text], Source={StaticResource Loc}}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <TextBlock Text="{Binding [AdaptiveNoiseSubtitle_Text], Source={StaticResource Loc}}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Style="{ThemeResource CaptionTextBlockStyle}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="{Binding [NoiseLowBtn_Content], Source={StaticResource Loc}}" Click="NoiseLow_Click" />
+                <Button Content="{Binding [NoiseMidBtn_Content], Source={StaticResource Loc}}" Click="NoiseMid_Click" />
+                <Button Content="{Binding [NoiseHighBtn_Content], Source={StaticResource Loc}}" Click="NoiseHigh_Click" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

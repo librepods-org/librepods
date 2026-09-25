@@ -1,0 +1,78 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>LibrePods.WinUI</RootNamespace>
+
+    <!-- The tray's pref.rs launches this exe by name; keep it exact. -->
+    <AssemblyName>librepods-winui</AssemblyName>
+
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Unpackaged + self-contained: a plain .exe that runs next to the other
+         LibrePods exes without MSIX and without a machine-wide runtime install. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <EnableMsixTooling>false</EnableMsixTooling>
+
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+
+    <!-- Localization: en-US is the default/base language baked into resources.pri.
+         Add a language by copying Strings\en-US to Strings\<lang> (e.g. pt-PT).
+         We opt out of the default .resw globbing and include Strings explicitly so
+         the resources are added exactly once (no duplicate-item build error). -->
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <EnableDefaultPRIResourceItems>false</EnableDefaultPRIResourceItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UI strings (x:Uid + code lookups) compiled into resources.pri. -->
+    <PRIResource Include="Strings\**\*.resw" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same .resw embedded so the runtime Loc service can parse them into its
+         culture -> key -> value map. This backs live language switching (bindings to
+         {StaticResource Loc}) which works on the unpackaged build, unlike x:Uid /
+         PrimaryLanguageOverride. LogicalName = loc.<culture>. -->
+    <EmbeddedResource Include="Strings\en-US\Resources.resw" LogicalName="loc.en-US" />
+    <EmbeddedResource Include="Strings\pt-PT\Resources.resw" LogicalName="loc.pt-PT" />
+    <EmbeddedResource Include="Strings\fr-FR\Resources.resw" LogicalName="loc.fr-FR" />
+    <EmbeddedResource Include="Strings\es-ES\Resources.resw" LogicalName="loc.es-ES" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4188" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
+    <!-- GDI (System.Drawing.Icon/Bitmap/Graphics) for the tray's number-badge icon. -->
+    <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- App/tray icons next to the exe (ms-appx:///Assets URIs + AppWindow.SetIcon). -->
+    <Content Include="Assets\tray.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\app.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- All product/art PNGs via a wildcard — the full AirPods render set (buds /
+         left / right / case / full, per model) copied from the Android app's
+         res-apple drawables. Wildcard so new art ships without listing each file. -->
+    <Content Include="Assets\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

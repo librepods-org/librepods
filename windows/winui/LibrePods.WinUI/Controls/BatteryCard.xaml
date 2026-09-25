@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Controls.BatteryCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- Battery — model-aware device artwork above each gauge. The images collapse
+         for unknown models (no artwork), leaving the label + bar + % on their own. -->
+    <Border Style="{StaticResource Card}">
+        <StackPanel Spacing="12">
+            <TextBlock Text="{Binding [BatteryTitle_Text], Source={StaticResource Loc}}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="4">
+                    <Image x:Name="LeftImg" Height="56" Stretch="Uniform"
+                           Visibility="Collapsed" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding [BatteryLeftLabel_Text], Source={StaticResource Loc}}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ProgressBar x:Name="LeftBar" Maximum="100" Value="0" Foreground="{ThemeResource LibrePodsAccentBrush}" />
+                    <TextBlock x:Name="LeftText" Text="—" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <Image x:Name="RightImg" Height="56" Stretch="Uniform"
+                           Visibility="Collapsed" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding [BatteryRightLabel_Text], Source={StaticResource Loc}}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ProgressBar x:Name="RightBar" Maximum="100" Value="0" Foreground="{ThemeResource LibrePodsAccentBrush}" />
+                    <TextBlock x:Name="RightText" Text="—" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="4">
+                    <Image x:Name="CaseImg" Height="56" Stretch="Uniform"
+                           Visibility="Collapsed" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding [BatteryCaseLabel_Text], Source={StaticResource Loc}}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ProgressBar x:Name="CaseBar" Maximum="100" Value="0" Foreground="{ThemeResource LibrePodsAccentBrush}" />
+                    <TextBlock x:Name="CaseText" Text="—" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

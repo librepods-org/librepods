@@ -1,0 +1,6 @@
+# C# / .NET / WinUI build artifacts
+bin/
+obj/
+*.user
+.vs/
+Generated Files/

@@ -1,0 +1,70 @@
+<Window
+    x:Class="LibrePods.WinUI.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:pages="using:LibrePods.WinUI.Pages"
+    mc:Ignorable="d"
+    Title="LibrePods">
+
+    <!-- RootGrid carries the app theme (RequestedTheme is set from the Settings
+         page's theme picker). -->
+    <Grid x:Name="RootGrid">
+        <!-- Standard Fluent shell: left navigation pane + content area. -->
+        <!-- PaneDisplayMode="Auto": expanded when wide, collapses to a hamburger
+             that overlays the content when the window is narrow. -->
+        <NavigationView x:Name="NavView"
+                        PaneDisplayMode="Auto"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="True"
+                        OpenPaneLength="260"
+                        SelectionChanged="Nav_SelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItemHeader Content="{Binding [NavDevicesHeader_Content], Source={StaticResource Loc}}" />
+                <!-- The daemon is single-device: one item, populated from the
+                     snapshot's dev_name. Structured so more could be added later. -->
+                <!-- One line (icon + name); the connection status shows in the
+                     device page header, so the nav item stays a normal height
+                     (a 2-line item became a tall block in icon-only compact mode). -->
+                <NavigationViewItem x:Name="DeviceNavItem" Tag="device">
+                    <NavigationViewItem.Icon>
+                        <ImageIcon x:Name="NavDeviceIcon" Source="ms-appx:///Assets/airpods.png" />
+                    </NavigationViewItem.Icon>
+                    <!-- Name + a compact battery summary on one line. The battery
+                         shows only in the expanded pane (NavigationView hides item
+                         content in icon-only compact mode) — handy once more than
+                         one device is listed. -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="NavDeviceName"
+                                   Grid.Column="0"
+                                   Text="LibrePods"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="NavDeviceBattery"
+                                   Grid.Column="1"
+                                   Margin="8,0,0,0"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   Visibility="Collapsed"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <NavigationView.Content>
+                <Grid>
+                    <!-- Content-swap between the two nav destinations. Each is its
+                         own XAML UserControl; the shell only toggles visibility. -->
+                    <pages:DevicePage x:Name="DevicePageView" />
+                    <pages:SettingsPage x:Name="SettingsPageView"
+                                        Visibility="Collapsed" />
+                </Grid>
+            </NavigationView.Content>
+        </NavigationView>
+    </Grid>
+</Window>

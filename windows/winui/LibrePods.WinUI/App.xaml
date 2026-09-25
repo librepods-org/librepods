@@ -1,0 +1,53 @@
+<Application
+    x:Class="LibrePods.WinUI.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:LibrePods.WinUI.Services">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- LibrePods brand accent (Android app's light_blue_600 = #039BE5),
+                 recoloured slightly per theme. Overriding SystemAccentColor tints
+                 the Fluent accent controls (toggles, radios, sliders) to brand. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="LibrePodsAccentColor">#FF039BE5</Color>
+                    <Color x:Key="SystemAccentColor">#FF0288C7</Color>
+                    <Color x:Key="SystemAccentColorLight1">#FF039BE5</Color>
+                    <Color x:Key="SystemAccentColorLight2">#FF29AEEA</Color>
+                    <Color x:Key="SystemAccentColorLight3">#FF57C1EF</Color>
+                    <SolidColorBrush x:Key="LibrePodsAccentBrush" Color="#FF039BE5" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="LibrePodsAccentColor">#FF29AEEA</Color>
+                    <Color x:Key="SystemAccentColor">#FF29AEEA</Color>
+                    <Color x:Key="SystemAccentColorDark1">#FF039BE5</Color>
+                    <Color x:Key="SystemAccentColorDark2">#FF0288C7</Color>
+                    <Color x:Key="SystemAccentColorDark3">#FF01579B</Color>
+                    <SolidColorBrush x:Key="LibrePodsAccentBrush" Color="#FF29AEEA" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="LibrePodsAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Live localization service — the ONE Loc instance; code shares it via
+                 Loc.Instance (published from its ctor). UI text binds {StaticResource Loc}. -->
+            <services:Loc x:Key="Loc" />
+
+            <!-- Shared card look used by every device/settings section. Lifted to
+                 app scope so each UserControl (Controls/*, Pages/*) can reference
+                 {StaticResource Card} without redefining it. -->
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="16" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

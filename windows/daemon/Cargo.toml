@@ -1,0 +1,47 @@
+[package]
+name = "librepodsd"
+version = "0.1.0"
+edition = "2021"
+description = "LibrePods Windows daemon — owns the AAP driver + hi-res mic, serves the tray/app over IPC."
+
+[dependencies]
+librepods-ipc = { path = "../ipc" }
+serde_json = "1"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_IO",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Bluetooth",
+] }
+# `windows` (COM/WinRT) for SMTC ear-detection auto-pause (media.rs) + the BLE
+# proximity watcher (le.rs).
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Control",
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_Advertisement",
+    "Storage_Streams",
+] }
+
+[build-dependencies]
+cc = "1"
+
+[[bin]]
+name = "librepodsd"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

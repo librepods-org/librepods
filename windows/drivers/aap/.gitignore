@@ -1,0 +1,16 @@
+# Build outputs
+x64/
+ARM64/
+Debug/
+Release/
+package/
+*.sys
+*.cat
+*.pdb
+*.obj
+*.log
+*.tlog
+*.lastbuildstate
+*.cache
+mkcat.cmd
+cat.cmd

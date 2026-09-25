@@ -1,0 +1,61 @@
+;/*++
+; LibrePodsAAP.inf
+;
+; Installs the LibrePods AAP L2CAP profile driver as the function driver for the
+; Apple Accessory Protocol service the AirPods advertise:
+;     BTHENUM\{74ec2172-0bad-4d01-8f77-997b2be0722a}
+;--*/
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Bluetooth
+ClassGuid   = {e0cbf06c-cd8b-4647-bb8a-263b43f0f974}
+Provider    = %ProviderString%
+CatalogFile = LibrePodsAAP.cat
+DriverVer   = 08/08/2026,1.0.4.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskId1%,,,""
+
+[SourceDisksFiles]
+LibrePodsAAP.sys = 1,,
+
+[Manufacturer]
+%ManufacturerString% = LibrePodsAAP,NTamd64.10.0.1..16299
+
+[LibrePodsAAP.NTamd64.10.0.1..16299]
+%DeviceDesc% = LibrePodsAAP_Inst, BTHENUM\{74ec2172-0bad-4d01-8f77-997b2be0722a}
+
+[LibrePodsAAP_Inst.NT]
+CopyFiles = DriverStore_Dir
+
+[DriverStore_Dir]
+LibrePodsAAP.sys
+
+[LibrePodsAAP_Inst.NT.Services]
+AddService = LibrePodsAAP,%SPSVCINST_ASSOCSERVICE%, LibrePodsAAP_Service_Inst
+
+[LibrePodsAAP_Service_Inst]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1              ; SERVICE_KERNEL_DRIVER
+StartType     = 3              ; SERVICE_DEMAND_START
+ErrorControl  = 1              ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\LibrePodsAAP.sys
+
+[LibrePodsAAP_Inst.NT.Wdf]
+KmdfService = LibrePodsAAP, LibrePodsAAP_wdfsect
+
+[LibrePodsAAP_wdfsect]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ProviderString     = "LibrePods"
+ManufacturerString = "LibrePods"
+DiskId1            = "LibrePodsAAP Installation Disk"
+DeviceDesc         = "LibrePods AAP (AirPods)"
+ServiceDesc        = "LibrePods AAP L2CAP driver for AirPods"

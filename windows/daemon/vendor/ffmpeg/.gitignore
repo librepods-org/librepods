@@ -1,0 +1,6 @@
+# FFmpeg headers / import-libs / DLLs are FETCHED at build time (~28k lines of
+# headers), not committed. Run ../fetch-ffmpeg.sh (CI does it automatically).
+# Only the license and README are tracked here.
+include/
+lib/
+bin/

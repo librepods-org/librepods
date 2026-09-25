@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Popup.TrayMenuView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- A custom, themed tray menu (the WinUI MenuFlyout clipped in SecondWindow
+         mode, and the native Win32 menu can't carry per-item icons or follow the
+         app theme). The whole window IS this rounded card; items are flat buttons
+         with an icon + label, à la the Riot/Discord tray menus. -->
+    <UserControl.Resources>
+        <!-- Flat full-width row with a subtle hover/press highlight. -->
+        <Style x:Key="MenuRow" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style x:Key="RowIcon" TargetType="FontIcon">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Width" Value="20" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+        </Style>
+    </UserControl.Resources>
+
+    <Border x:Name="Root"
+            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource SurfaceStrokeColorFlyoutBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="6">
+        <StackPanel x:Name="Items" MinWidth="248" Spacing="1">
+
+            <!-- Header: model image + device name -->
+            <Grid Padding="10,6,10,6" ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Image x:Name="HeaderImage" Grid.Column="0" Width="22" Height="22"
+                       VerticalAlignment="Center" Stretch="Uniform" />
+                <TextBlock x:Name="HeaderName" Grid.Column="1"
+                           Text="LibrePods"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+            </Grid>
+
+            <!-- Battery line -->
+            <TextBlock x:Name="BatteryText" Margin="42,0,10,4"
+                       FontSize="12"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <Border Height="1" Margin="6,3" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <!-- Noise control -->
+            <TextBlock x:Name="AncLabel" Margin="10,3,10,1"
+                       FontSize="11"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <Button x:Name="AncOffRow" Style="{StaticResource MenuRow}" Click="AncOff_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE7E8;" />
+                    <TextBlock x:Name="AncOffText" Grid.Column="1" VerticalAlignment="Center" />
+                    <FontIcon x:Name="AncOffCheck" Grid.Column="2" Glyph="&#xE73E;" FontSize="14"
+                              Visibility="Collapsed" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Grid>
+            </Button>
+            <Button x:Name="AncNcRow" Style="{StaticResource MenuRow}" Click="AncNc_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE7F6;" />
+                    <TextBlock x:Name="AncNcText" Grid.Column="1" VerticalAlignment="Center" />
+                    <FontIcon x:Name="AncNcCheck" Grid.Column="2" Glyph="&#xE73E;" FontSize="14"
+                              Visibility="Collapsed" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Grid>
+            </Button>
+            <Button x:Name="AncTransRow" Style="{StaticResource MenuRow}" Click="AncTrans_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE890;" />
+                    <TextBlock x:Name="AncTransText" Grid.Column="1" VerticalAlignment="Center" />
+                    <FontIcon x:Name="AncTransCheck" Grid.Column="2" Glyph="&#xE73E;" FontSize="14"
+                              Visibility="Collapsed" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Grid>
+            </Button>
+            <Button x:Name="AncAdaptiveRow" Style="{StaticResource MenuRow}" Click="AncAdaptive_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE72C;" />
+                    <TextBlock x:Name="AncAdaptiveText" Grid.Column="1" VerticalAlignment="Center" />
+                    <FontIcon x:Name="AncAdaptiveCheck" Grid.Column="2" Glyph="&#xE73E;" FontSize="14"
+                              Visibility="Collapsed" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Grid>
+            </Button>
+
+            <Border Height="1" Margin="6,3" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <Button x:Name="MuteRow" Style="{StaticResource MenuRow}" Click="Mute_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon x:Name="MuteIcon" Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE74F;" />
+                    <TextBlock x:Name="MuteText" Grid.Column="1" VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+
+            <Border Height="1" Margin="6,3" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <Button x:Name="OpenRow" Style="{StaticResource MenuRow}" Click="Open_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE8A7;" />
+                    <TextBlock x:Name="OpenText" Grid.Column="1" VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+            <Button x:Name="QuitRow" Style="{StaticResource MenuRow}" Click="Quit_Click">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Grid.Column="0" Style="{StaticResource RowIcon}" Glyph="&#xE711;" />
+                    <TextBlock x:Name="QuitText" Grid.Column="1" VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+
+        </StackPanel>
+    </Border>
+</UserControl>

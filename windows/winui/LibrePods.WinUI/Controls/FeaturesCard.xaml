@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Controls.FeaturesCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- Feature toggles -->
+    <Border Style="{StaticResource Card}">
+        <StackPanel Spacing="4">
+            <TextBlock Text="{Binding [FeaturesTitle_Text], Source={StaticResource Loc}}" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,0,0,8" />
+            <ToggleSwitch OnContent="{Binding [Toggle_On], Source={StaticResource Loc}}" OffContent="{Binding [Toggle_Off], Source={StaticResource Loc}}" x:Name="ConvAwarenessSwitch"
+                          Header="{Binding [FeatureCaSwitch_Header], Source={StaticResource Loc}}"
+                          Toggled="ConvAwareness_Toggled" />
+            <ToggleSwitch OnContent="{Binding [Toggle_On], Source={StaticResource Loc}}" OffContent="{Binding [Toggle_Off], Source={StaticResource Loc}}" x:Name="AdaptiveVolumeSwitch"
+                          Header="{Binding [FeatureAvSwitch_Header], Source={StaticResource Loc}}"
+                          Toggled="AdaptiveVolume_Toggled" />
+            <ToggleSwitch OnContent="{Binding [Toggle_On], Source={StaticResource Loc}}" OffContent="{Binding [Toggle_Off], Source={StaticResource Loc}}" x:Name="AllowOffSwitch"
+                          Header="{Binding [FeatureAllowOffSwitch_Header], Source={StaticResource Loc}}"
+                          Toggled="AllowOff_Toggled" />
+        </StackPanel>
+    </Border>
+</UserControl>

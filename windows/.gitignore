@@ -1,0 +1,13 @@
+# Windows stack build output. Vendored deps (daemon/vendor/**) stay tracked.
+**/target/
+winui/**/bin/
+winui/**/obj/
+.vs/
+*.user
+DvlErrLog.txt
+
+# Prebuilt/release output — produced by CI, never committed
+dist/
+
+# devcon.exe is bundled with the installer (needed to create the ROOT mic device)
+!installer/tools/devcon.exe

@@ -1,0 +1,147 @@
+name: Windows CI (frontend)
+
+# Builds the native Windows frontend: the Rust daemon (librepodsd) and the WinUI 3
+# app (librepods-winui, which carries its own tray), and packs them with
+# everything else into ONE self-contained install folder. The end user gets only
+# that folder, so nothing may rely on tools installed on their PC (no WDK, no
+# Windows SDK, no VC++ redistributable).
+#
+# The two kernel drivers (AAP L2CAP + hi-res mic) are NOT built here — they need
+# the WDK. Their packages (.inf + .sys + .cat) are committed prebuilt and
+# install.ps1 test-signs them on the user's machine.
+
+on:
+  push:
+    branches: [main, windows-native]
+    tags: ['windows-v*']
+    paths:
+      - 'windows/**'
+      - '.github/workflows/ci-windows.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    # Creating/updating GitHub Releases needs write access; the default
+    # GITHUB_TOKEN is read-only on newer repos.
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- Rust: daemon (native msvc target) ---------------------------------
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            windows/daemon/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('windows/**/Cargo.lock') }}
+
+      - name: Fetch FFmpeg (AAC-ELD decode libs — not vendored in git)
+        shell: bash
+        run: windows/daemon/fetch-ffmpeg.sh
+
+      - name: Build daemon (librepodsd)
+        working-directory: windows/daemon
+        # Static CRT: otherwise the msvc build imports VCRUNTIME140.dll, which a
+        # clean Windows does not have, and the daemon won't start. (The FFmpeg
+        # DLLs only need the UCRT, which ships with Windows 10+.)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: cargo build --release
+
+      # ---- WinUI 3 app (unpackaged, self-contained) --------------------------
+      # WinUI resource generation runs the PRI MSBuild task
+      # (Microsoft.Build.Packaging.Pri.Tasks.dll), which is a .NET *Framework*
+      # assembly. `dotnet build` hosts MSBuild on .NET (Core) and cannot load it
+      # → MSB4062. Visual Studio's msbuild.exe is .NET Framework and loads it, so
+      # build the WinUI project with VS MSBuild. The .NET 10 SDK is still needed
+      # for the net10.0 target resolver.
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore WinUI app
+        working-directory: windows/winui
+        run: msbuild LibrePods.WinUI/LibrePods.WinUI.csproj -t:Restore -p:Configuration=Release -p:Platform=x64
+
+      - name: Build WinUI app
+        working-directory: windows/winui
+        run: msbuild LibrePods.WinUI/LibrePods.WinUI.csproj -t:Build -p:Configuration=Release -p:Platform=x64 -p:RestorePackages=false
+
+      # ---- Collect + upload artifacts ----------------------------------------
+      - name: Assemble install folder
+        shell: pwsh
+        run: |
+          # make-dist.ps1 is the one place that knows the installer's layout (the
+          # local dist uses it too), and it fails if any file install.ps1 needs is
+          # missing — so an incomplete bundle can't be uploaded again.
+          # Find the WinUI output dir by locating the exe (path varies with TFM/RID).
+          $exe = Get-ChildItem -Recurse -Filter librepods-winui.exe `
+            windows/winui/LibrePods.WinUI/bin | Select-Object -First 1
+          if (-not $exe) { throw "WinUI build output (librepods-winui.exe) not found" }
+          ./windows/installer/make-dist.ps1 -Out "$env:GITHUB_WORKSPACE/dist" `
+            -DaemonExe windows/daemon/target/release/librepodsd.exe `
+            -WinUIDir $exe.Directory.FullName
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: librepods-windows-frontend
+          path: dist
+          if-no-files-found: error
+
+      # ---- Releases --------------------------------------------------------
+      # push to windows-native → rolling "windows-nightly" pre-release, rebuilt on
+      #                          every push and pointing at that commit.
+      # push a windows-v* tag   → a versioned release.
+      # PRs and other branches only get the Actions artifact above.
+      - name: Package release zip
+        if: startsWith(github.ref, 'refs/tags/windows-v') || (github.event_name == 'push' && github.ref == 'refs/heads/windows-native')
+        shell: pwsh
+        run: Compress-Archive -Path dist/* -DestinationPath LibrePods-Windows.zip
+
+      - name: Publish nightly pre-release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/windows-native'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Recreate instead of editing, so the tag moves to this commit too.
+          gh release delete windows-nightly --cleanup-tag --yes 2>$null
+          $global:LASTEXITCODE = 0
+          $notes = @"
+          Automatic build of ``windows-native`` at ${{ github.sha }}.
+
+          Extract the zip, then in an **admin** PowerShell inside the folder:
+          ``powershell -ExecutionPolicy Bypass -File .\install.ps1``
+          (Test Mode must be on first — see windows/README.md.)
+          "@
+          gh release create windows-nightly LibrePods-Windows.zip `
+            --target ${{ github.sha }} --prerelease --latest=false `
+            --title "LibrePods for Windows (nightly)" --notes $notes
+          if ($LASTEXITCODE) { throw "gh release create failed ($LASTEXITCODE)" }
+
+      - name: Create versioned GitHub Release
+        if: startsWith(github.ref, 'refs/tags/windows-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: LibrePods for Windows ${{ github.ref_name }}
+          files: LibrePods-Windows.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

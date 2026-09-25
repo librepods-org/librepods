@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Pages.DevicePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:LibrePods.WinUI.Controls"
+    mc:Ignorable="d"
+    SizeChanged="OnSizeChanged">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  Padding="0,0,0,24">
+        <Grid x:Name="DeviceRoot"
+              Padding="24"
+              RowSpacing="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Responsive 1↔2 columns is driven from code-behind (OnSizeChanged)
+                 off the page's actual content width — an AdaptiveTrigger nested in
+                 the ScrollViewer didn't fire, and content width (not window width)
+                 is what decides whether two columns fit. -->
+
+            <!-- Header: AirPods image + name/status, full width -->
+            <controls:DeviceHeader x:Name="Header" Grid.Row="0" />
+
+            <!-- Transient daemon overlay + nearby-connect prompt -->
+            <StackPanel Grid.Row="1" Spacing="16">
+                <InfoBar x:Name="OverlayBar"
+                         IsOpen="False"
+                         IsClosable="True" />
+                <InfoBar x:Name="ConnectPromptBar"
+                         IsOpen="False"
+                         IsClosable="True"
+                         Severity="Informational" />
+            </StackPanel>
+
+            <!-- Responsive card grid: 2 columns wide, 1 column narrow -->
+            <Grid x:Name="CardsGrid"
+                  Grid.Row="2"
+                  ColumnSpacing="16"
+                  RowSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="Col0" Width="*" />
+                    <ColumnDefinition x:Name="Col1" Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Left column: Battery, Volume, Adaptive Noise -->
+                <StackPanel x:Name="LeftColumn"
+                            Grid.Row="0" Grid.Column="0"
+                            Spacing="16">
+                    <controls:BatteryCard x:Name="BatteryCard" />
+                    <controls:VolumeCard x:Name="VolumeCard" />
+                    <controls:AdaptiveNoiseCard x:Name="AdaptiveNoiseCard" />
+                    <!-- Heart-rate: hidden by default. The AirPods gate the HR stream
+                         to Apple hosts (they ACK the enable but never send data to a
+                         non-Apple host, by design — see docs/windows/heart-rate.md), so
+                         it does not work on Windows. Shown only when the user opts in via
+                         Settings ▸ Experimental; visibility is set from AppSettings in the
+                         DevicePage code-behind. -->
+                    <controls:HeartRateCard x:Name="HeartRateCard" Visibility="Collapsed" />
+                    <controls:HearingAidCard x:Name="HearingAidCard" Visibility="Collapsed" />
+                </StackPanel>
+
+                <!-- Right column: Noise Control, Features, Hi-res Mic -->
+                <StackPanel x:Name="RightColumn"
+                            Grid.Row="0" Grid.Column="1"
+                            Spacing="16">
+                    <controls:NoiseControlCard x:Name="NoiseControlCard" />
+                    <controls:FeaturesCard x:Name="FeaturesCard" />
+                    <controls:MicCard x:Name="MicCard" />
+                    <!-- Hidden until the first AAP 0x2E arrives. -->
+                    <controls:MultipointCard x:Name="MultipointCard" Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

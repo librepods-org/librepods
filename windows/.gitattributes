@@ -1,0 +1,10 @@
+daemon/vendor/** linguist-vendored
+drivers/**/prebuilt/** linguist-vendored
+drivers/mic/** linguist-vendored
+drivers/aap/** linguist-vendored
+installer/tools/** linguist-vendored
+
+# The prebuilt driver catalogs (.cat) pin the exact bytes of each INF. A CRLF
+# conversion on checkout (Windows CI runners use autocrlf) changes the hash and
+# the package no longer installs, so never normalise line endings there.
+drivers/**/prebuilt/*.inf -text

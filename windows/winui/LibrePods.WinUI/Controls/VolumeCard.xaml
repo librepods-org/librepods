@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="LibrePods.WinUI.Controls.VolumeCard"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <!-- Volume -->
+    <Border Style="{StaticResource Card}">
+        <StackPanel Spacing="12">
+            <TextBlock Text="{Binding [VolumeTitle_Text], Source={StaticResource Loc}}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+            <Grid ColumnSpacing="12" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Slider x:Name="VolumeSlider"
+                        Grid.Column="0"
+                        Minimum="0" Maximum="100" StepFrequency="1"
+                        VerticalAlignment="Center"
+                        ValueChanged="Volume_ValueChanged" />
+                <TextBlock x:Name="VolumeText"
+                           Grid.Column="1"
+                           Text="—"
+                           VerticalAlignment="Center"
+                           MinWidth="56"
+                           Margin="8,0,0,0" />
+            </Grid>
+            <ToggleButton x:Name="MuteToggle" Content="{Binding [MuteToggle_Content], Source={StaticResource Loc}}" Click="Mute_Click" />
+        </StackPanel>
+    </Border>
+</UserControl>

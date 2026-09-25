@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!--
+    Portuguese (Portugal) UI strings for the LibrePods WinUI client.
+    Mirrors the keys in Strings/en-US/Resources.resw; en-US stays the fallback.
+    The OS display language selects this file automatically on a pt-PT Windows.
+  -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <!-- ===== MainWindow ===== -->
+  <data name="NavDevicesHeader.Content" xml:space="preserve"><value>Dispositivos</value></data>
+
+  <!-- ===== DeviceHeader ===== -->
+  <data name="HeaderConnectBtn.Content" xml:space="preserve"><value>Ligar</value></data>
+  <data name="HeaderDisconnectBtn.Text" xml:space="preserve"><value>Desligar</value></data>
+  <data name="HeaderRepairBtn.Text" xml:space="preserve"><value>Reparar ligação</value></data>
+
+  <!-- ===== BatteryCard ===== -->
+  <data name="BatteryTitle.Text" xml:space="preserve"><value>Bateria</value></data>
+  <data name="BatteryLeftLabel.Text" xml:space="preserve"><value>Esquerdo</value></data>
+  <data name="BatteryRightLabel.Text" xml:space="preserve"><value>Direito</value></data>
+  <data name="BatteryCaseLabel.Text" xml:space="preserve"><value>Estojo</value></data>
+
+  <!-- ===== VolumeCard ===== -->
+  <data name="VolumeTitle.Text" xml:space="preserve"><value>Volume</value></data>
+  <data name="MuteToggle.Content" xml:space="preserve"><value>Silenciar</value></data>
+  <data name="Toggle_On" xml:space="preserve"><value>Ligado</value></data>
+  <data name="Toggle_Off" xml:space="preserve"><value>Desligado</value></data>
+
+  <!-- ===== AdaptiveNoiseCard ===== -->
+  <data name="AdaptiveNoiseTitle.Text" xml:space="preserve"><value>Ruído Adaptativo</value></data>
+  <data name="AdaptiveNoiseSubtitle.Text" xml:space="preserve"><value>Afeta apenas o modo Adaptativo.</value></data>
+  <data name="NoiseLowBtn.Content" xml:space="preserve"><value>Baixo</value></data>
+  <data name="NoiseMidBtn.Content" xml:space="preserve"><value>Médio</value></data>
+  <data name="NoiseHighBtn.Content" xml:space="preserve"><value>Alto</value></data>
+
+  <!-- ===== NoiseControlCard ===== -->
+  <data name="NoiseControlTitle.Text" xml:space="preserve"><value>Controlo de Ruído</value></data>
+  <data name="AncOffRadio.Content" xml:space="preserve"><value>Desligado</value></data>
+  <data name="AncNcRadio.Content" xml:space="preserve"><value>Cancelamento de Ruído</value></data>
+  <data name="AncTransparencyRadio.Content" xml:space="preserve"><value>Transparência</value></data>
+  <data name="AncAdaptiveRadio.Content" xml:space="preserve"><value>Adaptativo</value></data>
+
+  <!-- ===== FeaturesCard ===== -->
+  <data name="FeaturesTitle.Text" xml:space="preserve"><value>Funcionalidades</value></data>
+  <data name="FeatureCaSwitch.Header" xml:space="preserve"><value>Perceção de Conversa</value></data>
+  <data name="FeatureAvSwitch.Header" xml:space="preserve"><value>Volume Adaptativo</value></data>
+  <data name="FeatureAllowOffSwitch.Header" xml:space="preserve"><value>Permitir modo "Desligado"</value></data>
+
+  <!-- ===== MicCard ===== -->
+  <data name="MicTitle.Text" xml:space="preserve"><value>Microfone de alta resolução</value></data>
+  <data name="MicAutoSwitch.Header" xml:space="preserve"><value>Usar automaticamente quando uma app grava</value></data>
+  <data name="MicEnableBtn.Content" xml:space="preserve"><value>Usar o microfone</value></data>
+
+  <!-- ===== HearingAidCard ===== -->
+  <data name="HearingAidTitle.Text" xml:space="preserve"><value>Assistência auditiva</value></data>
+  <data name="HearingAidSubtitle.Text" xml:space="preserve"><value>Amplifica o som à tua volta através dos AirPods (Pro 3).</value></data>
+  <data name="HearingAidWarning.Title" xml:space="preserve"><value>Experimental</value></data>
+  <data name="HearingAidWarning.Message" xml:space="preserve"><value>Amplificação sem um audiograma adequado pode causar feedback — mantém num nível confortável.</value></data>
+  <data name="HearingAidSwitch.Header" xml:space="preserve"><value>Aparelho auditivo</value></data>
+  <data name="HearingAidAmp.Header" xml:space="preserve"><value>Amplificação</value></data>
+  <data name="HearingAidBalance.Header" xml:space="preserve"><value>Balanço (esquerda / direita)</value></data>
+  <data name="HearingAidConvBoost.Header" xml:space="preserve"><value>Reforço de conversa</value></data>
+  <data name="HearingAidAudiogram.Header" xml:space="preserve"><value>Audiograma — perda auditiva (dB HL) por frequência</value></data>
+  <data name="HearingAidTone.Header" xml:space="preserve"><value>Tom</value></data>
+  <!-- ===== HeartRateCard ===== -->
+  <data name="HeartRateTitle.Text" xml:space="preserve"><value>Frequência Cardíaca</value></data>
+  <data name="HeartRateSubtitle.Text" xml:space="preserve"><value>Apenas AirPods Pro 3 — experimental. Consome bateria.</value></data>
+  <data name="HeartRateSwitch.Header" xml:space="preserve"><value>Monitorizar frequência cardíaca</value></data>
+  <data name="HeartRateBpmLabel.Text" xml:space="preserve"><value>bpm</value></data>
+  <data name="HeartRateWarning.Title" xml:space="preserve"><value>Experimental — em teste</value></data>
+  <data name="HeartRateWarning.Message" xml:space="preserve"><value>Isto é um teste em desenvolvimento e pode ainda não apresentar leituras.</value></data>
+
+  <!-- ===== SettingsPage ===== -->
+  <data name="SettingsTitle.Text" xml:space="preserve"><value>Definições</value></data>
+  <data name="SettingsAppearance.Text" xml:space="preserve"><value>Aparência</value></data>
+  <data name="SettingsTheme.Text" xml:space="preserve"><value>Tema</value></data>
+  <data name="ThemeSystemRadio.Content" xml:space="preserve"><value>Sistema</value></data>
+  <data name="ThemeLightRadio.Content" xml:space="preserve"><value>Claro</value></data>
+  <data name="ThemeDarkRadio.Content" xml:space="preserve"><value>Escuro</value></data>
+  <data name="SettingsLanguage.Text" xml:space="preserve"><value>Idioma</value></data>
+  <data name="SettingsLanguageHint.Text" xml:space="preserve"><value>Substitui o idioma da aplicação — muda de imediato.</value></data>
+  <data name="LangSystem.Content" xml:space="preserve"><value>Predefinição do sistema</value></data>
+  <data name="SettingsLanguageRestart.Title" xml:space="preserve"><value>Reinicie para aplicar</value></data>
+  <data name="SettingsLanguageRestart.Message" xml:space="preserve"><value>O idioma muda por completo da próxima vez que abrir o LibrePods.</value></data>
+  <data name="SettingsDefaultFrontend.Text" xml:space="preserve"><value>Interface predefinida</value></data>
+  <data name="SettingsDefaultFrontendHint.Text" xml:space="preserve"><value>Escolhe que interface o "Abrir app" da bandeja abre da próxima vez.</value></data>
+  <data name="SettingsRefreshBtn.Content" xml:space="preserve"><value>Atualizar estado</value></data>
+  <data name="SettingsSwitchUiBtn.Content" xml:space="preserve"><value>Mudar interface predefinida para iced</value></data>
+  <data name="SettingsExperimental.Text" xml:space="preserve"><value>Experimental</value></data>
+  <data name="SettingsStartup.Text" xml:space="preserve"><value>Arranque</value></data>
+  <data name="SettingsStartupToggle.Header" xml:space="preserve"><value>Iniciar o LibrePods com o Windows</value></data>
+  <data name="SettingsHrWarning.Title" xml:space="preserve"><value>Funcionalidades experimentais</value></data>
+  <data name="SettingsHrWarning.Message" xml:space="preserve"><value>Estas funcionalidades são experimentais e podem ser instáveis. A monitorização de frequência cardíaca, em particular, não funciona no Windows — os AirPods restringem-na a anfitriões Apple (os auriculares confirmam o pedido, mas nunca enviam leituras).</value></data>
+  <data name="SettingsHrToggle.Header" xml:space="preserve"><value>Mostrar funcionalidades experimentais</value></data>
+  <data name="SettingsDeviceInfo.Text" xml:space="preserve"><value>Sobre o dispositivo</value></data>
+  <data name="DeviceInfoModel.Text" xml:space="preserve"><value>Modelo</value></data>
+  <data name="DeviceInfoFirmware.Text" xml:space="preserve"><value>Firmware</value></data>
+  <data name="DeviceInfoSerial.Text" xml:space="preserve"><value>Nº de série</value></data>
+  <data name="ConnectPrompt_Nearby" xml:space="preserve"><value>AirPods por perto</value></data>
+  <data name="ConnectPrompt_Connect" xml:space="preserve"><value>Ligar</value></data>
+  <data name="ConnectPrompt_Dismiss" xml:space="preserve"><value>Agora não</value></data>
+  <data name="Overlay_CaseOpened" xml:space="preserve"><value>Estojo aberto</value></data>
+  <data name="Overlay_CaseClosed" xml:space="preserve"><value>Estojo fechado</value></data>
+  <data name="Overlay_BatteryLow" xml:space="preserve"><value>Bateria fraca —</value></data>
+  <data name="Overlay_CaseBatteryLow" xml:space="preserve"><value>Bateria do estojo fraca —</value></data>
+  <data name="Overlay_RenamedTo" xml:space="preserve"><value>Renomeado para</value></data>
+  <data name="Rename_WindowsNoticeTitle" xml:space="preserve"><value>Nome atualizado</value></data>
+  <data name="Rename_WindowsNoticeBody" xml:space="preserve"><value>No Windows, o novo nome só aparece depois de desligares e voltares a ligar os AirPods.</value></data>
+  <data name="Battery_LeftShort" xml:space="preserve"><value>Esq</value></data>
+  <data name="Battery_RightShort" xml:space="preserve"><value>Dir</value></data>
+  <data name="Battery_CaseShort" xml:space="preserve"><value>Estojo</value></data>
+  <data name="Overlay_InCase" xml:space="preserve"><value>AirPod na caixa</value></data>
+  <data name="Overlay_HrOn" xml:space="preserve"><value>Monitorização cardíaca ligada</value></data>
+  <data name="Overlay_HrOff" xml:space="preserve"><value>Monitorização cardíaca desligada</value></data>
+  <data name="Overlay_MicOn" xml:space="preserve"><value>Microfone hi-res ligado</value></data>
+  <data name="Overlay_MicInUse" xml:space="preserve"><value>Microfone em uso — hi-res ligado</value></data>
+  <data name="Overlay_MicReleasing" xml:space="preserve"><value>Microfone libertado — a restaurar estéreo…</value></data>
+  <data name="Overlay_StereoRestored" xml:space="preserve"><value>Estéreo restaurado</value></data>
+  <data name="SettingsAbout.Text" xml:space="preserve"><value>Acerca</value></data>
+  <data name="SettingsAppDesc.Text" xml:space="preserve"><value>LibrePods — cliente nativo Windows do librepodsd</value></data>
+
+  <!-- ===== IslandView ===== -->
+  <data name="IslandCaseLabel.Text" xml:space="preserve"><value>Estojo</value></data>
+
+  <!-- ===== Runtime strings (fetched from code via Localize.Get) ===== -->
+  <data name="Status_Connected" xml:space="preserve"><value>Ligado</value></data>
+  <data name="Status_Disconnected" xml:space="preserve"><value>Desligado</value></data>
+  <data name="Status_Connecting" xml:space="preserve"><value>A ligar…</value></data>
+  <data name="Status_WaitingForDaemon" xml:space="preserve"><value>À espera do daemon…</value></data>
+
+  <data name="Volume_Muted" xml:space="preserve"><value>silenciado</value></data>
+  <data name="Action_Mute" xml:space="preserve"><value>Silenciar</value></data>
+  <data name="Action_Unmute" xml:space="preserve"><value>Repor som</value></data>
+  <data name="Action_Open" xml:space="preserve"><value>Abrir</value></data>
+  <data name="Action_Quit" xml:space="preserve"><value>Sair</value></data>
+  <data name="Action_Connect" xml:space="preserve"><value>Ligar</value></data>
+
+  <data name="Mic_Recording" xml:space="preserve"><value>Em uso - a gravar em alta qualidade</value></data>
+  <data name="Mic_Idle" xml:space="preserve"><value>Não está a ser usado</value></data>
+
+  <data name="Anc_Off" xml:space="preserve"><value>Desligado</value></data>
+  <data name="Anc_NoiseCancellation" xml:space="preserve"><value>Cancelamento de Ruído</value></data>
+  <data name="Anc_Transparency" xml:space="preserve"><value>Transparência</value></data>
+  <data name="Anc_Adaptive" xml:space="preserve"><value>Adaptativo</value></data>
+
+  <data name="Tray_NoiseControl" xml:space="preserve"><value>Controlo de Ruído</value></data>
+  <data name="Tray_NoBatteryData" xml:space="preserve"><value>Sem dados de bateria</value></data>
+  <data name="Tray_CaseShort" xml:space="preserve"><value>Estojo</value></data>
+
+  <data name="Island_DefaultName" xml:space="preserve"><value>AirPods</value></data>
+
+  <data name="ConnectPrompt_Title" xml:space="preserve"><value>Ligar {0}?</value></data>
+  <data name="ConnectPrompt_Message" xml:space="preserve"><value>Por perto — clica em Ligar para iniciar uma sessão.</value></data>
+
+  <data name="Settings_DefaultUiChanged_Title" xml:space="preserve"><value>Interface predefinida alterada</value></data>
+  <data name="Settings_DefaultUiChanged_Message" xml:space="preserve"><value>A app iced será a interface predefinida da próxima vez que abrires o LibrePods.</value></data>
+
+  <!-- ===== MultipointCard ===== -->
+  <data name="MultipointTitle.Text" xml:space="preserve"><value>Partilhadas com</value></data>
+  <data name="Multipoint_OnlyThisPc" xml:space="preserve"><value>Só este PC está ligado</value></data>
+  <data name="Multipoint_Shared" xml:space="preserve"><value>Partilhadas com mais {0} dispositivo(s)</value></data>
+  <data name="Multipoint_ThisPc" xml:space="preserve"><value>Este PC</value></data>
+  <data name="Multipoint_Hint" xml:space="preserve"><value>Os AirPods suportam duas ligações em simultâneo. Quando outro dispositivo reproduz som, pode tirá-los a este PC.</value></data>
+
+  <!-- ===== Restore audio ===== -->
+  <data name="HeaderRebuildAudioBtn.Text" xml:space="preserve"><value>Restaurar áudio</value></data>
+  <data name="HeaderRebuildAudioBtn.Tip" xml:space="preserve"><value>Desliga e volta a ligar os serviços de áudio das AirPods — a versão em um clique de Desligar e voltar a ligar. Use quando o som pára mas está tudo aparentemente ligado.</value></data>
+</root>
