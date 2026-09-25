@@ -34,10 +34,126 @@ void TrayIconManager::showNotification(const QString &title, const QString &mess
     trayIcon->showMessage(title, message, QSystemTrayIcon::Information, 3000);
 }
 
-void TrayIconManager::TrayIconManager::updateBatteryStatus(const QString &status)
+void TrayIconManager::setActiveDevice(const QString &deviceKey)
 {
-    trayIcon->setToolTip(tr("Battery Status: ") + status);
-    updateIconFromBattery(status);
+    if (m_activeDeviceKey == deviceKey)
+        return;
+
+    m_activeDeviceKey = deviceKey;
+
+    int index = findDeviceEntry(deviceKey);
+    if (index >= 0)
+    {
+        updateIconFromBattery(m_deviceEntries.at(index).status);
+    }
+    else
+    {
+        // No battery data for this device yet; don't keep showing the
+        // previous device's level on the icon
+        trayIcon->setIcon(QIcon(":/icons/assets/airpods.png"));
+    }
+    renderBatteryTooltip();
+}
+
+void TrayIconManager::updateDeviceBattery(const QString &deviceKey, const QString &name, const QString &status)
+{
+    if (deviceKey.isEmpty() || status.isEmpty())
+        return;
+
+    int index = findDeviceEntry(deviceKey);
+    if (index < 0)
+    {
+        m_deviceEntries.append({deviceKey, name, status});
+    }
+    else
+    {
+        if (!name.isEmpty())
+            m_deviceEntries[index].name = name;
+        m_deviceEntries[index].status = status;
+    }
+
+    if (deviceKey == m_activeDeviceKey)
+        updateIconFromBattery(status);
+    renderBatteryTooltip();
+}
+
+void TrayIconManager::updateDeviceName(const QString &deviceKey, const QString &name)
+{
+    int index = findDeviceEntry(deviceKey);
+    if (index < 0 || name.isEmpty() || m_deviceEntries.at(index).name == name)
+        return;
+
+    m_deviceEntries[index].name = name;
+    renderBatteryTooltip();
+}
+
+void TrayIconManager::removeDevice(const QString &deviceKey)
+{
+    int index = findDeviceEntry(deviceKey);
+    if (index < 0)
+        return;
+
+    m_deviceEntries.removeAt(index);
+
+    if (deviceKey == m_activeDeviceKey)
+    {
+        m_activeDeviceKey.clear();
+        trayIcon->setIcon(QIcon(":/icons/assets/airpods.png"));
+    }
+    renderBatteryTooltip();
+}
+
+void TrayIconManager::resetTrayIcon()
+{
+    m_deviceEntries.clear();
+    m_activeDeviceKey.clear();
+    trayIcon->setIcon(QIcon(":/icons/assets/airpods.png"));
+    trayIcon->setToolTip("");
+}
+
+int TrayIconManager::findDeviceEntry(const QString &deviceKey) const
+{
+    for (int i = 0; i < m_deviceEntries.size(); ++i)
+    {
+        if (m_deviceEntries.at(i).key == deviceKey)
+            return i;
+    }
+    return -1;
+}
+
+void TrayIconManager::renderBatteryTooltip()
+{
+    if (m_deviceEntries.isEmpty())
+    {
+        trayIcon->setToolTip("");
+        return;
+    }
+
+    if (m_deviceEntries.size() == 1)
+    {
+        // Keep the familiar single-device format
+        trayIcon->setToolTip(tr("Battery Status: ") + m_deviceEntries.first().status);
+        return;
+    }
+
+    // Multiple devices: one line per device, active device first
+    QStringList lines;
+    auto appendEntry = [&lines, this](const DeviceBatteryEntry &entry)
+    {
+        const QString label = entry.name.isEmpty() ? tr("AirPods") : entry.name;
+        lines.append(label + ": " + entry.status);
+    };
+
+    const int activeIndex = findDeviceEntry(m_activeDeviceKey);
+    if (activeIndex >= 0)
+        appendEntry(m_deviceEntries.at(activeIndex));
+    for (int i = 0; i < m_deviceEntries.size(); ++i)
+    {
+        if (i != activeIndex)
+            appendEntry(m_deviceEntries.at(i));
+    }
+
+    trayIcon->setToolTip(lines.join(QStringLiteral("\n")));
 }
 
 void TrayIconManager::updateNoiseControlState(NoiseControlMode mode)

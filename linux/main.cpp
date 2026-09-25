@@ -66,7 +66,19 @@ public:
         connect(trayManager, &TrayIconManager::openSettings, this, &AirPodsTrayApp::onOpenSettings);
         connect(trayManager, &TrayIconManager::noiseControlChanged, this, &AirPodsTrayApp::setNoiseControlMode);
         connect(trayManager, &TrayIconManager::conversationalAwarenessToggled, this, &AirPodsTrayApp::setConversationalAwareness);
-        connect(m_deviceInfo, &DeviceInfo::batteryStatusChanged, trayManager, &TrayIconManager::updateBatteryStatus);
+        connect(m_deviceInfo, &DeviceInfo::batteryStatusChanged, this, [this](const QString &status) {
+            // Track battery per device so an update from one device doesn't
+            // wipe out the others in the tray (#670). Empty statuses come from
+            // DeviceInfo::reset(); tray entries are removed on disconnect instead.
+            const QString address = m_deviceInfo->bluetoothAddress();
+            if (address.isEmpty() || status.isEmpty())
+                return;
+            trayManager->setActiveDevice(address);
+            trayManager->updateDeviceBattery(address, m_deviceInfo->deviceName(), status);
+        });
+        connect(m_deviceInfo, &DeviceInfo::deviceNameChanged, this, [this](const QString &name) {
+            trayManager->updateDeviceName(m_deviceInfo->bluetoothAddress(), name);
+        });
         connect(m_deviceInfo, &DeviceInfo::noiseControlModeChanged, trayManager, &TrayIconManager::updateNoiseControlState);
         connect(m_deviceInfo, &DeviceInfo::conversationalAwarenessChanged, trayManager, &TrayIconManager::updateConversationalAwareness);
         connect(trayManager, &TrayIconManager::notificationsEnabledChanged, this, &AirPodsTrayApp::saveNotificationsEnabled);
@@ -527,7 +539,7 @@ private slots:
         trayManager->showNotification(
             tr("AirPods Disconnected"),
             tr("Your AirPods have been disconnected"));
-        trayManager->resetTrayIcon();
+        trayManager->removeDevice(address.toString());
     }
 
     void bluezDeviceDisconnected(const QString &address, const QString &name)
@@ -537,6 +549,9 @@ private slots:
             onDeviceDisconnected(QBluetoothAddress(address));
         } else {
             LOG_WARN("Disconnected device does not match connected device: " << address << " != " << m_deviceInfo->bluetoothAddress());
+            // Still drop its entry from the tray in case it was tracked as a
+            // previously active device
+            trayManager->removeDevice(address);
         }
     }
 
@@ -608,6 +623,16 @@ private slots:
 
         LOG_INFO("Connecting to device: " << device.name());
 
+        // Switching to a different device: clear the previous device's state
+        // so the new one doesn't inherit its name/battery. The previous
+        // device's last known status stays visible in the tray until it
+        // actually disconnects.
+        if (!m_deviceInfo->bluetoothAddress().isEmpty()
+            && m_deviceInfo->bluetoothAddress() != device.address().toString())
+        {
+            m_deviceInfo->reset();
+        }
+
         // Clean up any existing socket
         if (socket)
         {
@@ -656,6 +681,8 @@ private slots:
 
         localSocket->connectToService(device.address(), QBluetoothUuid("74ec2172-0bad-4d01-8f77-997b2be0722a"));
         m_deviceInfo->setBluetoothAddress(device.address().toString());
+        if (!device.name().isEmpty())
+            m_deviceInfo->setDeviceName(device.name()); // BlueZ name until AACP metadata arrives
         notifyAndroidDevice();
     }
 
@@ -876,6 +903,13 @@ private slots:
 
     void bleDeviceFound(const BleInfo &device)
     {
+        // While an AACP connection is up it is the authoritative source for
+        // battery and ear-detection state. BLE broadcasts are anonymized, so a
+        // broadcast matching the stored IRK may belong to another (paired but
+        // not connected) device and must not override the connected one (#670).
+        if (areAirpodsConnected())
+            return;
+
         if (BLEUtils::isValidIrkRpa(m_deviceInfo->magicAccIRK(), device.address)) {
             m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());

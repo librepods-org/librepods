@@ -1,4 +1,6 @@
+#include <QList>
 #include <QObject>
+#include <QString>
 #include <QSystemTrayIcon>
 
 #include "enums.h"
@@ -15,7 +17,13 @@ class TrayIconManager : public QObject
 public:
     explicit TrayIconManager(QObject *parent = nullptr);
 
-    void updateBatteryStatus(const QString &status);
+    // Per-device battery tracking. Devices are keyed by their Bluetooth
+    // address so several connected AirPods can be shown at once; the active
+    // device (the one the app has an AACP connection to) drives the icon.
+    void setActiveDevice(const QString &deviceKey);
+    void updateDeviceBattery(const QString &deviceKey, const QString &name, const QString &status);
+    void updateDeviceName(const QString &deviceKey, const QString &name);
+    void removeDevice(const QString &deviceKey);
 
     void updateNoiseControlState(AirpodsTrayApp::Enums::NoiseControlMode);
 
@@ -33,11 +41,7 @@ public:
         }
     }
 
-    void resetTrayIcon()
-    {
-        trayIcon->setIcon(QIcon(":/icons/assets/airpods.png"));
-        trayIcon->setToolTip("");
-    }
+    void resetTrayIcon();
 
 signals:
     void notificationsEnabledChanged(bool enabled);
@@ -46,15 +50,27 @@ private slots:
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
 
 private:
+    struct DeviceBatteryEntry
+    {
+        QString key;    // Bluetooth address of the device
+        QString name;   // last known device name
+        QString status; // formatted battery status string
+    };
+
     QSystemTrayIcon *trayIcon;
     QMenu *trayMenu;
     QAction *caToggleAction;
     QActionGroup *noiseControlGroup;
     bool m_notificationsEnabled = true;
+    QList<DeviceBatteryEntry> m_deviceEntries;
+    QString m_activeDeviceKey;
 
     void setupMenuActions();
 
     void updateIconFromBattery(const QString &status);
+
+    int findDeviceEntry(const QString &deviceKey) const;
+    void renderBatteryTooltip();
 
 signals:
     void trayClicked();
