@@ -1,0 +1,7 @@
+**/*.flatpak
+repo
+dist
+build-dir
+vendor
+.cargo
+.flatpak-builder
