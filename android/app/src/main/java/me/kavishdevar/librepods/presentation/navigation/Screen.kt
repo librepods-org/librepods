@@ -29,6 +29,27 @@ sealed interface Screen: NavKey {
     data object HeadTracking: Screen
 
     @Serializable
+    data object HeartRateTest: Screen
+
+    @Serializable
+    data object HealthConnectSettings: Screen
+
+    @Serializable
+    data object Workout: Screen
+
+    @Serializable
+    data object WorkoutHistory: Screen
+
+    @Serializable
+    data class WorkoutDetail(val sessionId: String): Screen
+
+    @Serializable
+    data object WorkoutSettings: Screen
+
+    @Serializable
+    data object NearbyFinder: Screen
+
+    @Serializable
     data object Accessibility: Screen
 
     @Serializable

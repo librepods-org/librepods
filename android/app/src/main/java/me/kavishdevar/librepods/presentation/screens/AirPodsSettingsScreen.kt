@@ -111,6 +111,7 @@ import me.kavishdevar.librepods.presentation.components.BatteryView
 import me.kavishdevar.librepods.presentation.components.CallControlSettings
 import me.kavishdevar.librepods.presentation.components.ConnectionSettings
 import me.kavishdevar.librepods.presentation.components.HearingHealthSettings
+import me.kavishdevar.librepods.presentation.components.HeartRateCard
 import me.kavishdevar.librepods.presentation.components.MaterialButtonStyle
 import me.kavishdevar.librepods.presentation.components.NoiseControlSettings
 import me.kavishdevar.librepods.presentation.components.PressAndHoldSettings
@@ -144,7 +145,9 @@ fun AirPodsSettingsRoute(
     navigateToVersion: () -> Unit,
     navigateToTroubleshooting: () -> Unit,
     navigateToCallControlScreen: (action: String) -> Unit,
-    navigateToMicrophoneSettings: () -> Unit
+    navigateToMicrophoneSettings: () -> Unit,
+    navigateToHeartRateTest: () -> Unit,
+    navigateToNearbyFinder: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -190,6 +193,11 @@ fun AirPodsSettingsRoute(
             navigateToTroubleshooting = navigateToTroubleshooting,
             navigateToCallControlScreen = navigateToCallControlScreen,
             navigateToMicrophoneSettings = navigateToMicrophoneSettings,
+            navigateToHeartRateTest = navigateToHeartRateTest,
+            navigateToNearbyFinder = navigateToNearbyFinder,
+
+            setHeartRateMonitoringEnabled = viewModel::setHeartRateMonitoringEnabled,
+            reconnectAacpForHeartRate = viewModel::reconnectAacpForHeartRate,
 
             activateDemoMode = viewModel::activateDemoMode,
             reconnectFromSavedMac = viewModel::reconnectFromSavedMac
@@ -232,6 +240,11 @@ fun AirPodsSettingsScreen(
         navigateToTroubleshooting: () -> Unit,
         navigateToCallControlScreen: (action: String) -> Unit,
         navigateToMicrophoneSettings: () -> Unit,
+        navigateToHeartRateTest: () -> Unit,
+        navigateToNearbyFinder: () -> Unit,
+
+        setHeartRateMonitoringEnabled: (Boolean) -> Unit,
+        reconnectAacpForHeartRate: () -> Unit,
 
         activateDemoMode: () -> Unit,
         reconnectFromSavedMac: () -> Unit,
@@ -316,7 +329,7 @@ fun AirPodsSettingsScreen(
                 )
             }
             item(key = "spacer_battery") {
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
 
             item(key = "name") {
@@ -325,6 +338,28 @@ fun AirPodsSettingsScreen(
                     description = deviceName.text,
                     onClick = navigateToRename,
                 )
+            }
+            item(key = "spacer_nearby_finder") { Spacer(modifier = Modifier.height(16.dp)) }
+            item(key = "nearby_finder") {
+                StyledListItem(
+                    name = "Find Nearby",
+                    onClick = navigateToNearbyFinder
+                )
+            }
+            val hasHeartRateCapability =
+                state.instance?.model?.capabilities?.contains(Capability.HRM) == true
+            if (hasHeartRateCapability) {
+                item(key = "spacer_heart_rate") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                item(key = "heart_rate") {
+                    HeartRateCard(
+                        state = state.heartRate,
+                        onMonitoringChanged = setHeartRateMonitoringEnabled,
+                        onReconnectAacp = reconnectAacpForHeartRate,
+                        onOpenDetails = navigateToHeartRateTest
+                    )
+                }
             }
 
             val hasHearingAidCapability =
@@ -986,6 +1021,11 @@ fun AirPodsSettingsScreenPreviewApple() {
                 navigateToTroubleshooting = {},
                 navigateToCallControlScreen = {},
                 navigateToMicrophoneSettings = {},
+                navigateToHeartRateTest = {},
+                navigateToNearbyFinder = {},
+
+                setHeartRateMonitoringEnabled = {},
+                reconnectAacpForHeartRate = {},
 
                 activateDemoMode = {},
                 reconnectFromSavedMac = {}
@@ -1033,6 +1073,11 @@ fun AirPodsSettingsScreenPreviewMaterial() {
                 navigateToTroubleshooting = {},
                 navigateToCallControlScreen = {},
                 navigateToMicrophoneSettings = {},
+                navigateToHeartRateTest = {},
+                navigateToNearbyFinder = {},
+
+                setHeartRateMonitoringEnabled = {},
+                reconnectAacpForHeartRate = {},
 
                 activateDemoMode = {},
                 reconnectFromSavedMac = {}

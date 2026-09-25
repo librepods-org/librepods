@@ -65,9 +65,17 @@ class ATTManagerv2 {
     }
 
     fun stopReader() {
+        val thread = readerThread
         readerRunning.set(false)
-        readerThread?.interrupt()
-        readerThread = null
+        thread?.interrupt()
+        if (thread != null && thread !== Thread.currentThread()) {
+            try {
+                thread.join(500L)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
+        if (readerThread === thread) readerThread = null
     }
 
     fun setOnNotificationReceived(listener: ((handle: Byte, value: ByteArray) -> Unit)?) {
@@ -140,6 +148,7 @@ class ATTManagerv2 {
 
     fun disconnected() {
         characteristicList.clear()
+        responseQueues.clear()
         stopReader()
         val socket = BluetoothConnectionManager.attSocket?: return
         try {

@@ -29,6 +29,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import me.kavishdevar.librepods.utils.BluetoothCryptography
 import javax.crypto.Cipher
@@ -71,11 +72,13 @@ class BLEManager(private val context: Context) {
         fun onLidStateChanged(lidOpen: Boolean)
         fun onEarStateChanged(device: AirPodsStatus, leftInEar: Boolean, rightInEar: Boolean)
         fun onBatteryChanged(device: AirPodsStatus)
+        fun onVerifiedRssi(rssi: Int)
+        fun onScanError(errorCode: Int)
         fun onDeviceDisappeared()
     }
 
     private var mBluetoothLeScanner: BluetoothLeScanner? = null
-    private var mScanCallback: ScanCallback? = null
+    @Volatile private var mScanCallback: ScanCallback? = null
     private var airPodsStatusListener: AirPodsStatusListener? = null
     private val deviceStatusMap = mutableMapOf<String, AirPodsStatus>()
     private val verifiedAddresses = mutableSetOf<String>()
@@ -83,6 +86,11 @@ class BLEManager(private val context: Context) {
     private var currentGlobalLidState: Boolean? = null
     private var lastBroadcastTime: Long = 0
     private val processedAddresses = mutableSetOf<String>()
+    @Volatile private var finderScanMode = false
+    @Volatile private var finderScanStartedAt = 0L
+    @Volatile private var lastFinderVerifiedRssiAt = 0L
+    @Volatile private var lastFinderScanRestartAt = 0L
+    @Volatile private var scanGeneration = 0L
 
     private val lastValidCaseBatteryMap = mutableMapOf<String, Int>()
     private val modelNames = mapOf(
@@ -119,21 +127,59 @@ class BLEManager(private val context: Context) {
         }
     }
 
+    /**
+     * OxygenOS occasionally leaves an unfiltered BLE scan registered but stops delivering its
+     * callbacks. Finder mode is short-lived, so recover that state automatically instead of
+     * forcing the user to leave and re-enter the screen.
+     */
+    private val finderScanWatchdogRunnable = object : Runnable {
+        override fun run() {
+            if (!finderScanMode) return
+            val now = SystemClock.elapsedRealtime()
+            val lastSignal = lastFinderVerifiedRssiAt.takeIf { it > 0L } ?: finderScanStartedAt
+            val stalled = now - lastSignal >= FINDER_SCAN_STALL_TIMEOUT_MS
+            val canRestart = now - lastFinderScanRestartAt >= FINDER_SCAN_RESTART_COOLDOWN_MS
+            if (stalled && canRestart) {
+                lastFinderScanRestartAt = now
+                Log.w(TAG, "Finder BLE scan stalled; restarting scanner")
+                if (!startScanning(scanAllAdvertisementsForFinder = true)) {
+                    airPodsStatusListener?.onScanError(ScanCallback.SCAN_FAILED_INTERNAL_ERROR)
+                }
+                return
+            }
+            cleanupHandler.postDelayed(this, FINDER_WATCHDOG_INTERVAL_MS)
+        }
+    }
+
     fun setAirPodsStatusListener(listener: AirPodsStatusListener) {
         airPodsStatusListener = listener
     }
 
     @SuppressLint("MissingPermission")
-    fun startScanning() {
+    @Synchronized
+    fun startScanning(
+        scanAllAdvertisementsForFinder: Boolean = false,
+        resetFinderWatchdog: Boolean = false,
+    ): Boolean {
+        val generation = ++scanGeneration
         try {
             Log.d(TAG, "Starting BLE scanner")
+            finderScanMode = scanAllAdvertisementsForFinder
+            if (scanAllAdvertisementsForFinder) {
+                finderScanStartedAt = SystemClock.elapsedRealtime()
+                lastFinderVerifiedRssiAt = 0L
+                if (resetFinderWatchdog) lastFinderScanRestartAt = 0L
+            } else {
+                cleanupHandler.removeCallbacks(finderScanWatchdogRunnable)
+            }
 
             val btManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             val btAdapter = btManager.adapter
 
             if (btAdapter == null) {
                 Log.d(TAG, "No Bluetooth adapter available")
-                return
+                finderScanMode = false
+                return false
             }
 
             if (mBluetoothLeScanner != null && mScanCallback != null) {
@@ -143,38 +189,58 @@ class BLEManager(private val context: Context) {
 
             if (!btAdapter.isEnabled) {
                 Log.d(TAG, "Bluetooth is disabled")
-                return
+                finderScanMode = false
+                return false
             }
 
             mBluetoothLeScanner = btAdapter.bluetoothLeScanner
+            val scanner = mBluetoothLeScanner
+            if (scanner == null) {
+                Log.d(TAG, "No Bluetooth LE scanner available")
+                finderScanMode = false
+                return false
+            }
 
             val scanSettings = ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
-                .setReportDelay(500L)
+                // Finder needs each RSSI sample immediately. Some vendor stacks (including
+                // OxygenOS) fail to flush an unfiltered offloaded batch while the app is also
+                // using BLE peripheral mode, leaving the UI on "Waiting for signal" forever.
+                .setReportDelay(if (scanAllAdvertisementsForFinder) 0L else 500L)
                 .build()
 
-            val manufacturerData = ByteArray(27)
-            val manufacturerDataMask = ByteArray(27)
+            val scanFilters = if (scanAllAdvertisementsForFinder) {
+                // Some vendor Bluetooth stacks interpret an empty manufacturer-data filter as
+                // "match an empty payload". Finder therefore uses a genuinely unfiltered
+                // foreground scan and applies Apple company-ID + RPA ownership checks in-process.
+                null
+            } else {
+                val manufacturerData = ByteArray(27).apply {
+                    this[0] = 0x07
+                    this[1] = 0x19
+                }
+                val manufacturerDataMask = ByteArray(27).apply {
+                    this[0] = -1
+                    this[1] = -1
+                }
+                listOf(
+                    ScanFilter.Builder()
+                        .setManufacturerData(76, manufacturerData, manufacturerDataMask)
+                        .build()
+                )
+            }
 
-            manufacturerData[0] = 7
-            manufacturerData[1] = 25
-
-            manufacturerDataMask[0] = -1
-            manufacturerDataMask[1] = -1
-
-            val scanFilter = ScanFilter.Builder()
-                .setManufacturerData(76, manufacturerData, manufacturerDataMask)
-                .build()
-
-            mScanCallback = object : ScanCallback() {
+            lateinit var callback: ScanCallback
+            callback = object : ScanCallback() {
                 override fun onScanResult(callbackType: Int, result: ScanResult) {
-                    processScanResult(result)
+                    if (isCurrentScan(callback, generation)) processScanResult(result)
                 }
 
                 override fun onBatchScanResults(results: List<ScanResult>) {
+                    if (!isCurrentScan(callback, generation)) return
                     processedAddresses.clear()
                     for (result in results) {
                         processScanResult(result)
@@ -182,22 +248,47 @@ class BLEManager(private val context: Context) {
                 }
 
                 override fun onScanFailed(errorCode: Int) {
+                    if (!isCurrentScan(callback, generation)) return
                     Log.e(TAG, "BLE scan failed with error code: $errorCode")
+                    mScanCallback = null
+                    finderScanMode = false
+                    cleanupHandler.removeCallbacks(finderScanWatchdogRunnable)
+                    airPodsStatusListener?.onScanError(errorCode)
                 }
             }
 
-            mBluetoothLeScanner?.startScan(listOf(scanFilter), scanSettings, mScanCallback)
+            mScanCallback = callback
+            processedAddresses.clear()
+            scanner.startScan(scanFilters, scanSettings, callback)
             Log.d(TAG, "BLE scanner started successfully")
 
+            cleanupHandler.removeCallbacks(cleanupRunnable)
             cleanupHandler.postDelayed(cleanupRunnable, CLEANUP_INTERVAL_MS)
+            if (scanAllAdvertisementsForFinder) {
+                cleanupHandler.removeCallbacks(finderScanWatchdogRunnable)
+                cleanupHandler.postDelayed(finderScanWatchdogRunnable, FINDER_WATCHDOG_INTERVAL_MS)
+            }
+            return true
         } catch (t: Throwable) {
             Log.e(TAG, "Error starting BLE scanner", t)
+            if (scanGeneration == generation) {
+                mScanCallback = null
+                finderScanMode = false
+                cleanupHandler.removeCallbacks(finderScanWatchdogRunnable)
+                if (scanAllAdvertisementsForFinder) {
+                    airPodsStatusListener?.onScanError(ScanCallback.SCAN_FAILED_INTERNAL_ERROR)
+                }
+            }
+            return false
         }
     }
 
     @SuppressLint("MissingPermission")
-    fun stopScanning() {
+    @Synchronized
+    fun stopScanning(): Boolean {
+        ++scanGeneration
         try {
+            finderScanMode = false
             if (mBluetoothLeScanner != null && mScanCallback != null) {
                 Log.d(TAG, "Stopping BLE scanner")
                 mBluetoothLeScanner?.stopScan(mScanCallback)
@@ -205,10 +296,16 @@ class BLEManager(private val context: Context) {
             }
 
             cleanupHandler.removeCallbacks(cleanupRunnable)
+            cleanupHandler.removeCallbacks(finderScanWatchdogRunnable)
+            return true
         } catch (t: Throwable) {
             Log.e(TAG, "Error stopping BLE scanner", t)
+            return false
         }
     }
+
+    private fun isCurrentScan(callback: ScanCallback, generation: Long): Boolean =
+        scanGeneration == generation && mScanCallback === callback
 
     @OptIn(ExperimentalEncodingApi::class)
     private fun getEncryptionKeyFromPreferences(): ByteArray? {
@@ -254,12 +351,7 @@ class BLEManager(private val context: Context) {
             val scanRecord = result.scanRecord ?: return
             val address = result.device.address
 
-            if (processedAddresses.contains(address)) {
-                return
-            }
-
             val manufacturerData = scanRecord.getManufacturerSpecificData(76) ?: return
-            if (manufacturerData.size <= 20) return
 
             if (!verifiedAddresses.contains(address)) {
                 val irk = getIrkFromPreferences()
@@ -269,6 +361,19 @@ class BLEManager(private val context: Context) {
                 verifiedAddresses.add(address)
                 Log.d(TAG, "RPA verified and added to trusted list: $address")
             }
+
+            // RSSI is useful on every verified advertisement. Keep the existing status-message
+            // de-duplication below so finder updates do not increase unrelated status callbacks.
+            if (finderScanMode) lastFinderVerifiedRssiAt = SystemClock.elapsedRealtime()
+            airPodsStatusListener?.onVerifiedRssi(result.rssi)
+            if (processedAddresses.contains(address)) return
+
+            // RSSI finding can use any advertisement from the verified rotating address. The
+            // battery/lid parser below is specific to Apple's legacy 0x07/0x19 payload.
+            if (manufacturerData.size <= 20 ||
+                manufacturerData[0] != 0x07.toByte() ||
+                manufacturerData[1] != 0x19.toByte()
+            ) return
 
             processedAddresses.add(address)
             lastBroadcastTime = System.currentTimeMillis()
@@ -491,6 +596,9 @@ class BLEManager(private val context: Context) {
 
     companion object {
         private const val TAG = "AirPodsBLE"
+        private const val FINDER_WATCHDOG_INTERVAL_MS = 3_000L
+        private const val FINDER_SCAN_STALL_TIMEOUT_MS = 8_000L
+        private const val FINDER_SCAN_RESTART_COOLDOWN_MS = 15_000L
         private const val CLEANUP_INTERVAL_MS = 10000L
         private const val STALE_DEVICE_TIMEOUT_MS = 15000L
         private const val LID_CLOSE_TIMEOUT_MS = 2500L

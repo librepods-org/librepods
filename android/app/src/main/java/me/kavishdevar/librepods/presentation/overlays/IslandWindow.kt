@@ -374,8 +374,13 @@ class IslandWindow(private val context: Context) {
         }
 
         val videoView = islandView.findViewById<VideoView>(R.id.island_video_view)
-        val videoUri = "android.resource://me.kavishdevar.librepods/${R.raw.island}".toUri()
+        val videoUri = "android.resource://${context.packageName}/${R.raw.island}".toUri()
         videoView.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
+        videoView.setOnErrorListener { _, what, extra ->
+            e("IslandWindow", "Island video playback failed what=$what extra=$extra")
+            videoView.visibility = View.GONE
+            true
+        }
         videoView.setVideoURI(videoUri)
         videoView.setOnPreparedListener { mediaPlayer ->
             mediaPlayer.isLooping = true

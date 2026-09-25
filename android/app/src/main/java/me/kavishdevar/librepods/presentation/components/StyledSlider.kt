@@ -219,6 +219,7 @@ fun StyledSlider(
     label: String? = null,
     value: Float,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit = {},
     valueRange: ClosedFloatingPointRange<Float>,
     backdrop: Backdrop = rememberLayerBackdrop(),
     snapPoints: List<Float> = emptyList(),
@@ -339,6 +340,7 @@ fun StyledSlider(
 
                                         onValueChange(snapped)
                                     },
+                                    onValueChangeFinished = onValueChangeFinished,
                                     valueRange = valueRange,
                                     enabled = enabled
                                 )
@@ -635,6 +637,7 @@ fun StyledSlider(
                                             },
                                             onDragStopped = {
                                                 onValueChange((value * 100).roundToInt() / 100f)
+                                                onValueChangeFinished()
                                             }
                                         )
                                         .then(momentumAnimation.modifier)

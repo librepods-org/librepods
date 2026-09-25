@@ -23,7 +23,8 @@ import me.kavishdevar.librepods.R
 
 @Composable
 fun PrivacyPolicyPage(
-    onForward: () -> Unit
+    onForward: () -> Unit,
+    actionLabel: String? = null
 ) {
     val scrollState = rememberScrollState()
 
@@ -58,6 +59,21 @@ fun PrivacyPolicyPage(
 
             Text(
                 text = "All information remains on your device unless you explicitly choose to contact me, create a GitHub issue from the app, or make a purchase or sponsorship through a third-party platform.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = "Health Connect",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "If you enable heart-rate export, LibrePods writes validated AirPods heart-rate samples and their timestamps to Android Health Connect on your device. LibrePods does not upload this data to a LibrePods server, use it for analytics, or share it for advertising.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = "You can stop exporting in LibrePods or revoke LibrePods' Health Connect permission at any time. These experimental readings are not intended for medical use and must not be used for diagnosis or medical decisions.",
                 style = MaterialTheme.typography.bodyMedium
             )
 
@@ -186,7 +202,7 @@ fun PrivacyPolicyPage(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = stringResource(R.string.i_agree),
+                    text = actionLabel ?: stringResource(R.string.i_agree),
                     style = MaterialTheme.typography.labelMediumEmphasized
                 )
             }
