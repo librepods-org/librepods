@@ -102,7 +102,6 @@ import me.kavishdevar.librepods.BuildConfig
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.bluetooth.ATTHandles
-import me.kavishdevar.librepods.data.AirPodsPro3
 import me.kavishdevar.librepods.data.Capability
 import me.kavishdevar.librepods.presentation.MaterialIcons
 import me.kavishdevar.librepods.presentation.components.AboutCard
@@ -147,6 +146,10 @@ fun AirPodsSettingsRoute(
     navigateToMicrophoneSettings: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(viewModel, viewModel.isReady) {
+        if (viewModel.isReady) viewModel.loadCurrentStatus()
+    }
 
     val m3eEnabled = LocalDesignSystem.current == DesignSystem.Material
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + if (m3eEnabled) 0.dp else 84.dp
@@ -436,15 +439,14 @@ fun AirPodsSettingsScreen(
 
             item(key = "spacer_audio") { Spacer(modifier = Modifier.height(16.dp)) }
             item(key = "audio") {
-                val model = state.instance?.model ?: AirPodsPro3()
                 val adaptiveVolumeCapability =
-                    model.capabilities.contains(Capability.ADAPTIVE_VOLUME)
+                    capabilities.contains(Capability.ADAPTIVE_VOLUME)
                 val conversationalAwarenessCapability =
-                    model.capabilities.contains(Capability.CONVERSATION_AWARENESS)
+                    capabilities.contains(Capability.CONVERSATION_AWARENESS)
                 val loudSoundReductionCapability =
-                    model.capabilities.contains(Capability.LOUD_SOUND_REDUCTION)
+                    capabilities.contains(Capability.LOUD_SOUND_REDUCTION)
                 val adaptiveAudioCapability =
-                    model.capabilities.contains(Capability.ADAPTIVE_VOLUME)
+                    capabilities.contains(Capability.ADAPTIVE_AUDIO)
 
                 val adaptiveVolumeChecked =
                     state.controlStates[AACPManager.Companion.ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG]?.getOrNull(
@@ -460,7 +462,7 @@ fun AirPodsSettingsScreen(
                     conversationalAwarenessCapability = conversationalAwarenessCapability,
                     loudSoundReductionCapability = loudSoundReductionCapability,
                     adaptiveAudioCapability = adaptiveAudioCapability,
-                    customEqCapability = true,
+                    customEqCapability = capabilities.contains(Capability.CUSTOM_EQ),
                     adaptiveVolumeChecked = adaptiveVolumeChecked,
                     onAdaptiveVolumeCheckedChange = { checked ->
                         setControlCommandBoolean(

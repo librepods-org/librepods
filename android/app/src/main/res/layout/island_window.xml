@@ -16,6 +16,14 @@
     android:clipToPadding="false"
     android:clipChildren="false">
 
+    <ImageView
+        android:id="@+id/island_artwork"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_marginStart="8dp"
+        android:scaleType="fitCenter"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
     <VideoView
         android:id="@+id/island_video_view"
         android:layout_width="80dp"

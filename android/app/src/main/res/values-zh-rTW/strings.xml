@@ -241,4 +241,5 @@
     <string name="bypass_compatiblity_check_confirmation">你確定你的裝置原生支援或已啟用 Xposed 模組嗎？</string>
     <string name="not_supported">不支援</string>
     <string name="check_the_repository_for_more_info">請查看儲存庫以獲取更多資訊。</string>
+    <string name="apple_identity_model_description">將手機的藍牙身分模擬為 Apple 裝置，以使用相容的連線功能。可用設定取決於耳機型號，不會為 AirPods 5 解鎖 Pro 專屬的聽力功能。變更後需重新啟動藍牙。</string>
 </resources>
