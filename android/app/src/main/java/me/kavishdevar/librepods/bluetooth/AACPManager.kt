@@ -1279,26 +1279,82 @@ class AACPManager {
         audioSource = null
     }
 
+    /**
+     * Parses unsolicited `0x001D` device information.
+     * See project docs: `docs/device-info.md` (nested headers / offset scan on some Android hosts).
+     */
     fun parseInformationPacket(packet: ByteArray): AirPodsInformation {
-        val data = packet.sliceArray(6 until packet.size)
+        val candidates = mutableListOf<List<String>>()
 
-        var index = 0
-        while (index < data.size && data[index] != 0x00.toByte()) index++
+        candidates.add(parseInformationStringsAtOffset(packet, 6))
 
-        val strings = mutableListOf<String>()
-        while (index < data.size) {
-            // skip 0x00 bytes
-            while (index < data.size && data[index] == 0x00.toByte()) index++
-            if (index >= data.size) break
-            val start = index
-            // find next 0x00 byte
-            while (index < data.size && data[index] != 0x00.toByte()) index++
-            val str = data.sliceArray(start until index).decodeToString()
-            strings.add(str)
+        val scanLimit = minOf(packet.size - 10, 96)
+        for (offset in 0 until scanLimit) {
+            if (packet.getOrNull(offset) == 0x04.toByte() &&
+                packet.getOrNull(offset + 1) == 0x00 &&
+                packet.getOrNull(offset + 2) == 0x04.toByte() &&
+                packet.getOrNull(offset + 3) == 0x00 &&
+                packet.getOrNull(offset + 4) == Opcodes.INFORMATION &&
+                packet.getOrNull(offset + 5) == 0x00
+            ) {
+                candidates.add(parseInformationStringsAtOffset(packet, offset + 6))
+            }
         }
 
-        strings.removeAt(0) // I'm too lazy to adjust, just removing the first empty string
+        for (offset in 0 until minOf(packet.size - 16, 64)) {
+            val strings = parseInformationStringsAtOffset(packet, offset)
+            if (strings.size >= 4) {
+                candidates.add(strings)
+            }
+        }
 
+        val strings = candidates.maxByOrNull { scoreDeviceInformationFields(it) }
+            ?: emptyList()
+
+        return airPodsInformationFromFieldStrings(strings)
+    }
+
+    private fun parseInformationStringsAtOffset(packet: ByteArray, payloadStart: Int): List<String> {
+        if (payloadStart >= packet.size) return emptyList()
+
+        var index = payloadStart
+        while (index < packet.size && packet[index] != 0x00.toByte()) index++
+
+        val strings = mutableListOf<String>()
+        while (index < packet.size) {
+            while (index < packet.size && packet[index] == 0x00.toByte()) index++
+            if (index >= packet.size) break
+            val start = index
+            while (index < packet.size && packet[index] != 0x00.toByte()) index++
+            val slice = packet.sliceArray(start until index)
+            if (!slice.all { it in 0x20..0x7E }) {
+                break
+            }
+            strings.add(slice.decodeToString())
+        }
+
+        if (strings.isNotEmpty() && strings[0].isEmpty()) {
+            strings.removeAt(0)
+        }
+        return strings
+    }
+
+    private fun scoreDeviceInformationFields(strings: List<String>): Int {
+        if (strings.isEmpty()) return 0
+        var score = strings.size
+        if (strings.getOrNull(2) == "Apple Inc.") score += 6
+        val model = strings.getOrNull(1)
+        if (model != null && model.length == 5 && model[0] == 'A' && model.drop(1).all { it.isDigit() }) {
+            score += 3
+        }
+        val serial = strings.getOrNull(3)
+        if (serial != null && serial.length in 10..12 && serial.all { it.isLetterOrDigit() }) {
+            score += 2
+        }
+        return score
+    }
+
+    private fun airPodsInformationFromFieldStrings(strings: List<String>): AirPodsInformation {
         return AirPodsInformation(
             name = strings.getOrNull(0) ?: "",
             modelNumber = strings.getOrNull(1) ?: "",
