@@ -43,10 +43,13 @@ import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.VideoView
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.AirPodsNotifications
+import me.kavishdevar.librepods.data.AirPodsBase
+import me.kavishdevar.librepods.data.FormFactor
 import me.kavishdevar.librepods.data.Battery
 import me.kavishdevar.librepods.data.BatteryComponent
 import me.kavishdevar.librepods.data.BatteryStatus
@@ -129,21 +132,41 @@ class PopupWindow(
         mWindowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     }
 
+    /** Over-ear models report one battery and are not what the connection animation shows. */
+    private var isSingleBattery = false
+
     @SuppressLint("InlinedApi", "SetTextI18s")
-    fun open(name: String = "AirPods Pro", batteryNotification: AirPodsNotifications.BatteryNotification) {
+    fun open(
+        name: String = "AirPods Pro",
+        batteryNotification: AirPodsNotifications.BatteryNotification,
+        model: AirPodsBase? = null
+    ) {
         try {
             if (mView.windowToken == null && mView.parent == null && !isClosing) {
                 mView.findViewById<TextView>(R.id.name).text = name
 
+                isSingleBattery = model?.isSingleBattery == true
                 updateBatteryStatus(batteryNotification)
 
                 val vid = mView.findViewById<VideoView>(R.id.video)
-                vid.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
-                vid.setVideoPath("android.resource://me.kavishdevar.librepods/" + R.raw.connected)
-                vid.resolveAdjustedSize(vid.width, vid.height)
-                vid.start()
-                vid.setOnCompletionListener {
+                val deviceImage = mView.findViewById<ImageView>(R.id.device_image)
+
+                // The bundled animation is of AirPods Pro, so show a still of the real model
+                // instead of pretending the AirPods Max are earbuds.
+                if (model != null && model.formFactor != FormFactor.IN_EAR) {
+                    vid.visibility = View.GONE
+                    deviceImage.setImageResource(model.budsRes)
+                    deviceImage.visibility = View.VISIBLE
+                } else {
+                    deviceImage.visibility = View.GONE
+                    vid.visibility = View.VISIBLE
+                    vid.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
+                    vid.setVideoPath("android.resource://${context.packageName}/" + R.raw.connected)
+                    vid.resolveAdjustedSize(vid.width, vid.height)
                     vid.start()
+                    vid.setOnCompletionListener {
+                        vid.start()
+                    }
                 }
 
                 try {
@@ -218,6 +241,16 @@ class PopupWindow(
         val batteryLeftText = mView.findViewById<TextView>(R.id.left_battery)
         val batteryRightText = mView.findViewById<TextView>(R.id.right_battery)
         val batteryCaseText = mView.findViewById<TextView>(R.id.case_battery)
+
+        if (isSingleBattery) {
+            // One unit, one battery: show it once rather than as a mirrored pair plus a case.
+            val battery = batteryList.find { it.component == BatteryComponent.LEFT }
+            batteryLeftText.text = battery?.takeIf { it.status != BatteryStatus.DISCONNECTED }
+                ?.let { "${it.level}%" } ?: ""
+            batteryRightText.text = ""
+            batteryCaseText.text = ""
+            return
+        }
 
         batteryLeftText.text = batteryList.find { it.component == BatteryComponent.LEFT }?.let {
             if (it.status != BatteryStatus.DISCONNECTED) {

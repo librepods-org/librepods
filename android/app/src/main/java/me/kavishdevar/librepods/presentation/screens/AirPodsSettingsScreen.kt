@@ -312,7 +312,8 @@ fun AirPodsSettingsScreen(
                 BatteryView(
                     batteryList = state.battery,
                     budsRes = state.instance?.model?.budsRes ?: R.drawable.airpods_pro_2_buds,
-                    caseRes = state.instance?.model?.caseRes ?: R.drawable.airpods_pro_2_case
+                    caseRes = state.instance?.model?.caseRes ?: R.drawable.airpods_pro_2_case,
+                    hasCase = state.instance?.model?.hasCase ?: true
                 )
             }
             item(key = "spacer_battery") {
@@ -364,6 +365,7 @@ fun AirPodsSettingsScreen(
                                 AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE, it
                             )
                         },
+                        showAdaptiveMode = capabilities.contains(Capability.ADAPTIVE_AUDIO),
                     )
                 }
             }
@@ -561,14 +563,16 @@ fun AirPodsSettingsScreen(
                 )
             }
 
-            if (capabilities.contains(Capability.LOUD_SOUND_REDUCTION)) {
+            if (capabilities.contains(Capability.LISTENING_MODE)) {
                 item(key = "spacer_off_listening") { Spacer(modifier = Modifier.height(16.dp)) }
                 item(key = "off_listening") {
                     val id = AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION
                     StyledToggle(
                         label = stringResource(R.string.off_listening_mode),
                         description = stringResource(R.string.off_listening_mode_description),
-                        checked = state.controlStates[id]?.getOrNull(0) == 0x01.toByte(),
+                        // Not every model reports this control state; fall back to the setting.
+                        checked = state.controlStates[id]?.getOrNull(0)?.let { it == 0x01.toByte() }
+                            ?: state.offListeningMode,
                         onCheckedChange = setOffListeningMode
                     )
                 }

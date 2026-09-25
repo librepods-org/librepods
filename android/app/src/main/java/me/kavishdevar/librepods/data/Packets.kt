@@ -154,22 +154,49 @@ class AirPodsNotifications {
     }
 
     class BatteryNotification {
+        private companion object {
+            const val HEADER_HEX = "040004000400"
+
+            /** 6 byte prefix followed by the number of battery entries in the packet. */
+            const val HEADER_SIZE = 7
+            const val ENTRY_SIZE = 5
+        }
+
         private var first: Battery = Battery(BatteryComponent.LEFT, 0, BatteryStatus.DISCONNECTED)
         private var second: Battery = Battery(BatteryComponent.RIGHT, 0, BatteryStatus.DISCONNECTED)
         private var case: Battery = Battery(BatteryComponent.CASE, 0, BatteryStatus.DISCONNECTED)
 
+        /**
+         * Set when the last packet carried a single battery, as over-ear models such as the
+         * AirPods Max do. Earbuds report one entry per bud plus the case.
+         */
+        var isSingleBattery: Boolean = false
+            private set
+
         fun isBatteryData(data: ByteArray): Boolean {
-            if (data.joinToString("") { "%02x".format(it) }.startsWith("040004000400")) {
-                Log.d("BatteryNotification", "Battery data starts with 040004000400. Most likely is a battery packet.")
-            } else {
+            if (!data.joinToString("") { "%02x".format(it) }.startsWith(HEADER_HEX)) {
                 return false
             }
-            if (data.size != 22) {
-                Log.d("BatteryNotification", "Battery data size is not 22, probably being used with Airpods with fewer or more battery count.")
+            if (data.size < HEADER_SIZE) {
+                Log.d("BatteryNotification", "Battery packet too short: ${data.size} bytes.")
                 return false
             }
-            Log.d("BatteryNotification", data.joinToString("") { "%02x".format(it) }.startsWith("040004000400").toString())
-            return data.joinToString("") { "%02x".format(it) }.startsWith("040004000400")
+            // One entry per battery: three for earbuds (left, right, case) and one for the
+            // AirPods Max, which are a single unit with no case battery.
+            val count = data[6].toInt()
+            if (count !in 1..3) {
+                Log.d("BatteryNotification", "Unexpected battery entry count: $count.")
+                return false
+            }
+            val expected = HEADER_SIZE + count * ENTRY_SIZE
+            if (data.size != expected) {
+                Log.d(
+                    "BatteryNotification",
+                    "Battery packet size ${data.size} does not match $count entries (expected $expected)."
+                )
+                return false
+            }
+            return true
         }
 
         fun setBatteryDirect(
@@ -180,40 +207,38 @@ class AirPodsNotifications {
             caseLevel: Int,
             caseCharging: Boolean
         ) {
+            isSingleBattery = false
             first = Battery(BatteryComponent.LEFT, leftLevel, if (leftCharging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
             second = Battery(BatteryComponent.RIGHT, rightLevel, if (rightCharging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
             case = Battery(BatteryComponent.CASE, caseLevel, if (caseCharging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
         }
 
         fun setBattery(data: ByteArray) {
-            if (data.size != 22) {
+            if (!isBatteryData(data)) {
                 return
             }
-//            first = if (data[10].toInt() == BatteryStatus.DISCONNECTED) {
-//                Battery(first.component, first.level, data[10].toInt())
-//            } else {
-//                Battery(data[7].toInt(), data[9].toInt(), data[10].toInt())
-//            }
-//            second = if (data[15].toInt() == BatteryStatus.DISCONNECTED) {
-//                Battery(second.component, second.level, data[15].toInt())
-//            } else {
-//                Battery(data[12].toInt(), data[14].toInt(), data[15].toInt())
-//            }
-//            case = if (data[20].toInt() == BatteryStatus.DISCONNECTED && case.status != BatteryStatus.DISCONNECTED) {
-//                Battery(case.component, case.level, data[20].toInt())
-//            } else {
-//                Battery(data[17].toInt(), data[19].toInt(), data[20].toInt())
-//            }
-//            sometimes it shows battery as -1%, just skip all that and set it normally
-            first = Battery(
-                data[7].toInt(), data[9].toInt(), data[10].toInt()
-            )
-            second = Battery(
-                data[12].toInt(), data[14].toInt(), data[15].toInt()
-            )
-            case = Battery(
-                data[17].toInt(), data[19].toInt(), data[20].toInt()
-            )
+            val count = data[6].toInt()
+            val entries = (0 until count).map { i ->
+                val base = HEADER_SIZE + i * ENTRY_SIZE
+                // sometimes it shows battery as -1%, just skip all that and set it normally
+                Battery(data[base].toInt(), data[base + 2].toInt(), data[base + 3].toInt())
+            }
+
+            isSingleBattery = count == 1
+            if (isSingleBattery) {
+                // The AirPods Max are one unit with one battery. Mirror it onto both sides so
+                // callers that expect a left/right pair keep working; the UI collapses the two
+                // equal readings back into a single percentage.
+                val only = entries[0]
+                first = Battery(BatteryComponent.LEFT, only.level, only.status)
+                second = Battery(BatteryComponent.RIGHT, only.level, only.status)
+                case = Battery(BatteryComponent.CASE, 0, BatteryStatus.DISCONNECTED)
+                return
+            }
+
+            first = entries[0]
+            second = entries.getOrElse(1) { second }
+            case = entries.getOrElse(2) { Battery(BatteryComponent.CASE, 0, BatteryStatus.DISCONNECTED) }
         }
 
         fun getBattery(): List<Battery> {

@@ -92,6 +92,7 @@ import me.kavishdevar.librepods.presentation.components.VerticalVolumeSlider
 import me.kavishdevar.librepods.data.AirPodsNotifications
 import me.kavishdevar.librepods.data.NoiseControlMode
 import me.kavishdevar.librepods.services.AirPodsService
+import me.kavishdevar.librepods.services.ServiceManager
 import me.kavishdevar.librepods.presentation.theme.LibrePodsTheme
 import me.kavishdevar.librepods.bluetooth.AACPManager
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -311,15 +312,14 @@ fun NewControlCenterDialogContent(
     var isConvAwarenessEnabled by remember { mutableStateOf(false) }
 
     val isOffModeEnabled = remember { sharedPreferences.getBoolean("off_listening_mode", true) }
-    val availableModes = remember(isOffModeEnabled) {
-        mutableListOf(
-            NoiseControlMode.TRANSPARENCY,
-            NoiseControlMode.ADAPTIVE,
-            NoiseControlMode.NOISE_CANCELLATION
-        ).apply {
-            if (isOffModeEnabled) {
-                add(0, NoiseControlMode.OFF)
-            }
+    // The AirPods Max have no Adaptive mode.
+    val isAdaptiveSupported = remember { ServiceManager.getService()?.supportsAdaptiveMode != false }
+    val availableModes = remember(isOffModeEnabled, isAdaptiveSupported) {
+        buildList {
+            if (isOffModeEnabled) add(NoiseControlMode.OFF)
+            add(NoiseControlMode.TRANSPARENCY)
+            if (isAdaptiveSupported) add(NoiseControlMode.ADAPTIVE)
+            add(NoiseControlMode.NOISE_CANCELLATION)
         }
     }
 
@@ -427,7 +427,9 @@ fun NewControlCenterDialogContent(
                 verticalArrangement = Arrangement.Center
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.airpods),
+                    painter = painterResource(
+                        id = ServiceManager.getService()?.currentIconRes ?: R.drawable.airpods
+                    ),
                     contentDescription = "Device Icon",
                     tint = textColor.copy(alpha = 0.8f),
                     modifier = Modifier.size(48.dp)

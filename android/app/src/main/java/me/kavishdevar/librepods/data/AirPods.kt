@@ -20,6 +20,14 @@ package me.kavishdevar.librepods.data
 
 import me.kavishdevar.librepods.R
 
+enum class FormFactor {
+    /** Earbuds that live in a charging case, reporting a left, right and case battery. */
+    IN_EAR,
+
+    /** Over-ear headphones: a single body, a single battery and a case that does not charge. */
+    OVER_EAR
+}
+
 open class AirPodsBase(
     val modelNumber: List<String>,
     val name: String,
@@ -30,8 +38,19 @@ open class AirPodsBase(
     val leftBudsRes: Int,
     val rightBudsRes: Int,
     val caseRes: Int,
-    val capabilities: Set<Capability>
-)
+    val capabilities: Set<Capability>,
+    val formFactor: FormFactor = FormFactor.IN_EAR,
+    /** Monochrome icon used for the notification, the QS tile and the popup. */
+    val iconRes: Int = R.drawable.airpods,
+    /** Proximity-pairing model ids advertised over BLE, used when the model number is unknown. */
+    val bleModelIds: Set<Int> = emptySet()
+) {
+    /** Over-ear models have a case, but it holds no battery and is never reported. */
+    val hasCase: Boolean get() = formFactor == FormFactor.IN_EAR
+
+    /** Over-ear models are a single unit and report one battery instead of a left/right pair. */
+    val isSingleBattery: Boolean get() = formFactor == FormFactor.OVER_EAR
+}
 enum class Capability {
     LISTENING_MODE,
     CONVERSATION_AWARENESS,
@@ -60,7 +79,8 @@ class AirPods: AirPodsBase(
     rightBudsRes = R.drawable.airpods_pro_2_right,
     // caseRes = R.drawable.airpods_1_case
     caseRes = R.drawable.airpods_pro_2_case,
-    capabilities = emptySet()
+    capabilities = emptySet(),
+    bleModelIds = setOf(0x0220)
 )
 
 class AirPods2: AirPodsBase(
@@ -76,7 +96,8 @@ class AirPods2: AirPodsBase(
     rightBudsRes = R.drawable.airpods_pro_2_right,
     // caseRes = R.drawable.airpods_2_case
     caseRes = R.drawable.airpods_pro_2_case,
-    capabilities = emptySet()
+    capabilities = emptySet(),
+    bleModelIds = setOf(0x0F20)
 )
 
 class AirPods3: AirPodsBase(
@@ -94,7 +115,8 @@ class AirPods3: AirPodsBase(
     caseRes = R.drawable.airpods_pro_2_case,
     capabilities = setOf(
         Capability.HEAD_GESTURES
-    )
+    ),
+    bleModelIds = setOf(0x1320)
 )
 
 class AirPods4: AirPodsBase(
@@ -114,7 +136,8 @@ class AirPods4: AirPodsBase(
         Capability.HEAD_GESTURES,
         Capability.SLEEP_DETECTION,
         Capability.ADAPTIVE_VOLUME
-    )
+    ),
+    bleModelIds = setOf(0x1920)
 )
 
 class AirPods4ANC: AirPodsBase(
@@ -138,7 +161,8 @@ class AirPods4ANC: AirPodsBase(
         Capability.SLEEP_DETECTION,
         Capability.ADAPTIVE_VOLUME,
         Capability.STEM_CONFIG
-    )
+    ),
+    bleModelIds = setOf(0x1B20)
 )
 
 class AirPodsPro1: AirPodsBase(
@@ -157,7 +181,8 @@ class AirPodsPro1: AirPodsBase(
     caseRes = R.drawable.airpods_pro_2_case,
     capabilities = setOf(
         Capability.LISTENING_MODE
-    )
+    ),
+    bleModelIds = setOf(0x0E20)
 )
 
 class AirPodsPro2Lightning: AirPodsBase(
@@ -185,7 +210,8 @@ class AirPodsPro2Lightning: AirPodsBase(
         Capability.ADAPTIVE_VOLUME,
         Capability.SWIPE_FOR_VOLUME,
         Capability.HEAD_GESTURES
-    )
+    ),
+    bleModelIds = setOf(0x1420)
 )
 
 class AirPodsPro2USBC: AirPodsBase(
@@ -213,7 +239,8 @@ class AirPodsPro2USBC: AirPodsBase(
         Capability.ADAPTIVE_VOLUME,
         Capability.SWIPE_FOR_VOLUME,
         Capability.HEAD_GESTURES
-    )
+    ),
+    bleModelIds = setOf(0x2420)
 )
 
 class AirPodsPro3: AirPodsBase(
@@ -246,6 +273,61 @@ class AirPodsPro3: AirPodsBase(
     )
 )
 
+class AirPodsMax: AirPodsBase(
+    modelNumber = listOf("A2096"),
+    name = "AirPods Max",
+    displayName = "AirPods Max",
+    budCaseRes = R.drawable.airpods_max_device,
+    budsRes = R.drawable.airpods_max_buds,
+    leftBudsRes = R.drawable.airpods_max_left,
+    rightBudsRes = R.drawable.airpods_max_right,
+    // AirPods Max ship with a Smart Case that holds no battery, so this is never shown.
+    caseRes = R.drawable.airpods_max_case,
+    capabilities = setOf(
+        Capability.LISTENING_MODE
+    ),
+    formFactor = FormFactor.OVER_EAR,
+    iconRes = R.drawable.airpods_max_icon,
+    bleModelIds = setOf(0x0A20)
+)
+
+class AirPodsMaxUSBC: AirPodsBase(
+    modelNumber = listOf("A3184"),
+    name = "AirPods Max (USB-C)",
+    displayName = "AirPods Max",
+    budCaseRes = R.drawable.airpods_max_usbc_device,
+    budsRes = R.drawable.airpods_max_usbc_buds,
+    leftBudsRes = R.drawable.airpods_max_usbc_left,
+    rightBudsRes = R.drawable.airpods_max_usbc_right,
+    caseRes = R.drawable.airpods_max_usbc_case,
+    capabilities = setOf(
+        Capability.LISTENING_MODE
+    ),
+    formFactor = FormFactor.OVER_EAR,
+    iconRes = R.drawable.airpods_max_usbc_icon,
+    bleModelIds = setOf(0x1F20)
+)
+
+class AirPodsMax2: AirPodsBase(
+    modelNumber = listOf("A3454"),
+    name = "AirPods Max 2",
+    displayName = "AirPods Max",
+    // No separate product render is published yet; the two generations look the same.
+    budCaseRes = R.drawable.airpods_max_usbc_device,
+    budsRes = R.drawable.airpods_max_usbc_buds,
+    leftBudsRes = R.drawable.airpods_max_usbc_left,
+    rightBudsRes = R.drawable.airpods_max_usbc_right,
+    caseRes = R.drawable.airpods_max_usbc_case,
+    capabilities = setOf(
+        Capability.LISTENING_MODE,
+        Capability.CONVERSATION_AWARENESS,
+        Capability.ADAPTIVE_AUDIO,
+        Capability.ADAPTIVE_VOLUME
+    ),
+    formFactor = FormFactor.OVER_EAR,
+    iconRes = R.drawable.airpods_max_usbc_icon
+)
+
 data class AirPodsInstance(
     val name: String,
     val model: AirPodsBase,
@@ -268,10 +350,47 @@ object AirPodsModels {
         AirPodsPro1(),
         AirPodsPro2Lightning(),
         AirPodsPro2USBC(),
-        AirPodsPro3()
+        AirPodsPro3(),
+        AirPodsMax(),
+        AirPodsMaxUSBC(),
+        AirPodsMax2()
     )
 
     fun getModelByModelNumber(modelNumber: String): AirPodsBase? {
         return models.find { modelNumber in it.modelNumber }
+    }
+
+    /** Looks up a model by the proximity-pairing id it advertises over BLE. */
+    fun getModelByBleModelId(bleModelId: Int): AirPodsBase? {
+        return models.find { bleModelId in it.bleModelIds }
+    }
+
+    /**
+     * Last-resort match on the Bluetooth name, for firmware that reports a model number we do not
+     * know yet. Only distinctive names are matched; anything ambiguous is left unresolved so the
+     * caller can fall back to its own default.
+     */
+    fun getModelByName(name: String): AirPodsBase? {
+        val n = name.lowercase()
+        if (!n.contains("airpod")) return null
+        return when {
+            n.contains("max") -> if (n.contains("usb")) AirPodsMaxUSBC() else AirPodsMax()
+            else -> null
+        }
+    }
+
+    /**
+     * Resolves a model from whatever identifying information is available, most reliable first.
+     * Returns null when nothing matches, so callers keep control over the fallback.
+     */
+    fun resolveModel(
+        modelNumber: String? = null,
+        bleModelId: Int? = null,
+        name: String? = null
+    ): AirPodsBase? {
+        modelNumber?.takeIf { it.isNotBlank() }?.let { getModelByModelNumber(it)?.let { m -> return m } }
+        bleModelId?.let { getModelByBleModelId(it)?.let { m -> return m } }
+        name?.takeIf { it.isNotBlank() }?.let { getModelByName(it)?.let { m -> return m } }
+        return null
     }
 }
