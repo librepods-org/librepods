@@ -63,7 +63,11 @@ LibrePods allows you to use AirPods features that are exclusive to Apple devices
 
 ## Find My
 
-The following features related to Find My are planned, but require further RE and might need root on Android:
+The following features related to Find My are planned. Nearby accessory control still requires
+further RE and might need root on Android; account-backed network location does not require root:
+
+The account-backed network-location path and its prerequisites are documented in
+[Find My network integration](docs/find-my-network.md).
 
 - Add your AirPods to the Find My network
 - Play sound through charging case to find it
