@@ -58,9 +58,17 @@ class AACPManager {
             const val SEND_CONNECTED_MAC: Byte = 0x14
             const val AUDIO_SOURCE_2: Byte = 0x0C // seems redundant?
             const val CUSTOM_EQ: Byte = 0x63
+            const val AUDIO_STREAM: Byte = 0x58
         }
 
         private val HEADER_BYTES = byteArrayOf(0x04, 0x00, 0x04, 0x00)
+        private val START_AUDIO_STREAM_PACKET = byteArrayOf(
+            0x04, 0x00, 0x04, 0x00, 0x58, 0x00, 0x00, 0x00, 0x09, 0x00,
+            0x00, 0x01, 0x82.toByte(), 0x00, 0x00, 0x00, 0x04, 0x96.toByte(), 0x00,
+        )
+        private val STOP_AUDIO_STREAM_PACKET = byteArrayOf(
+            0x04, 0x00, 0x04, 0x00, 0x58, 0x00, 0x00, 0x00, 0x02, 0x00, 0x03, 0x01,
+        )
 
         data class ControlCommandStatus(
             val identifier: ControlCommandIdentifiers, val value: ByteArray
@@ -246,6 +254,7 @@ class AACPManager {
         fun onHeadphoneAccommodationReceived(eqData: FloatArray)
         fun onCustomEqReceived(customEq: CustomEq)
         fun onCapabilitiesReceived(capabilities: List<Capability>)
+        fun onAudioStreamReceived(packet: ByteArray)
     }
 
     fun parseStemPressResponse(data: ByteArray): Pair<StemPressType, StemPressBudType> {
@@ -495,6 +504,8 @@ class AACPManager {
                 }
                 callback?.onHeadTrackingReceived(packet)
             }
+
+            Opcodes.AUDIO_STREAM -> callback?.onAudioStreamReceived(packet)
 
             Opcodes.PROXIMITY_KEYS_RSP -> {
                 callback?.onProximityKeysReceived(packet)
@@ -1174,6 +1185,12 @@ class AACPManager {
             return false
         }
     }
+
+    /** Starts the proprietary AAC-ELD microphone stream without switching Android to SCO. */
+    fun sendStartAudioStream(): Boolean = sendPacket(START_AUDIO_STREAM_PACKET)
+
+    /** Stops the proprietary AAC-ELD microphone stream. */
+    fun sendStopAudioStream(): Boolean = sendPacket(STOP_AUDIO_STREAM_PACKET)
 
     fun sendPhoneMediaEQ(eq: FloatArray, phone: Byte = 0x02.toByte(), media: Byte = 0x02.toByte()) {
         if (eq.size != 8) throw IllegalArgumentException("EQ must be 8 floats")

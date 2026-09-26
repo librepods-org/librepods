@@ -80,9 +80,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import me.kavishdevar.librepods.BuildConfig
 import me.kavishdevar.librepods.MainActivity
 import me.kavishdevar.librepods.R
+import me.kavishdevar.librepods.audio.AacEldDecoder
+import me.kavishdevar.librepods.audio.AacEldPacketParser
 import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.bluetooth.AACPManager.Companion.StemPressType
 import me.kavishdevar.librepods.bluetooth.ATTHandles
@@ -160,6 +163,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     var cameraActive = false
     private var disconnectedBecauseReversed = false
     private var otherDeviceTookOver = false
+    @Volatile
+    private var highResolutionMicDecoder: AacEldDecoder? = null
+    private var conversationDetectionBeforeMic: Byte? = null
 
     data class ServiceConfig(
         var deviceName: String = "AirPods",
@@ -692,6 +698,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 //                    }
 
                 } else if (intent?.action == AirPodsNotifications.AIRPODS_DISCONNECTED) {
+                    stopHighResolutionMicrophone()
                     device = null
 //                    isConnectedLocally = false
                     popupShown = false
@@ -1174,6 +1181,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
             override fun onCapabilitiesReceived(capabilities: List<Capability>) {
                 // TODO
+            }
+
+            override fun onAudioStreamReceived(packet: ByteArray) {
+                highResolutionMicDecoder?.offer(packet)
             }
 
             override fun onUnknownPacketReceived(packet: ByteArray) {
@@ -2775,28 +2786,35 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
                     while (socket.isConnected) {
                         try {
-                            val buffer = ByteArray(1024)
+                            // 0x58 microphone SDUs exceed 1 KiB and SOCK_SEQPACKET truncates them.
+                            val buffer = ByteArray(4096)
                             val bytesRead = it.inputStream.read(buffer)
                             var data: ByteArray
                             if (bytesRead > 0) {
                                 data = buffer.copyOfRange(0, bytesRead)
-                                sendBroadcast(Intent(AirPodsNotifications.AIRPODS_DATA).apply {
-                                    putExtra("data", buffer.copyOfRange(0, bytesRead))
-                                    setPackage(packageName)
-                                })
-                                val bytes = buffer.copyOfRange(0, bytesRead)
-                                val formattedHex = bytes.joinToString(" ") { "%02X".format(it) }
+                                val isAudioPacket = AacEldPacketParser.isAudioPacket(data)
+                                if (!isAudioPacket) {
+                                    sendBroadcast(Intent(AirPodsNotifications.AIRPODS_DATA).apply {
+                                        putExtra("data", data)
+                                        setPackage(packageName)
+                                    })
+                                }
 //                                    CrossDevice.sendReceivedPacket(bytes)
-                                updateNotificationContent(
-                                    true,
-                                    sharedPreferences.getString("name", device.name),
-                                    batteryNotification.getBattery()
-                                )
+                                if (!isAudioPacket) {
+                                    updateNotificationContent(
+                                        true,
+                                        sharedPreferences.getString("name", device.name),
+                                        batteryNotification.getBattery()
+                                    )
+                                }
 
                                 aacpManager.receivePacket(data)
 
-                                if (!isHeadTrackingData(data)) {
-                                    Log.d("AirPodsData", "Data received: $formattedHex")
+                                if (!isAudioPacket && !isHeadTrackingData(data)) {
+                                    Log.d(
+                                        "AirPodsData",
+                                        "Data received: ${data.joinToString(" ") { "%02X".format(it) }}",
+                                    )
                                     logPacket(data, "AirPods")
                                 }
 
@@ -2805,6 +2823,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                                 sendBroadcast(Intent(AirPodsNotifications.AIRPODS_DISCONNECTED).apply {
                                     setPackage(packageName)
                                 })
+                                stopHighResolutionMicrophone()
                                 aacpManager.disconnected()
                                 return@launch
                             }
@@ -2814,6 +2833,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                             sendBroadcast(Intent(AirPodsNotifications.AIRPODS_DISCONNECTED).apply {
                                 setPackage(packageName)
                             })
+                            stopHighResolutionMicrophone()
                             aacpManager.disconnected()
                             return@launch
                         }
@@ -3106,6 +3126,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     @SuppressLint("MissingPermission")
     override fun onDestroy() {
+        stopHighResolutionMicrophone()
         clearPacketLogs()
         Log.d(TAG, "Service stopped is being destroyed for some reason!")
 
@@ -3142,6 +3163,68 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 //        isConnectedLocally = false
 //        CrossDevice.isAvailable = true
         super.onDestroy()
+    }
+
+    /**
+     * Starts the AirPods high-resolution microphone and delivers mono PCM off the main thread.
+     * This stream is app-scoped; Android does not expose it as a system microphone to other apps.
+     */
+    suspend fun startHighResolutionMicrophone(listener: AacEldDecoder.Listener): Boolean =
+        withContext(Dispatchers.IO) { startHighResolutionMicrophoneBlocking(listener) }
+
+    @Synchronized
+    private fun startHighResolutionMicrophoneBlocking(listener: AacEldDecoder.Listener): Boolean {
+        if (highResolutionMicDecoder != null) return false
+        if (BluetoothConnectionManager.aacpSocket?.isConnected != true) {
+            listener.onDecoderError("AirPods AACP socket is not connected")
+            return false
+        }
+
+        val decoder = AacEldDecoder(listener)
+        if (!decoder.start()) return false
+
+        highResolutionMicDecoder = decoder
+        conversationDetectionBeforeMic = aacpManager.getControlCommandStatus(
+            AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG,
+        )?.value?.firstOrNull()
+        conversationDetectionBeforeMic?.let { current ->
+            if (current != 0x02.toByte()) {
+                aacpManager.sendControlCommand(
+                    AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG.value,
+                    false,
+                )
+            }
+        }
+
+        if (!aacpManager.sendStartAudioStream()) {
+            stopHighResolutionMicrophone(sendStopPacket = false)
+            listener.onDecoderError("Could not send the AirPods microphone start packet")
+            return false
+        }
+        return true
+    }
+
+    @Synchronized
+    fun stopHighResolutionMicrophone() {
+        stopHighResolutionMicrophone(sendStopPacket = true)
+    }
+
+    private fun stopHighResolutionMicrophone(sendStopPacket: Boolean) {
+        val decoder = highResolutionMicDecoder ?: return
+        highResolutionMicDecoder = null
+        if (sendStopPacket && BluetoothConnectionManager.aacpSocket?.isConnected == true) {
+            aacpManager.sendStopAudioStream()
+        }
+        decoder.close()
+        conversationDetectionBeforeMic?.let { previous ->
+            if (BluetoothConnectionManager.aacpSocket?.isConnected == true) {
+                aacpManager.sendControlCommand(
+                    AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG.value,
+                    byteArrayOf(previous),
+                )
+            }
+        }
+        conversationDetectionBeforeMic = null
     }
 
     var isHeadTrackingActive = false
