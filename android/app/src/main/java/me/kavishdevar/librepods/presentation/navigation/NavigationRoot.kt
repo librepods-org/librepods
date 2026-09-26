@@ -15,6 +15,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -34,7 +38,12 @@ fun NavigationRoot(
     onboardingComplete: () -> Unit = {},
     airPodsViewModel: AirPodsViewModel
 ) {
-    val backStack = remember {
+    val backStack = rememberSaveable(
+        saver = listSaver<SnapshotStateList<Screen>, Screen>(
+            save = { it.toList() },
+            restore = { it.toMutableStateList() }
+        )
+    ) {
         mutableStateListOf(
             when {
                 showOnboarding -> Screen.Onboarding
@@ -89,7 +98,7 @@ fun NavigationRoot(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Settings,
-                                contentDescription = "settings",
+                                contentDescription = stringResource(R.string.settings),
                                 modifier = Modifier.size(IconButtonDefaults.mediumIconSize)
                             )
                         }
@@ -115,7 +124,7 @@ fun NavigationRoot(
                     ) {
                         Icon(
                             imageVector = if (state.headTrackingActive) MaterialIcons.pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
+                            contentDescription = stringResource(R.string.play_pause),
                             modifier = Modifier.size(IconButtonDefaults.mediumIconSize)
                         )
                     }

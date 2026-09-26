@@ -4,7 +4,7 @@ import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed interface Screen: NavKey {
+sealed interface Screen: NavKey, java.io.Serializable {
     val showTopBar: Boolean
         get() = true
 

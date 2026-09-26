@@ -26,6 +26,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
+import android.content.res.Configuration
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -1731,26 +1732,43 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         }
     }
 
+    private var notificationLocaleTags: String? = null
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val localeTags = resources.configuration.locales.toLanguageTags()
+        if (notificationLocaleTags != null && notificationLocaleTags != localeTags) {
+            startForegroundNotification()
+            updateNotificationContent(
+                BluetoothConnectionManager.aacpSocket?.isConnected == true,
+                config.deviceName,
+                batteryNotification.getBattery()
+            )
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     fun startForegroundNotification() {
+        notificationLocaleTags = resources.configuration.locales.toLanguageTags()
         val disconnectedNotificationChannel = NotificationChannel(
             "background_service_status",
-            "Background Service Status",
+            getString(R.string.channel_background_service),
             NotificationManager.IMPORTANCE_NONE
         )
 
         val connectedNotificationChannel = NotificationChannel(
             "airpods_connection_status",
-            "AirPods Connection Status",
+            getString(R.string.channel_airpods_connection),
             NotificationManager.IMPORTANCE_LOW,
         )
 
         val socketFailureChannel = NotificationChannel(
             "socket_connection_failure",
-            "AirPods BluetoothConnectionManager.aacpSocket? Connection Issues",
+            getString(R.string.channel_connection_issues),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Notifications about problems connecting to AirPods protocol"
+            description = getString(R.string.channel_connection_issues_description)
             enableLights(true)
             lightColor = Color.RED
             enableVibration(true)
@@ -1774,8 +1792,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         )
 
         val notification = NotificationCompat.Builder(this, "background_service_status")
-            .setSmallIcon(R.drawable.airpods).setContentTitle("Background Service Running")
-            .setContentText("Useless notification, disable it by clicking on it.")
+            .setSmallIcon(R.drawable.airpods).setContentTitle(getString(R.string.background_service_running))
+            .setContentText(getString(R.string.background_service_description))
             .setContentIntent(pendingIntentNotifDisable).setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW).setOngoing(true).build()
 
@@ -1808,10 +1826,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         )
 
         val notification = NotificationCompat.Builder(this, "socket_connection_failure")
-            .setSmallIcon(R.drawable.airpods).setContentTitle("AirPods Connection Issue")
-            .setContentText("Unable to connect to AirPods over L2CAP").setStyle(
+            .setSmallIcon(R.drawable.airpods).setContentTitle(getString(R.string.airpods_connection_issue))
+            .setContentText(getString(R.string.airpods_l2cap_unavailable)).setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    "Your AirPods are connected via Bluetooth, but LibrePods couldn't connect to AirPods using L2CAP. Error: $errorMessage"
+                    getString(R.string.airpods_l2cap_error, errorMessage)
                 )
             ).setContentIntent(pendingIntent).setCategory(Notification.CATEGORY_ERROR)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).build()
@@ -2059,7 +2077,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         """${
                         batteryList?.find { it.component == BatteryComponent.LEFT }?.let {
                             if (it.status != BatteryStatus.DISCONNECTED) {
-                                "L: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
+                                "${getString(R.string.left)}: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
                             } else {
                                 ""
                             }
@@ -2067,7 +2085,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     } ${
                         batteryList?.find { it.component == BatteryComponent.RIGHT }?.let {
                             if (it.status != BatteryStatus.DISCONNECTED) {
-                                "R: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
+                                "${getString(R.string.right)}: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
                             } else {
                                 ""
                             }
@@ -2075,7 +2093,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     } ${
                         batteryList?.find { it.component == BatteryComponent.CASE }?.let {
                             if (it.status != BatteryStatus.DISCONNECTED) {
-                                "Case: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
+                                "${getString(R.string.case_alt)}: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
                             } else {
                                 ""
                             }
@@ -2085,7 +2103,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
             if (disconnectedBecauseReversed) {
                 updatedNotificationBuilder.addAction(
-                    R.drawable.ic_bluetooth, "Reconnect", PendingIntent.getService(
+                    R.drawable.ic_bluetooth, getString(R.string.reconnect_action), PendingIntent.getService(
                         this, 0, Intent(this, AirPodsService::class.java).apply {
                             action = "me.kavishdevar.librepods.RECONNECT_AFTER_REVERSE"
                         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -2137,6 +2155,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     private fun answerCall() {
         try {
+            if (checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) {
+                sendToast(getString(R.string.call_permission_required))
+                return
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
                 if (checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
@@ -2153,10 +2175,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 answerCallMethod.invoke(telephonyInterface)
             }
 
-            sendToast("Call answered via head gesture")
+            sendToast(getString(R.string.call_answered_gesture))
         } catch (e: Exception) {
             e.printStackTrace()
-            sendToast("Failed to answer call: ${e.message}")
+            sendToast(getString(R.string.call_answer_failed, e.localizedMessage ?: getString(R.string.unknown_error)))
         } finally {
             islandWindow?.close()
         }
@@ -2164,10 +2186,17 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     private fun rejectCall() {
         try {
+            if (checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) {
+                sendToast(getString(R.string.call_permission_required))
+                return
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val telecomManager = getSystemService(TELECOM_SERVICE) as TelecomManager
                 if (checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
-                    telecomManager.endCall() // TODO: Switch to InCallService (needs CDM association)
+                    if (!telecomManager.endCall()) { // TODO: Switch to InCallService (needs CDM association)
+                        sendToast(getString(R.string.call_reject_unavailable))
+                        return
+                    }
                 }
             } else {
                 val telephonyService = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
@@ -2179,10 +2208,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 endCallMethod.invoke(telephonyInterface)
             }
 
-            sendToast("Call rejected via head gesture")
+            sendToast(getString(R.string.call_rejected_gesture))
         } catch (e: Exception) {
             e.printStackTrace()
-            sendToast("Failed to reject call: ${e.message}")
+            sendToast(getString(R.string.call_reject_failed, e.localizedMessage ?: getString(R.string.unknown_error)))
         } finally {
             islandWindow?.close()
         }
@@ -2717,10 +2746,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         )
                         if (manual) {
                             sendToast(
-                                "Couldn't connect to socket: ${e.localizedMessage}"
+                                getString(R.string.airpods_socket_failed, e.localizedMessage ?: getString(R.string.unknown_error))
                             )
                         } else {
-                            showSocketConnectionFailureNotification("Couldn't connect to socket: ${e.localizedMessage}")
+                            showSocketConnectionFailureNotification(getString(R.string.airpods_socket_failed, e.localizedMessage ?: getString(R.string.unknown_error)))
                         }
                         return@withTimeout
 //                            throw e // lol how did i not catch this before... gonna comment this line instead of removing to preserve history
@@ -2731,7 +2760,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 Log.d(TAG, "<LogCollector:Complete:Failed> socket not connected")
                 if (manual) {
                     sendToast(
-                        "Couldn't connect to socket: timeout."
+                        getString(R.string.airpods_socket_timeout)
                     )
                 } else {
                     showSocketConnectionFailureNotification("Couldn't connect to socket: Timeout")
@@ -2906,7 +2935,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 override fun onServiceDisconnected(profile: Int) {}
             }, BluetoothProfile.A2DP)
             try {
-                device?.disconnect()
+                // Public only since API 37; use the existing platform method on older SDKs.
+                device?.let { bluetoothDevice ->
+                    BluetoothDevice::class.java.getMethod("disconnect").invoke(bluetoothDevice)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "device.disconnect() failed, $e")
             }

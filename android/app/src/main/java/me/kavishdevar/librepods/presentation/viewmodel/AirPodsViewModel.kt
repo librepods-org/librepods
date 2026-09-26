@@ -18,6 +18,7 @@
 
 package me.kavishdevar.librepods.presentation.viewmodel
 
+import me.kavishdevar.librepods.R
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -775,7 +776,7 @@ class AirPodsViewModel(
             service.disconnectAirPods()
             if (appContext.checkSelfPermission("android.permission.BLUETOOTH_PRIVILEGED") != PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(
-                    appContext, "App has disconnected, disconnect from Android Settings.",
+                    appContext, appContext.getString(R.string.app_disconnected_audio_notice),
                     Toast.LENGTH_LONG
                 ).show()
             }

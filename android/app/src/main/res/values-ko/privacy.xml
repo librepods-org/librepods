@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privacy_last_updated">최종 수정일: 2026년 6월 20일</string>
+    <string name="privacy_overview">개요</string>
+    <string name="privacy_collection">LibrePods는 광고, 분석, 추적 또는 프로파일링을 목적으로 개인정보를 수집, 저장, 판매하거나 공유하지 않습니다. 앱에는 분석, 충돌 보고, 원격 측정, 광고 SDK 또는 추적 서비스가 포함되어 있지 않습니다.</string>
+    <string name="privacy_local_data">사용자가 직접 개발자에게 연락하거나, 앱에서 GitHub 이슈를 작성하거나, 외부 플랫폼을 통해 구매 또는 후원하지 않는 한 모든 정보는 사용자 기기에만 보관됩니다.</string>
+    <string name="privacy_third_party">외부 서비스</string>
+    <string name="privacy_contact_methods">LibrePods는 이메일, Discord, GitHub 이슈 등 개발자에게 연락할 수 있는 방법을 제공합니다.</string>
+    <string name="privacy_email_data">이메일로 연락하면 개발자는 사용자의 이메일 주소와 메시지에 사용자가 포함한 정보를 받습니다. LibrePods의 문의 양식을 사용하면 수신 주소와 사용자가 작성한 제목 및 본문이 입력된 상태로 이메일 앱이 열립니다. 문제 해결을 돕기 위해 본문에는 LibrePods 버전 정보와 기기 정보도 포함됩니다.</string>
+    <string name="privacy_email_edit">이메일을 보내기 전에 이 정보를 수정하거나 삭제할 수 있습니다.</string>
+    <string name="privacy_discord_policy">앱은 LibrePods Discord 서버 링크를 제공합니다. Discord 서버에 참여하면 Discord의 개인정보 처리방침이 적용됩니다.</string>
+    <string name="privacy_discord_data">사용자가 Discord 서버에서 개발자에게 직접 정보를 공유하지 않는 한, 개발자는 사용자 이름, 가입일, 함께 참여한 서버, 게시한 메시지나 콘텐츠 등 서버에 공개된 정보 외에는 Discord로부터 사용자 정보를 받지 않습니다.</string>
+    <string name="privacy_issue_prefill">LibrePods에서 GitHub 이슈를 작성하면 다음 정보가 양식에 미리 입력됩니다:</string>
+    <string name="privacy_issue_version">• LibrePods 버전 이름 및 버전 코드</string>
+    <string name="privacy_issue_device">• 기기 제조사 및 모델</string>
+    <string name="privacy_issue_android">• Android 빌드 정보</string>
+    <string name="privacy_issue_source">• 설치 출처(Google Play 또는 GitHub)</string>
+    <string name="privacy_issue_submission">이 정보는 버그 진단과 지원에 사용됩니다. 정보가 자동으로 전송되지는 않으며, 사용자가 GitHub 이슈를 등록하기로 선택한 경우에만 제출됩니다.</string>
+    <string name="privacy_payments">결제</string>
+    <string name="privacy_google_play">Google Play</string>
+    <string name="privacy_play_purchase">Google Play에서 제공하는 버전의 구매는 Google Play에서 처리합니다.</string>
+    <string name="privacy_play_data">LibrePods는 개발자가 관리하는 원격 서버가 아니라 사용자 기기에서 Google Play를 통해 구매를 확인합니다. 개발자는 Google Play로부터 사용자나 구매에 관한 정보를 받지 않습니다. 결제는 전적으로 Google Play에서 처리하며, 개발자는 사용자의 결제 정보에 접근할 수 없습니다.</string>
+    <string name="privacy_github_sponsors">GitHub Sponsors</string>
+    <string name="privacy_sponsors_purchase">GitHub에서 제공하는 FOSS 버전에서는 업그레이드 버튼이 GitHub Sponsors로 연결됩니다. LibrePods를 후원하면 GitHub에서 후원을 처리합니다.</string>
+    <string name="privacy_sponsors_data">LibrePods를 후원하면 사용자 이름과 국가 또는 지역이 개발자에게 공유됩니다. GitHub Sponsors의 개인정보 설정에 따라 이메일 주소도 공유될 수 있습니다.</string>
+    <string name="privacy_contact">이 개인정보 처리방침에 관해 궁금한 점이 있으면 privacy@kavish.xyz로 이메일을 보내 주세요.</string>
+</resources>

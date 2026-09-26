@@ -116,7 +116,8 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
     val topPadding = if (m3eEnabled) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 84.dp
     val bottomPadding = if (m3eEnabled) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
 
-    var gestureText by remember { mutableStateOf("") }
+    var gestureMessageRes by remember { mutableStateOf<Int?>(null) }
+    val gestureText = gestureMessageRes?.let { stringResource(it) }.orEmpty()
     val coroutineScope = rememberCoroutineScope()
 
     var lastClickTime by remember { mutableLongStateOf(0L) }
@@ -159,7 +160,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
             }
 
             StyledToggle(
-                label = "Head Gestures",
+                label = stringResource(R.string.head_gestures),
                 checked = state.headGesturesEnabled,
                 onCheckedChange = { viewModel.setHeadGesturesEnabled(it) },
                 enabled = state.isPremium || state.headGesturesEnabled,
@@ -171,7 +172,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "Velocity",
+                stringResource(R.string.head_movement_velocity),
                 style = TextStyle(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -194,13 +195,12 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
                 }
             }
         }
-        val gestureTextValue = stringResource(R.string.shake_your_head_or_nod)
         StyledButton(
             onClick = {
-                gestureText = gestureTextValue
+                gestureMessageRes = R.string.shake_your_head_or_nod
                 coroutineScope.launch {
                     val accepted = ServiceManager.getService()?.testHeadGestures() ?: false
-                    gestureText = if (accepted) "\"Yes\" gesture detected." else "\"No\" gesture detected."
+                    gestureMessageRes = if (accepted) R.string.gesture_yes_detected else R.string.gesture_no_detected
                 }
             },
             backdrop = backdrop,
@@ -210,7 +210,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
             maxScale = 0.05f
         ) {
             Text(
-                "Test Head Gestures",
+                stringResource(R.string.test_head_gestures),
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
@@ -238,7 +238,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
                     LaunchedEffect(Unit) {
                         CoroutineScope(coroutineScope.coroutineContext).launch {
                             delay(750)
-                            gestureText = ""
+                            gestureMessageRes = null
                         }
                     }
                     Text(
@@ -274,6 +274,8 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
 @Composable
 private fun Plot() {
     val acceleration by HeadTracking.acceleration.collectAsState()
+    val horizontalLabel = stringResource(R.string.horizontal_direction)
+    val verticalLabel = stringResource(R.string.vertical_direction)
     val maxPoints = 100
     val points = remember { mutableStateListOf<Pair<Float, Float>>() }
     val darkTheme = isSystemInDarkTheme()
@@ -387,7 +389,7 @@ private fun Plot() {
                         textSize = 12.sp.toPx()
                         textAlign = Paint.Align.LEFT
                     }
-                    drawText("Horizontal", width - 140.dp.toPx(), textOffsetY, paint)
+                    drawText(horizontalLabel, width - 140.dp.toPx(), textOffsetY, paint)
                 }
 
                 drawCircle(verticalColor, 5.dp.toPx(), Offset(width - 70.dp.toPx(), legendY))
@@ -397,7 +399,7 @@ private fun Plot() {
                         textSize = 12.sp.toPx()
                         textAlign = Paint.Align.LEFT
                     }
-                    drawText("Vertical", width - 60.dp.toPx(), textOffsetY, paint)
+                    drawText(verticalLabel, width - 60.dp.toPx(), textOffsetY, paint)
                 }
             }
         }

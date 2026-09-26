@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="privacy_last_updated">Last updated: 20 June 2026</string>
+    <string name="privacy_overview">Overview</string>
+    <string name="privacy_collection">LibrePods does not collect, store, sell, or share personal information for advertising, analytics, tracking, or profiling purposes. The app does not include analytics, crash reporting, telemetry, advertising SDKs, or tracking services.</string>
+    <string name="privacy_local_data">All information remains on your device unless you explicitly choose to contact me, create a GitHub issue from the app, or make a purchase or sponsorship through a third-party platform.</string>
+    <string name="privacy_third_party">Third Party Services</string>
+    <string name="privacy_contact_methods">LibrePods provides several ways to contact me, including email, Discord, and GitHub Issues.</string>
+    <string name="privacy_email_data">If you contact me by email, I receive your email address and any information you choose to include in your message. When using the contact form within LibrePods, your email client will open with a pre-filled email address, the subject line and body that you fill out. The body will also include LibrePods version information and device information to help with troubleshooting.</string>
+    <string name="privacy_email_edit">You can edit or remove any of this information before sending the email.</string>
+    <string name="privacy_discord_policy">The app provides a link to the LibrePods Discord server. If you choose to join the Discord server, you will be subject to Discord\'s privacy policy.</string>
+    <string name="privacy_discord_data">I do not receive any information about you from Discord other than what is publicly visible in the Discord server, such as your username, joining date, common servers, and any messages or content you post in the server, unless you choose to share it with me in the Discord server.</string>
+    <string name="privacy_issue_prefill">When creating a GitHub issue through LibrePods, the app will pre-fill the issue form with:</string>
+    <string name="privacy_issue_version">• LibrePods version name and version code</string>
+    <string name="privacy_issue_device">• Device manufacturer and model</string>
+    <string name="privacy_issue_android">• Android build information</string>
+    <string name="privacy_issue_source">• Installation source (Google Play or GitHub)</string>
+    <string name="privacy_issue_submission">This information helps diagnose bugs and provide support. No information is sent automatically. The information is only submitted if you choose to create the GitHub issue.</string>
+    <string name="privacy_payments">Payments</string>
+    <string name="privacy_google_play">Google Play</string>
+    <string name="privacy_play_purchase">When using the version available on Google Play, purchases are processed by Google Play.</string>
+    <string name="privacy_play_data">LibrePods verifies the purchase with Google Play on-device, not with a remote server that I control. I do not receive any information about you or your purchase from Google Play. Payment processing is handled entirely by Google Play, and I do not have access to any of your payment information.</string>
+    <string name="privacy_github_sponsors">GitHub Sponsors</string>
+    <string name="privacy_sponsors_purchase">When using the FOSS version available on GitHub, the upgrade button links to GitHub Sponsors. If you choose to sponsor LibrePods, your sponsorship is processed by GitHub.</string>
+    <string name="privacy_sponsors_data">Your username and country/region are shared with me when you sponsor LibrePods. Depending on your GitHub Sponsors privacy settings, I may also receive your email address.</string>
+    <string name="privacy_contact">If you have questions about this privacy policy, please contact me via email at privacy@kavish.xyz.</string>
+</resources>
