@@ -4,6 +4,7 @@ LibrePods *may* require root depending on your device/OS and what features you w
 
 - Features requiring the VendorID hook ([the features marked with an asterisk here](https://github.com/kavishdevar/librepods#key-features)) will always require root regardless of your device/OS.
 - On **ColorOS/OxygenOS 16 and realme UI 7.0** and **Pixel devices on Android 16 QPR3** (with the latest Google Play system update), LibrePods does not need root for most features.
+- On **HyperOS 3 (Xiaomi/POCO/Redmi on Android 16)** the compatibility check is skipped as well, but rootless support there is not confirmed yet: some devices still fail to open the private L2CAP channel ([#393](https://github.com/librepods-org/librepods/issues/393)). If that happens, you still need root and Xposed.
 - On other devices, LibrePods needs root because of a bug in the Android Bluetooth stack Fluoride/non-compliance of Apple with Bluetooth standards. You must have Xposed installed for the app to workaround this bug and connect to AirPods. [This issue is being tracked here](https://issuetracker.google.com/issues/371713238). **Please do not comment on the issue thread.** The issue has already been resolved and should be available in **Android 17** for all devices.
 
 > [!IMPORTANT]
