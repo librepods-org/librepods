@@ -36,9 +36,10 @@ fun createBluetoothSocket(
     val constructorSpecs = listOf(
         arrayOf(adapter, device, type, true, true, psm, uuid), // A16QPR3
         arrayOf(device, type, true, true, psm, uuid),
-        arrayOf(device, type, 1, true, true, psm, uuid),
-        arrayOf(type, 1, true, true, device, psm, uuid),
-        arrayOf(type, true, true, device, psm, uuid)
+        arrayOf(device, type, -1, true, true, psm, uuid),
+        arrayOf(type, -1, true, true, device, psm, uuid),
+        arrayOf(type, true, true, device, psm, uuid),
+        arrayOf(type, device, true, true, psm, uuid)
     )
 
     val constructors = BluetoothSocket::class.java.declaredConstructors
@@ -65,6 +66,60 @@ fun createBluetoothSocket(
 
         } catch (e: Exception) {
             Log.e("createSocket<psm>", "Constructor signature #${index + 1} failed: ${e.message}")
+            lastException = e
+        }
+    }
+
+    // Dynamic constructor resolution fallback
+    for (constructor in constructors) {
+        try {
+            val paramTypes = constructor.parameterTypes
+            val args = arrayOfNulls<Any>(paramTypes.size)
+            var matched = true
+
+            for (i in paramTypes.indices) {
+                val pt = paramTypes[i]
+                when {
+                    pt == BluetoothAdapter::class.java -> args[i] = adapter
+                    pt == BluetoothDevice::class.java -> args[i] = device
+                    pt == ParcelUuid::class.java -> args[i] = uuid
+                    pt == java.lang.Boolean.TYPE || pt == java.lang.Boolean::class.java -> args[i] = true
+                    pt == java.lang.Integer.TYPE || pt == java.lang.Integer::class.java -> {
+                        // Will populate in second pass based on total integer count
+                    }
+                    else -> {
+                        matched = false
+                        break
+                    }
+                }
+            }
+
+            if (matched) {
+                val totalInts = paramTypes.count { it == java.lang.Integer.TYPE || it == java.lang.Integer::class.java }
+                var currentIntIndex = 0
+                for (i in paramTypes.indices) {
+                    val pt = paramTypes[i]
+                    if (pt == java.lang.Integer.TYPE || pt == java.lang.Integer::class.java) {
+                        currentIntIndex++
+                        args[i] = when (totalInts) {
+                            1 -> psm
+                            2 -> if (currentIntIndex == 1) type else psm
+                            3 -> when (currentIntIndex) {
+                                1 -> type
+                                2 -> -1
+                                else -> psm
+                            }
+                            else -> if (currentIntIndex == totalInts) psm else type
+                        }
+                    }
+                }
+
+                constructor.isAccessible = true
+                Log.d("createSocket<psm>", "Successfully created socket using dynamic fallback constructor (${paramTypes.joinToString { it.simpleName }})")
+                return constructor.newInstance(*args) as BluetoothSocket
+            }
+        } catch (e: Exception) {
+            Log.w("createSocket<psm>", "Dynamic constructor invocation failed: ${e.message}")
             lastException = e
         }
     }

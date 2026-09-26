@@ -112,7 +112,11 @@ class AACPManager {
                 0x37
             ),
             PPE_CAP_LEVEL_CONFIG(0x38),
-            DYNAMIC_END_OF_CHARGE(0x3B);
+            DYNAMIC_END_OF_CHARGE(0x3B),
+            UPLINK_EQ_BUD_CONFIG(0x3E),
+            UPLINK_EQ_SOURCE_CONFIG(0x3F),
+            IN_CASE_TONE_VOLUME(0x40),
+            DISABLE_BUTTON_INPUT(0x41);
 
             companion object {
                 fun fromByte(byte: Byte): ControlCommandIdentifiers? =
@@ -214,10 +218,7 @@ class AACPManager {
     private fun setControlCommandStatusValue(
         identifier: ControlCommandIdentifiers, value: ByteArray
     ) {
-        val existingStatus = getControlCommandStatus(identifier)
-        if (existingStatus?.value.contentEquals(value)) {
-            controlCommandStatusList.remove(existingStatus)
-        }
+        controlCommandStatusList.removeAll { it.identifier == identifier }
         controlCommandListeners[identifier]?.forEach { listener ->
             listener.onControlCommandReceived(ControlCommand(identifier.value, value))
         }
@@ -308,38 +309,36 @@ class AACPManager {
 
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false, value
-        )
+        ControlCommandIdentifiers.fromByte(identifier)?.let {
+            setControlCommandStatusValue(it, value)
+        }
         return sendDataPacket(controlPacket)
     }
 
     @OptIn(ExperimentalStdlibApi::class)
     fun sendControlCommand(identifier: Byte, value: Byte): Boolean {
         val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value))
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false, byteArrayOf(value)
-        )
+        ControlCommandIdentifiers.fromByte(identifier)?.let {
+            setControlCommandStatusValue(it, byteArrayOf(value))
+        }
         return sendDataPacket(controlPacket)
     }
 
     fun sendControlCommand(identifier: Byte, value: Boolean): Boolean {
-        val controlPacket = createControlCommandPacket(
-            identifier, if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
-        )
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
-        )
+        val bytes = if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
+        val controlPacket = createControlCommandPacket(identifier, bytes)
+        ControlCommandIdentifiers.fromByte(identifier)?.let {
+            setControlCommandStatusValue(it, bytes)
+        }
         return sendDataPacket(controlPacket)
     }
 
     fun sendControlCommand(identifier: Byte, value: Int): Boolean {
-        val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value.toByte()))
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            byteArrayOf(value.toByte())
-        )
+        val bytes = byteArrayOf(value.toByte())
+        val controlPacket = createControlCommandPacket(identifier, bytes)
+        ControlCommandIdentifiers.fromByte(identifier)?.let {
+            setControlCommandStatusValue(it, bytes)
+        }
         return sendDataPacket(controlPacket)
     }
 
@@ -1153,10 +1152,9 @@ class AACPManager {
                     TAG, "Control command: ${controlCommand.identifier.toHexString()} - ${
                     controlCommand.value.joinToString(" ") { "%02X".format(it) }
                 }")
-                setControlCommandStatusValue(
-                    ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return false,
-                    controlCommand.value
-                )
+                ControlCommandIdentifiers.fromByte(controlCommand.identifier)?.let {
+                    setControlCommandStatusValue(it, controlCommand.value)
+                }
             }
 
             val socket = BluetoothConnectionManager.aacpSocket ?: return false

@@ -151,5 +151,13 @@ class KotlinModule: XposedModule() {
 
 
 object NativeBridge {
+    init {
+        try {
+            System.loadLibrary("l2c_fcr_hook")
+        } catch (e: Throwable) {
+            Log.d("NativeBridge", "l2c_fcr_hook library not available or not loaded: ${e.message}")
+        }
+    }
+
     external fun setSdpHook(enabled: Boolean)
 }

@@ -217,7 +217,7 @@ class AirPodsPro2USBC: AirPodsBase(
 )
 
 class AirPodsPro3: AirPodsBase(
-    modelNumber = listOf("A3063", "A3064", "A3065"),
+    modelNumber = listOf("A3063", "A3064", "A3065", "A3122"),
     name = "AirPods Pro 3",
     displayName = "AirPods Pro",
     // budCaseRes = R.drawable.airpods_pro_3
