@@ -18,9 +18,12 @@
 
 package me.kavishdevar.librepods.presentation.screens
 
+import android.app.LocaleConfig
+import android.app.LocaleManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.LocaleList
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -225,6 +228,31 @@ fun AppSettingsScreen(
                                 it.copy(useHighestRefreshRate = checked)
                             }
                         }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val localeManager = remember { context.getSystemService(LocaleManager::class.java) }
+            val appLocales = remember { localeManager.applicationLocales }
+            val supportedLocales = remember {
+                val locales = LocaleConfig(context).supportedLocales ?: LocaleList.getEmptyLocaleList()
+                List(locales.size()) { locales[it] }
+            }
+
+            StyledList(title = stringResource(R.string.language)) {
+                StyledListItem(
+                    contentText = stringResource(R.string.system_default),
+                    selected = appLocales.isEmpty,
+                    onClick = { localeManager.applicationLocales = LocaleList.getEmptyLocaleList() }
+                )
+
+                supportedLocales.forEach { locale ->
+                    StyledListItem(
+                        contentText = locale.getDisplayName(locale).replaceFirstChar { it.titlecase(locale) },
+                        selected = appLocales[0]?.toLanguageTag() == locale.toLanguageTag(),
+                        onClick = { localeManager.applicationLocales = LocaleList(locale) }
                     )
                 }
             }
