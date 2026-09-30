@@ -392,6 +392,9 @@
     <string name="airpods_l2cap_connection_failed">Unable to connect to AirPods over L2CAP</string>
     <string name="airpods_l2cap_connection_failure_detail">Your AirPods are connected via Bluetooth, but LibrePods couldn\'t connect to AirPods using L2CAP. Error: %1$s</string>
     <string name="battery_component_status">%1$s: %2$s %3$d%%</string>
+    <string name="battery_left_short">L</string>
+    <string name="battery_right_short">R</string>
+    <string name="battery_case_short">Case</string>
     <string name="call_answered_by_head_gesture">Call answered via head gesture</string>
     <string name="call_answer_failed">Failed to answer call: %1$s</string>
     <string name="call_rejected_by_head_gesture">Call rejected via head gesture</string>

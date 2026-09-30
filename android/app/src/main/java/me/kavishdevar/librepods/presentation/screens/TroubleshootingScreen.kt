@@ -98,6 +98,7 @@ import kotlinx.coroutines.withContext
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.utils.LogCollector
 import java.io.File
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -314,7 +315,7 @@ fun TroubleshootingScreen() {
                                 )
 
                                 Text(
-                                    text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                                    text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
                                         .format(Date(logFile.lastModified())),
                                     fontSize = 14.sp,
                                     color = textColor.copy(alpha = 0.6f)
@@ -795,7 +796,7 @@ fun TroubleshootingScreen() {
                             color = textColor
                         )
                         Text(
-                            text = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                            text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault())
                                 .format(Date(selectedLogFile?.lastModified() ?: 0)),
                             fontSize = 14.sp,
                             color = textColor.copy(alpha = 0.7f),

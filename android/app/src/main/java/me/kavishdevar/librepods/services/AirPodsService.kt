@@ -2059,7 +2059,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         """${
                         batteryList?.find { it.component == BatteryComponent.LEFT }?.let {
                             if (it.status != BatteryStatus.DISCONNECTED) {
-                                getString(R.string.battery_component_status, getString(R.string.left), if (it.status == BatteryStatus.CHARGING) "⚡" else "", it.level)
+                                getString(R.string.battery_component_status, getString(R.string.battery_left_short), if (it.status == BatteryStatus.CHARGING) "⚡" else "", it.level)
                             } else {
                                 ""
                             }
@@ -2067,7 +2067,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     } ${
                         batteryList?.find { it.component == BatteryComponent.RIGHT }?.let {
                             if (it.status != BatteryStatus.DISCONNECTED) {
-                                getString(R.string.battery_component_status, getString(R.string.right), if (it.status == BatteryStatus.CHARGING) "⚡" else "", it.level)
+                                getString(R.string.battery_component_status, getString(R.string.battery_right_short), if (it.status == BatteryStatus.CHARGING) "⚡" else "", it.level)
                             } else {
                                 ""
                             }
@@ -2075,7 +2075,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     } ${
                         batteryList?.find { it.component == BatteryComponent.CASE }?.let {
                             if (it.status != BatteryStatus.DISCONNECTED) {
-                                getString(R.string.battery_component_status, getString(R.string.case_alt), if (it.status == BatteryStatus.CHARGING) "⚡" else "", it.level)
+                                getString(R.string.battery_component_status, getString(R.string.battery_case_short), if (it.status == BatteryStatus.CHARGING) "⚡" else "", it.level)
                             } else {
                                 ""
                             }
