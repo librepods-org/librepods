@@ -3114,8 +3114,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                                 "setConnectionPolicy", BluetoothDevice::class.java, Int::class.java
                             )
                             Log.d(TAG, "calling A2DP.setConnectionPolicy for ${device?.address} to 0")
-                            val accepted = method.invoke(proxy, device, 0) == true
-                            if (restorable) grantAudioRelease(device, profile, state, accepted, restoreEpoch)
+                            forbidProfile(proxy, method, device, profile, state, restorable, restoreEpoch)
                         } catch (e: Exception) {
                             e.printStackTrace()
                         } finally {
@@ -3143,8 +3142,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                             // Call-only connections are released too, so they must be restorable as well.
                             val state = proxy.getConnectionState(device)
                             Log.d(TAG, "calling HEADSET.setConnectionPolicy for ${device?.address} to 0")
-                            val accepted = method.invoke(proxy, device, 0) == true
-                            if (restorable) grantAudioRelease(device, profile, state, accepted, restoreEpoch)
+                            forbidProfile(proxy, method, device, profile, state, restorable, restoreEpoch)
                         } catch (e: Exception) {
                             e.printStackTrace()
                         } finally {
@@ -3161,19 +3159,29 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     /**
-     * Only an accepted release of a profile that was fully connected to this phone may be undone
-     * in the background, and never once another device took over.
+     * Sets [profile]'s policy to FORBIDDEN. A restorable release is revalidated and recorded under
+     * the restore lock, so a late callback can't block audio behind a restore or revocation that
+     * superseded it. Only an accepted release of a profile that was fully connected to this phone
+     * may be undone in the background, and never once another device took over.
      */
-    private fun grantAudioRelease(
-        device: BluetoothDevice?, profile: Int, state: Int, accepted: Boolean, restoreEpoch: Int
+    private fun forbidProfile(
+        proxy: BluetoothProfile, setPolicy: java.lang.reflect.Method, device: BluetoothDevice?,
+        profile: Int, state: Int, restorable: Boolean, restoreEpoch: Int
     ) {
-        if (device == null || !accepted || state != BluetoothProfile.STATE_CONNECTED) return
+        if (!restorable) {
+            setPolicy.invoke(proxy, device, 0)
+            return
+        }
         synchronized(audioRestoreLock) {
-            if (restoreEpoch == audioRestoreEpoch && !audioOwnershipLost) {
-                if (releasedAudioAddress != device.address) releasedAudioProfiles.clear()
-                releasedAudioAddress = device.address
-                releasedAudioProfiles += profile
+            if (restoreEpoch != audioRestoreEpoch || audioOwnershipLost) {
+                Log.d(TAG, "Skipping superseded release of profile $profile")
+                return
             }
+            val accepted = setPolicy.invoke(proxy, device, 0) == true
+            if (device == null || !accepted || state != BluetoothProfile.STATE_CONNECTED) return
+            if (releasedAudioAddress != device.address) releasedAudioProfiles.clear()
+            releasedAudioAddress = device.address
+            releasedAudioProfiles += profile
         }
     }
 
