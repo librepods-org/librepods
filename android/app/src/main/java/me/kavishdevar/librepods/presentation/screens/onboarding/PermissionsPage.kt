@@ -1,5 +1,7 @@
 package me.kavishdevar.librepods.presentation.screens.onboarding
 
+import me.kavishdevar.librepods.R
+import androidx.compose.ui.res.stringResource
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.animation.animateColorAsState
@@ -136,21 +138,21 @@ fun PermissionsPage(
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StyledList(title = "Required Permissions") {
+            StyledList(title = stringResource(R.string.required_permissions)) {
                 val animatedBluetoothIconColor by animateColorAsState(if (bluetoothPermissionsState.allPermissionsGranted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
                 val animatedBluetoothContainerColor by animateColorAsState(
                     if (bluetoothPermissionsState.allPermissionsGranted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest
                 )
 
                 StyledListItem(
-                    name = "Bluetooth",
+                    name = stringResource(R.string.bluetooth),
                     onClick = if (!bluetoothPermissionsState.allPermissionsGranted) {
                         {
                             grantingAll = false
                             bluetoothPermissionsState.launchMultiplePermissionRequest()
                         }
                     } else null,
-                    description = "Required to communicate with AirPods",
+                    description = stringResource(R.string.bluetooth_permission_description),
                     orientation = ListItemOrientation.Vertical,
                     leadingContent = {
                         Box(
@@ -165,7 +167,7 @@ fun PermissionsPage(
                         ) {
                             Icon(
                                 imageVector = MaterialIcons.bluetooth,
-                                contentDescription = "bluetooth",
+                                contentDescription = stringResource(R.string.bluetooth),
                                 modifier = Modifier.size(24.dp),
                                 tint = animatedBluetoothIconColor
                             )
@@ -173,7 +175,7 @@ fun PermissionsPage(
                     },
                 )
             }
-            StyledList(title = "Optional Permissions") {
+            StyledList(title = stringResource(R.string.optional_permissions)) {
                 val animatedNotificationsIconColor by animateColorAsState(
                     if (notificationPermissionState.status.isGranted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                 )
@@ -186,14 +188,14 @@ fun PermissionsPage(
                 )
 
                 StyledListItem(
-                    name = "Notifications",
+                    name = stringResource(R.string.notifications),
                     onClick = if (!notificationPermissionState.status.isGranted) {
                         {
                             grantingAll = false
                             notificationPermissionState.launchPermissionRequest()
                         }
                     } else null,
-                    description = "Show battery status",
+                    description = stringResource(R.string.notifications_permission_description),
                     orientation = ListItemOrientation.Vertical,
                     leadingContent = {
                         Box(
@@ -208,7 +210,7 @@ fun PermissionsPage(
                         ) {
                             Icon(
                                 imageVector = MaterialIcons.notifications,
-                                contentDescription = "notifications",
+                                contentDescription = stringResource(R.string.notifications),
                                 modifier = Modifier.size(24.dp),
                                 tint = animatedNotificationsIconColor
                             )
@@ -216,14 +218,14 @@ fun PermissionsPage(
                     },
                 )
                 StyledListItem(
-                    name = "Phone",
+                    name = stringResource(R.string.phone),
                     onClick = if (!phonePermissionState.allPermissionsGranted) {
                         {
                             grantingAll = false
                             phonePermissionState.launchMultiplePermissionRequest()
                         }
                     } else null,
-                    description = "Respond to phone calls with head gestures",
+                    description = stringResource(R.string.phone_permission_description),
                     orientation = ListItemOrientation.Vertical,
                     leadingContent = {
                         Box(
@@ -238,7 +240,7 @@ fun PermissionsPage(
                         ) {
                             Icon(
                                 imageVector = MaterialIcons.call,
-                                contentDescription = "bluetooth",
+                                contentDescription = stringResource(R.string.phone),
                                 modifier = Modifier.size(24.dp),
                                 tint = animatedPhoneIconColor
                             )
@@ -251,7 +253,7 @@ fun PermissionsPage(
             val animatedOverlayContainerColor by animateColorAsState(if (canDrawOverlays.value) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest)
 
             StyledListItem(
-                name = "Display over other apps",
+                name = stringResource(R.string.display_over_other_apps),
                 onClick = if (!canDrawOverlays.value) {
                     {
                         grantingAll = false
@@ -262,7 +264,7 @@ fun PermissionsPage(
                         context.startActivity(intent)
                     }
                 } else null,
-                description = "Show popups when AirPods are nearby or audio switches to them.",
+                description = stringResource(R.string.overlay_permission_description),
                 orientation = ListItemOrientation.Vertical,
                 leadingContent = {
                     Box(
@@ -277,7 +279,7 @@ fun PermissionsPage(
                     ) {
                         Icon(
                             imageVector = MaterialIcons.stack,
-                            contentDescription = "bluetooth",
+                            contentDescription = stringResource(R.string.display_over_other_apps),
                             modifier = Modifier.size(24.dp),
                             tint = animatedOverlayIconColor
                         )
@@ -300,7 +302,7 @@ fun PermissionsPage(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Default.ArrowBack,
-                        contentDescription = "backward",
+                        contentDescription = stringResource(R.string.back),
                         modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                     )
                 }
@@ -319,7 +321,7 @@ fun PermissionsPage(
                     enabled = !bluetoothPermissionsState.allPermissionsGranted || !notificationPermissionState.status.isGranted || !phonePermissionState.allPermissionsGranted || !canDrawOverlays.value
                 ) {
                     Text(
-                        text = "Grant all",
+                        text = stringResource(R.string.grant_all),
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -335,7 +337,7 @@ fun PermissionsPage(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Default.ArrowForward,
-                        contentDescription = "forward",
+                        contentDescription = stringResource(R.string.navigate_forward),
                         modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                     )
                 }
