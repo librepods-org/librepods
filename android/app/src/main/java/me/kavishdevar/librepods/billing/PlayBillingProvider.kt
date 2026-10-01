@@ -55,7 +55,7 @@ class PlayBillingProvider(
     private val _isPremium = MutableStateFlow(false)
     override val isPremium: StateFlow<Boolean> = _isPremium
 
-    private val _price = MutableStateFlow("unknown")
+    private val _price = MutableStateFlow(PRICE_LOADING)
     override val price: StateFlow<String> = _price
 
 
@@ -81,6 +81,7 @@ class PlayBillingProvider(
                         queryExistingPurchases()
                     }
                 } else {
+                    _price.value = PRICE_UNAVAILABLE
                     Log.w(TAG, "Billing setup failed: ${result.debugMessage}")
                 }
             }
@@ -112,8 +113,11 @@ class PlayBillingProvider(
 
             if (priceString != null) {
                 _price.value = priceString
+            } else {
+                _price.value = PRICE_UNAVAILABLE
             }
         } else {
+            _price.value = PRICE_UNAVAILABLE
             Log.w(TAG, "queryProductDetails failed: ${result.billingResult.debugMessage}")
         }
     }

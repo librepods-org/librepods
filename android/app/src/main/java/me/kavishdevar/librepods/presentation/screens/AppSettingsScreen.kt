@@ -160,10 +160,10 @@ fun AppSettingsScreen(
                         val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
                             data = "mailto:".toUri()
                             putExtra(Intent.EXTRA_EMAIL, arrayOf("billing@kavish.xyz"))
-                            putExtra(Intent.EXTRA_SUBJECT, "LibrePods Play billing error")
+                            putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.billing_error_email_subject))
                             putExtra(
                                 Intent.EXTRA_TEXT,
-                                "Please enter your GitHub username to restore your premium access:\n\nGitHub username: "
+                                context.getString(R.string.billing_error_email_body)
                             )
                         }
                         context.startActivity(emailIntent)
@@ -570,13 +570,13 @@ fun AppSettingsScreen(
                                Intent.EXTRA_TEXT,
                                "${descriptionState.text}" +
                                    "\n\n----------" +
-                                   "\nPhone details:" +
+                                   "\n" + context.getString(R.string.contact_phone_details) +
                                    "\nMANUFACTURER: ${Build.MANUFACTURER}" +
                                    "\nMODEL: ${Build.MODEL} (${Build.PRODUCT})" +
                                    "\nDISPLAY_VERSION: ${Build.DISPLAY}" +
                                    "\nID: ${Build.ID} (SDK ${Build.VERSION.SDK_INT_FULL})" +
                                    "\nXposed enabled/active: ${XposedState.isAvailable}/${XposedState.bluetoothScopeEnabled}" +
-                                   "\n\nApp details:" +
+                                   "\n\n" + context.getString(R.string.contact_app_details) +
                                    "\nVERSION: ${BuildConfig.VERSION_NAME}" +
                                    "\nVERSION_CODE: ${BuildConfig.VERSION_CODE}" +
                                    "\nFLAVOR: ${BuildConfig.FLAVOR}" +
