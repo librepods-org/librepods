@@ -14,6 +14,15 @@ object SystemApisUtils {
         get() = "Untethered Headset"
 
     /**
+     * Device type which is used in METADATA_DEVICE_TYPE
+     * Indicates this Bluetooth device is a standard single-battery device, such as over-ear
+     * headphones. AOSP has no dedicated headset type.
+     * @hide
+     */
+    val BluetoothDevice.DEVICE_TYPE_DEFAULT: String
+        get() = "Default"
+
+    /**
      * Maximum length of a metadata entry, this is to avoid exploding Bluetooth
      * disk usage
      * @hide

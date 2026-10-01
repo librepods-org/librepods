@@ -52,6 +52,18 @@
         android:src="@raw/connected"
         tools:ignore="HardcodedText" />
 
+    <!-- Shown instead of the video for models the connection animation does not depict. -->
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:id="@+id/device_image"
+        android:adjustViewBounds="true"
+        android:contentDescription="AirPods"
+        android:padding="16dp"
+        android:scaleType="fitCenter"
+        android:visibility="gone"
+        tools:ignore="HardcodedText" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
