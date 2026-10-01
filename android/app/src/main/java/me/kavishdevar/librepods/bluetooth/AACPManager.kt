@@ -20,7 +20,9 @@
 
 package me.kavishdevar.librepods.bluetooth
 
+import android.os.SystemClock
 import android.util.Log
+import kotlinx.coroutines.delay
 import me.kavishdevar.librepods.data.Capability
 import me.kavishdevar.librepods.data.CustomEq
 import java.nio.ByteBuffer
@@ -34,6 +36,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  */
 class AACPManager {
     private val TAG = "AACPManager[${System.identityHashCode(this)}]"
+    private val writerLock = Any()
     companion object {
         @Suppress("unused")
         object Opcodes {
@@ -61,6 +64,24 @@ class AACPManager {
         }
 
         private val HEADER_BYTES = byteArrayOf(0x04, 0x00, 0x04, 0x00)
+
+        // Exact AACP 1.3 initialization used by the validated RTBuddy probe before HR streaming.
+        private val HEART_RATE_CONNECT_SERVICE_0 = byteArrayOf(
+            0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x03, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        )
+        private val HEART_RATE_CAPABILITIES_SERVICE_0 =
+            byteArrayOf(0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00)
+        private val HEART_RATE_CONNECT_SERVICE_4 = byteArrayOf(
+            0x00, 0x00, 0x04, 0x00, 0x01, 0x00, 0x03, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        )
+        private val HEART_RATE_CAPABILITIES_SERVICE_4 =
+            byteArrayOf(0x04, 0x00, 0x04, 0x00, 0x01, 0x00, 0x00)
+
+        private const val HEART_RATE_DIAGNOSTIC_LOG_INTERVAL_MILLIS = 10_000L
+        private const val HEART_RATE_DIAGNOSTIC_REJECTION_THRESHOLD = 10
+        private const val HEART_RATE_DIAGNOSTIC_COUNT_LIMIT = 1_000
 
         data class ControlCommandStatus(
             val identifier: ControlCommandIdentifiers, val value: ByteArray
@@ -235,6 +256,7 @@ class AACPManager {
         fun onControlCommandReceived(controlCommand: ByteArray)
         fun onDeviceInformationReceived(deviceInformation: AirPodsInformation)
         fun onHeadTrackingReceived(headTracking: ByteArray)
+        fun onHeartRateReceived(sample: HeartRateSample)
         fun onUnknownPacketReceived(packet: ByteArray)
         fun onProximityKeysReceived(proximityKeys: ByteArray)
         fun onStemPressReceived(stemPress: ByteArray)
@@ -280,6 +302,15 @@ class AACPManager {
     }
 
     private var callback: PacketCallback? = null
+    private val heartRateDecoder = RtBuddyHeartRateDecoder()
+    private val heartRateControlSession = RtBuddyHeartRateControlSession(heartRateDecoder)
+    private val heartRateDiagnosticLock = Any()
+    private var heartRateAcceptedSampleLogged = false
+    private var heartRateDiagnosticWindowStartedAtMillis = 0L
+    private var heartRateDiagnosticRelatedFrames = 0
+    private var heartRateDiagnosticRejectedFrames = 0
+    private val heartRateDiagnosticRejectionReasons =
+        mutableMapOf<HeartRateRejectionReason, Int>()
 
     fun setPacketCallback(callback: PacketCallback) {
         this.callback = callback
@@ -305,6 +336,54 @@ class AACPManager {
     fun sendDataPacket(data: ByteArray): Boolean {
         return sendPacket(createDataPacket(data))
     }
+
+    fun sendHeartRateStartFrame(): Boolean = sendHeartRateControlFrame(start = true)
+
+    fun sendHeartRateStopFrame(): Boolean = sendHeartRateControlFrame(start = false)
+
+    suspend fun awaitHeartRateServiceResolution(timeoutMillis: Long = 1_500L): Boolean {
+        return waitForHeartRateServiceResolution(
+            decoder = heartRateDecoder,
+            timeoutMillis = timeoutMillis,
+            elapsedRealtimeMillis = SystemClock::elapsedRealtime,
+            pause = { delay(it) }
+        )
+    }
+
+    private fun sendHeartRateControlFrame(start: Boolean): Boolean {
+        val result = if (start) {
+            heartRateControlSession.sendStart(::sendPacket)
+        } else {
+            heartRateControlSession.sendStop(::sendPacket)
+        }
+        if (!result.attempted) {
+            Log.w(
+                TAG,
+                if (start) {
+                    "HeartRateService unavailable; refusing to target a non-heart service"
+                } else {
+                    "No active RTBuddy heart-rate stream; skipping stop control"
+                }
+            )
+            return false
+        }
+        Log.d(
+            TAG,
+            "Sending RTBuddy heart-rate ${if (start) "start" else "stop"} " +
+                "service=${result.serviceId} " +
+                "source=${if (result.discoveredFromMetadata) "metadata" else "legacy"} " +
+                "sent=${result.sent}"
+        )
+        return result.sent
+    }
+
+    fun sendHeartRateConnectService0(): Boolean = sendPacket(HEART_RATE_CONNECT_SERVICE_0)
+
+    fun sendHeartRateCapabilitiesService0(): Boolean = sendPacket(HEART_RATE_CAPABILITIES_SERVICE_0)
+
+    fun sendHeartRateConnectService4(): Boolean = sendPacket(HEART_RATE_CONNECT_SERVICE_4)
+
+    fun sendHeartRateCapabilitiesService4(): Boolean = sendPacket(HEART_RATE_CAPABILITIES_SERVICE_4)
 
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
@@ -397,8 +476,93 @@ class AACPManager {
         return opcode + data
     }
 
+    fun receivePacket(packet: ByteArray): Boolean {
+        val heartRateResult = heartRateDecoder.feed(packet)
+        recordHeartRateDecodeDiagnostics(heartRateResult)
+        heartRateResult.samples.forEach { callback?.onHeartRateReceived(it) }
+        heartRateResult.passthroughPackets.forEach(::receiveStandardPacket)
+        return heartRateResult.suppressRawLogging
+    }
+
+    private fun recordHeartRateDecodeDiagnostics(result: HeartRateDecodeResult) {
+        if (result.relatedFrameCount == 0) return
+
+        var acceptedFirstSample = false
+        var rejectionSummary: String? = null
+        synchronized(heartRateDiagnosticLock) {
+            if (result.samples.isNotEmpty() && !heartRateAcceptedSampleLogged) {
+                heartRateAcceptedSampleLogged = true
+                acceptedFirstSample = true
+            }
+            if (result.rejectedFrameCount > 0) {
+                val now = System.currentTimeMillis()
+                if (heartRateDiagnosticWindowStartedAtMillis == 0L) {
+                    heartRateDiagnosticWindowStartedAtMillis = now
+                }
+                heartRateDiagnosticRelatedFrames = boundedDiagnosticCount(
+                    heartRateDiagnosticRelatedFrames,
+                    result.relatedFrameCount
+                )
+                heartRateDiagnosticRejectedFrames = boundedDiagnosticCount(
+                    heartRateDiagnosticRejectedFrames,
+                    result.rejectedFrameCount
+                )
+                result.rejectionReasons.forEach { (reason, count) ->
+                    heartRateDiagnosticRejectionReasons.incrementBounded(reason, count)
+                }
+
+                val shouldLog =
+                    now - heartRateDiagnosticWindowStartedAtMillis >=
+                        HEART_RATE_DIAGNOSTIC_LOG_INTERVAL_MILLIS ||
+                        heartRateDiagnosticRejectedFrames >=
+                        HEART_RATE_DIAGNOSTIC_REJECTION_THRESHOLD
+                if (shouldLog) {
+                    val reasons = heartRateDiagnosticRejectionReasons.entries
+                        .sortedBy { it.key.name }
+                        .joinToString(",") { (reason, count) ->
+                            "${reason.name.lowercase()}=$count"
+                        }
+                    rejectionSummary =
+                        "RTBuddy heart-rate decode window " +
+                            "frames=$heartRateDiagnosticRelatedFrames " +
+                            "rejected=$heartRateDiagnosticRejectedFrames reasons=$reasons; " +
+                            "raw frame data suppressed"
+                    clearHeartRateDiagnosticWindowLocked()
+                }
+            }
+        }
+
+        if (acceptedFirstSample) {
+            Log.d(TAG, "Validated first RTBuddy heart-rate sample for this AACP connection")
+        }
+        rejectionSummary?.let { Log.w(TAG, it) }
+    }
+
+    private fun boundedDiagnosticCount(current: Int, increment: Int): Int =
+        (current.toLong() + increment)
+            .coerceAtMost(HEART_RATE_DIAGNOSTIC_COUNT_LIMIT.toLong())
+            .toInt()
+
+    private fun <K> MutableMap<K, Int>.incrementBounded(key: K, increment: Int) {
+        this[key] = boundedDiagnosticCount(getOrDefault(key, 0), increment)
+    }
+
+    private fun clearHeartRateDiagnosticWindowLocked() {
+        heartRateDiagnosticWindowStartedAtMillis = 0L
+        heartRateDiagnosticRelatedFrames = 0
+        heartRateDiagnosticRejectedFrames = 0
+        heartRateDiagnosticRejectionReasons.clear()
+    }
+
+    private fun resetHeartRateDiagnostics() {
+        synchronized(heartRateDiagnosticLock) {
+            heartRateAcceptedSampleLogged = false
+            clearHeartRateDiagnosticWindowLocked()
+        }
+    }
+
     @OptIn(ExperimentalStdlibApi::class)
-    fun receivePacket(packet: ByteArray) {
+    private fun receiveStandardPacket(packet: ByteArray) {
         if (!packet.toHexString().startsWith("04000400")) {
             Log.w(
                 TAG, "Received packet does not start with expected header: ${
@@ -1139,7 +1303,11 @@ class AACPManager {
     @OptIn(ExperimentalStdlibApi::class)
     fun sendPacket(packet: ByteArray): Boolean {
         try {
-            Log.d(TAG, "Sending packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+            if (isHeartRateRtBuddyPacket(packet)) {
+                Log.d(TAG, "Sending RTBuddy heart-rate stream control packet")
+            } else {
+                Log.d(TAG, "Sending packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+            }
 
             if (packet[4] == Opcodes.CONTROL_COMMAND) {
                 val controlCommand = try {
@@ -1159,15 +1327,16 @@ class AACPManager {
                 )
             }
 
-            val socket = BluetoothConnectionManager.aacpSocket ?: return false
-
-            if (socket.isConnected) {
-                socket.outputStream?.write(packet)
-                socket.outputStream?.flush()
-                return true
-            } else {
-                Log.d(TAG, "Can't send packet: Socket not initialized or connected")
-                return false
+            return synchronized(writerLock) {
+                val socket = BluetoothConnectionManager.aacpSocket
+                if (socket?.isConnected == true) {
+                    socket.outputStream.write(packet)
+                    socket.outputStream.flush()
+                    true
+                } else {
+                    Log.d(TAG, "Can't send packet: Socket not initialized or connected")
+                    false
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error sending packet: ${e.message}")
@@ -1269,8 +1438,14 @@ class AACPManager {
         )
     }
 
+    private fun isHeartRateRtBuddyPacket(packet: ByteArray): Boolean =
+        RtBuddyHeartRateControlFrames.isControlFrame(packet)
+
     fun disconnected() {
         Log.d(TAG, "Disconnected, clearing state")
+        heartRateDecoder.reset()
+        heartRateControlSession.reset()
+        resetHeartRateDiagnostics()
         controlCommandStatusList.clear()
         controlCommandListeners.clear()
         owns = false

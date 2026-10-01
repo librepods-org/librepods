@@ -52,7 +52,7 @@ fun MicrophoneSettingsRoute(
             bottomPadding = bottomPadding,
             onMicrophoneSettingsChanged = {
                 viewModel.setControlCommandInt(id, it)
-            }
+            },
         )
     }
 }
@@ -62,7 +62,7 @@ fun MicrophoneSettingsScreen(
     selectedMode: Int,
     topPadding: Dp = 16.dp,
     bottomPadding: Dp = 16.dp,
-    onMicrophoneSettingsChanged: (Int) -> Unit
+    onMicrophoneSettingsChanged: (Int) -> Unit,
 ) {
     val scrollState = rememberScrollState()
 

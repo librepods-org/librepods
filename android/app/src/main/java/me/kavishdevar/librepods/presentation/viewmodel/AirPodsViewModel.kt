@@ -34,6 +34,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.BuildConfig
@@ -42,7 +43,6 @@ import me.kavishdevar.librepods.bluetooth.AACPManager
 import me.kavishdevar.librepods.bluetooth.AACPManager.Companion.ControlCommandIdentifiers
 import me.kavishdevar.librepods.bluetooth.ATTCCCDHandles
 import me.kavishdevar.librepods.bluetooth.ATTHandles
-import me.kavishdevar.librepods.bluetooth.BluetoothConnectionManager
 import me.kavishdevar.librepods.data.AirPodsInstance
 import me.kavishdevar.librepods.data.AirPodsModels
 import me.kavishdevar.librepods.data.AirPodsNotifications
@@ -54,7 +54,14 @@ import me.kavishdevar.librepods.data.ControlCommandRepository
 import me.kavishdevar.librepods.data.CustomEq
 import me.kavishdevar.librepods.data.StemAction
 import me.kavishdevar.librepods.data.XposedRemotePrefProvider
+import me.kavishdevar.librepods.health.HealthConnectExportState
+import me.kavishdevar.librepods.health.HealthConnectExportStatus
+import me.kavishdevar.librepods.health.HealthConnectExportMode
+import me.kavishdevar.librepods.finder.NearbyFinderState
+import me.kavishdevar.librepods.bluetooth.HeartRateBlePeripheralState
 import me.kavishdevar.librepods.services.AirPodsService
+import me.kavishdevar.librepods.services.HeartRateMonitoringState
+import me.kavishdevar.librepods.services.HeartRateMonitoringStatus
 
 @Suppress("ArrayInDataClass")
 data class AirPodsUiState(
@@ -80,6 +87,11 @@ data class AirPodsUiState(
 
     val headTrackingActive: Boolean = false,
     val headGesturesEnabled: Boolean = true,
+
+    val heartRate: HeartRateMonitoringState = HeartRateMonitoringState(),
+    val healthConnect: HealthConnectExportState = HealthConnectExportState(),
+    val nearbyFinder: NearbyFinderState = NearbyFinderState(),
+    val heartRateBlePeripheral: HeartRateBlePeripheralState = HeartRateBlePeripheralState(),
 
     val eqData: FloatArray = floatArrayOf(),
 
@@ -208,6 +220,7 @@ class AirPodsViewModel(
         loadInstance()
         loadSharedPreferences()
         observeAACP()
+        observeHeartRate()
         loadCurrentStatus()
         loadEq()
         loadATT()
@@ -458,12 +471,36 @@ class AirPodsViewModel(
         }
     }
 
+    private fun observeHeartRate() {
+        viewModelScope.launch {
+            combine(service.heartRateState, service.healthConnectState) { heartRate, export ->
+                heartRate to export
+            }.collect { (heartRate, export) ->
+                _uiState.update { it.copy(heartRate = heartRate, healthConnect = export) }
+            }
+        }
+        viewModelScope.launch {
+            service.nearbyFinderState.collect { finder ->
+                _uiState.update { it.copy(nearbyFinder = finder) }
+            }
+        }
+        viewModelScope.launch {
+            service.heartRateBlePeripheralState.collect { peripheral ->
+                _uiState.update { it.copy(heartRateBlePeripheral = peripheral) }
+            }
+        }
+    }
+
     fun loadCurrentStatus() {
         if (isDemoMode) return
         service.let { service ->
             _uiState.update {
                 it.copy(
-                    isLocallyConnected = BluetoothConnectionManager.aacpSocket?.isConnected == true,
+                    isLocallyConnected = service.isAacpTransportHealthy(),
+                    heartRate = service.heartRateState.value,
+                    healthConnect = service.healthConnectState.value,
+                    nearbyFinder = service.nearbyFinderState.value,
+                    heartRateBlePeripheral = service.heartRateBlePeripheralState.value,
                     battery = service.getBattery(),
                     ancMode = controlRepo.getValue(ControlCommandIdentifiers.LISTENING_MODE)?.get(0)?.toInt() ?: 1,
                     controlStates = controlRepo.getMap()
@@ -623,6 +660,7 @@ class AirPodsViewModel(
     }
 
     fun reconnectFromSavedMac() {
+        if (!::service.isInitialized) return
         service.reconnectFromSavedMac()
     }
 
@@ -638,6 +676,128 @@ class AirPodsViewModel(
     fun stopHeadTracking() {
         service.stopHeadTracking()
         _uiState.update { it.copy(headTrackingActive = false) }
+    }
+
+    fun startNearbyFinder() {
+        if (!isReady || isDemoMode) return
+        service.startNearbyFinder()
+    }
+
+    fun stopNearbyFinder() {
+        if (!isReady || isDemoMode) return
+        service.stopNearbyFinder()
+    }
+
+    fun refreshNearbyFinderPrerequisites() {
+        if (!isReady || isDemoMode) return
+        service.refreshNearbyFinderPrerequisites()
+    }
+
+    fun setHeartRateBlePeripheralEnabled(enabled: Boolean) {
+        if (!isReady || isDemoMode) return
+        service.setHeartRateBlePeripheralEnabled(enabled)
+    }
+
+    fun refreshHeartRateBlePeripheral() {
+        if (!isReady || isDemoMode) return
+        service.refreshHeartRateBlePeripheral()
+    }
+
+    fun setHeartRateMonitoringEnabled(enabled: Boolean) {
+        if (!isReady) return
+        if (isDemoMode) {
+            _uiState.update {
+                it.copy(
+                    heartRate = it.heartRate.copy(
+                        enabled = enabled,
+                        status = when {
+                            !enabled -> HeartRateMonitoringStatus.OFF
+                            it.isLocallyConnected -> HeartRateMonitoringStatus.LIVE
+                            else -> HeartRateMonitoringStatus.WAITING_FOR_AIRPODS
+                        }
+                    )
+                )
+            }
+            return
+        }
+        service.setHeartRateMonitoringEnabled(enabled)
+    }
+
+    fun reconnectAacpForHeartRate() {
+        if (!isReady || isDemoMode) return
+        service.reconnectAacpForHeartRate()
+    }
+
+    fun refreshHealthConnectExportState() {
+        if (!isReady || isDemoMode) return
+        service.refreshHealthConnectExportState()
+    }
+
+    fun setHealthConnectExportEnabled(enabled: Boolean) {
+        if (!isReady) return
+        if (isDemoMode) {
+            _uiState.update {
+                it.copy(
+                    healthConnect = it.healthConnect.copy(
+                        enabled = enabled,
+                        status = if (enabled) {
+                            HealthConnectExportStatus.ENABLED
+                        } else {
+                            HealthConnectExportStatus.READY
+                        }
+                    )
+                )
+            }
+            return
+        }
+        service.setHealthConnectExportEnabled(enabled)
+    }
+
+    fun setHealthConnectExportMode(mode: HealthConnectExportMode) {
+        if (!isReady) return
+        if (isDemoMode) {
+            _uiState.update {
+                it.copy(
+                    healthConnect = it.healthConnect.copy(
+                        detailedSamples = mode != HealthConnectExportMode.AVERAGED,
+                        batchDetailedSamples = mode == HealthConnectExportMode.BATCHED
+                    )
+                )
+            }
+            return
+        }
+        service.setHealthConnectExportMode(mode)
+    }
+
+    fun setHealthConnectBatchIntervalSeconds(seconds: Int) {
+        if (!isReady) return
+        if (isDemoMode) {
+            _uiState.update {
+                it.copy(
+                    healthConnect = it.healthConnect.copy(batchIntervalSeconds = seconds)
+                )
+            }
+            return
+        }
+        service.setHealthConnectBatchIntervalSeconds(seconds)
+    }
+
+    fun setHealthConnectAverageIntervalSeconds(seconds: Int) {
+        if (!isReady) return
+        if (isDemoMode) {
+            _uiState.update {
+                it.copy(
+                    healthConnect = it.healthConnect.copy(averageIntervalSeconds = seconds)
+                )
+            }
+            return
+        }
+        service.setHealthConnectAverageIntervalSeconds(seconds)
+    }
+
+    fun markHealthConnectPermissionDenied() {
+        if (!isReady || isDemoMode) return
+        service.markHealthConnectPermissionDenied()
     }
 
     fun setATTCharacteristicValue(handle: ATTHandles, value: ByteArray) {

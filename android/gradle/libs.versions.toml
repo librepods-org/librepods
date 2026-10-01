@@ -17,6 +17,10 @@ materialIconsCore = "1.7.8"
 backdrop = "2.0.0-alpha03"
 billing = "8.3.0"
 hilt = "2.59.2"
+healthConnect = "1.1.0"
+room = "2.8.4"
+ksp = "2.3.11"
+junit = "4.13.2"
 xposed = "101.0.0"
 lifecycleProcess = "2.10.0"
 play = "2.0.2"
@@ -52,6 +56,11 @@ androidx-compose-material-icons-core = { group = "androidx.compose.material", na
 backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
 billing = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 hilt = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+androidx-health-connect-client = { group = "androidx.health.connect", name = "connect-client", version.ref = "healthConnect" }
+androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "xposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "xposed" }
@@ -70,3 +79,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 aboutLibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutLibraries" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
