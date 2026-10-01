@@ -1,0 +1,31 @@
+[package]
+name = "librepods"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = {version = "1.50.0", features = ["full"]}
+bluer = { version = "0.17.4", features = ["full"] }
+env_logger = {version = "0.11.10", features = ["auto-color"]}
+uuid = "1.23.0"
+log = "0.4.29"
+dbus = "0.9.10"
+hex = "0.4.3"
+iced = { version = "0.14.0", features = ["tokio", "image"] }
+libpulse-binding = "2.30.1"
+ksni = "0.3.1"
+image = "0.25.8"
+imageproc = "0.26.1"
+ab_glyph = "0.2.32"
+clap = { version = "4.6.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+aes = "0.9.0-rc.4"
+futures = "0.3.32"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 8
+panic = "abort"
+strip = true
