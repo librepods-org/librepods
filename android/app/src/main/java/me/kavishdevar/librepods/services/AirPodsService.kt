@@ -1668,7 +1668,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             return
         }
         val popupWindow = PopupWindow(service.applicationContext)
-        popupWindow.open(name, batteryNotification)
+        val model = airpodsInstance?.model ?: AirPodsModels.getModelByModelNumber(config.airpodsModelNumber)
+        popupWindow.open(name, batteryNotification, model?.connectionArtworkRes)
         popupShown = true
     }
 
@@ -1699,7 +1700,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 this@AirPodsService,
                 type,
                 reversed,
-                otherDeviceName
+                otherDeviceName,
+                artworkRes = (airpodsInstance?.model
+                    ?: AirPodsModels.getModelByModelNumber(config.airpodsModelNumber))?.connectionArtworkRes
             )
         }
     }

@@ -271,7 +271,7 @@ fun AccessibilitySettingsScreen(viewModel: AirPodsViewModel, navigateToPurchase:
             )
         }
 
-        if (!hearingAidEnabled && state.vendorIdHook) {
+        if (state.capabilities.contains(Capability.CUSTOM_TRANSPARENCY) && !hearingAidEnabled && state.vendorIdHook) {
             StyledListItem(
                 name = stringResource(R.string.customize_transparency_mode),
                 onClick = navigateToTransparencyCustomization,

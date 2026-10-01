@@ -374,7 +374,7 @@ fun AppSettingsScreen(
                         R.string.requires_xposed
                     )
                 })",
-                description = stringResource(R.string.act_as_an_apple_device_description),
+                description = stringResource(R.string.apple_identity_model_description),
                 checked = state.vendorIdHook,
                 onCheckedChange = { enabled ->
                     Toast.makeText(context, restartBluetoothText, Toast.LENGTH_SHORT).show()

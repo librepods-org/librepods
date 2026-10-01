@@ -291,4 +291,5 @@
     <string name="privacy_policy">Privacy Policy</string>
     <string name="i_agree">I agree</string>
     <string name="compatibility_check_bypassed">Compatibility check bypassed. Are you sure your device is compatible?</string>
+    <string name="apple_identity_model_description">Identifies this phone as an Apple device for compatible connection features. Available controls depend on your AirPods model; this does not unlock Pro hearing features on AirPods 5. Restart Bluetooth after changing this setting.</string>
 </resources>

@@ -44,6 +44,14 @@
             app:layout_constraintTop_toTopOf="parent"
             tools:ignore="HardcodedText" />
     </androidx.constraintlayout.widget.ConstraintLayout>
+    <ImageView
+        android:id="@+id/connection_artwork"
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:padding="16dp"
+        android:scaleType="fitCenter"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
     <VideoView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

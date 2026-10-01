@@ -44,6 +44,7 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ImageView
 import android.widget.VideoView
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.AirPodsNotifications
@@ -130,7 +131,7 @@ class PopupWindow(
     }
 
     @SuppressLint("InlinedApi", "SetTextI18s")
-    fun open(name: String = "AirPods Pro", batteryNotification: AirPodsNotifications.BatteryNotification) {
+    fun open(name: String = "AirPods Pro", batteryNotification: AirPodsNotifications.BatteryNotification, artworkRes: Int? = null) {
         try {
             if (mView.windowToken == null && mView.parent == null && !isClosing) {
                 mView.findViewById<TextView>(R.id.name).text = name
@@ -138,12 +139,19 @@ class PopupWindow(
                 updateBatteryStatus(batteryNotification)
 
                 val vid = mView.findViewById<VideoView>(R.id.video)
-                vid.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
-                vid.setVideoPath("android.resource://me.kavishdevar.librepods/" + R.raw.connected)
-                vid.resolveAdjustedSize(vid.width, vid.height)
-                vid.start()
-                vid.setOnCompletionListener {
+                val artwork = mView.findViewById<ImageView>(R.id.connection_artwork)
+                if (artworkRes != null) {
+                    vid.stopPlayback()
+                    vid.visibility = View.GONE
+                    artwork.setImageResource(artworkRes)
+                    artwork.visibility = View.VISIBLE
+                } else {
+                    artwork.visibility = View.GONE
+                    vid.visibility = View.VISIBLE
+                    vid.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
+                    vid.setVideoPath("android.resource://me.kavishdevar.librepods/" + R.raw.connected)
                     vid.start()
+                    vid.setOnCompletionListener { vid.start() }
                 }
 
                 try {

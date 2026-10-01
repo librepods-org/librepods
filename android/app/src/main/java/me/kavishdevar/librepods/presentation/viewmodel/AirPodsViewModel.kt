@@ -460,13 +460,15 @@ class AirPodsViewModel(
 
     fun loadCurrentStatus() {
         if (isDemoMode) return
+        loadInstance()
         service.let { service ->
             _uiState.update {
                 it.copy(
                     isLocallyConnected = BluetoothConnectionManager.aacpSocket?.isConnected == true,
                     battery = service.getBattery(),
                     ancMode = controlRepo.getValue(ControlCommandIdentifiers.LISTENING_MODE)?.get(0)?.toInt() ?: 1,
-                    controlStates = controlRepo.getMap()
+                    controlStates = controlRepo.getMap(),
+                    vendorIdHook = xposedRemotePref.getBoolean("vendor_id_hook", false)
                 )
             }
         }
@@ -592,32 +594,22 @@ class AirPodsViewModel(
     }
 
     private fun loadInstance() {
-        val instance = service.airpodsInstance ?: AirPodsInstance(
-            name = "AirPods",
-            model = AirPodsModels.getModelByModelNumber("A3049")!!,
-            actualModelNumber = "A3049",
-            serialNumber = null,
-            leftSerialNumber = null,
-            rightSerialNumber = null,
-            version1 = null,
-            version2 = null,
-            version3 = null,
-        )
+        val instance = service.airpodsInstance
 
         _uiState.update {
             it.copy(
-                capabilities = instance.model.capabilities,
+                capabilities = instance?.model?.capabilities.orEmpty(),
                 instance = instance,
-                modelName = instance.model.displayName,
-                actualModel = instance.actualModelNumber,
+                modelName = instance?.model?.name ?: "AirPods",
+                actualModel = instance?.actualModelNumber ?: "",
                 serialNumbers = listOf(
-                    instance.serialNumber ?: "",
-                    instance.leftSerialNumber ?: "",
-                    instance.rightSerialNumber ?: ""
+                    instance?.serialNumber ?: "",
+                    instance?.leftSerialNumber ?: "",
+                    instance?.rightSerialNumber ?: ""
                 ),
-                version1 = instance.version1 ?: "",
-                version2 = instance.version2 ?: "",
-                version3 = instance.version3 ?: ""
+                version1 = instance?.version1 ?: "",
+                version2 = instance?.version2 ?: "",
+                version3 = instance?.version3 ?: ""
             )
         }
     }

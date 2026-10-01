@@ -211,4 +211,5 @@
     <string name="listening_mode_transparency_description">允许外部声音进入</string>
     <string name="listening_mode_adaptive_description">动态调整外部噪音</string>
     <string name="listening_mode_noise_cancellation_description">阻隔外部声音</string>
+    <string name="apple_identity_model_description">将手机的蓝牙身份模拟为苹果设备，以使用兼容的连接功能。可用设置取决于耳机型号，不会为 AirPods 5 解锁 Pro 专属的听力功能。更改后需重启蓝牙。</string>
 </resources>
