@@ -1338,7 +1338,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         MediaController.sendPlay()
                         MediaController.iPausedTheMedia = false
 
-                        context.unregisterReceiver(this)
+                        try { this@AirPodsService.unregisterReceiver(this) } catch (_: IllegalArgumentException) {}
                     }
                 }
             }
@@ -1351,6 +1351,15 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         } else {
             registerReceiver(a2dpConnectionStateReceiver, a2dpIntentFilter)
         }
+        // An armed receiver that outlives a failed connect would start playback on some unrelated later reconnect.
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                unregisterReceiver(a2dpConnectionStateReceiver)
+                Log.d("MediaController", "A2DP play-on-connect expired without a connection")
+                // A stuck pausedWhileTakingOver blocks every later takeover (MediaController gates on it).
+                MediaController.pausedWhileTakingOver = false
+            } catch (_: IllegalArgumentException) {}
+        }, 15_000)
     }
 
     private fun initializeConfig() {
@@ -2590,6 +2599,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             Log.d(TAG, "Pausing music so that it doesn't play through speakers")
             MediaController.pausedWhileTakingOver = true
             MediaController.sendPause(true)
+            registerA2dpConnectionReceiver()
         } else {
             handleIncomingCallOnceConnected = true
         }
