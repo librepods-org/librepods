@@ -291,4 +291,12 @@
     <string name="privacy_policy">Privacy Policy</string>
     <string name="i_agree">I agree</string>
     <string name="compatibility_check_bypassed">Compatibility check bypassed. Are you sure your device is compatible?</string>
+    <string name="stem_presses_title">Double &amp; Triple Press</string>
+    <string name="double_press">Double press</string>
+    <string name="triple_press">Triple press</string>
+    <string name="stem_action_play_pause">Play / Pause</string>
+    <string name="stem_action_next_track">Next track</string>
+    <string name="stem_action_previous_track">Previous track</string>
+    <string name="stem_action_volume_up">Volume up</string>
+    <string name="stem_action_volume_down">Volume down</string>
 </resources>

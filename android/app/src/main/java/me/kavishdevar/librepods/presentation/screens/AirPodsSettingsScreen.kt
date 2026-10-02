@@ -21,6 +21,8 @@
 package me.kavishdevar.librepods.presentation.screens
 
 // import me.kavishdevar.librepods.utils.RadareOffsetFinder
+import me.kavishdevar.librepods.data.StemAction
+import me.kavishdevar.librepods.presentation.components.StemPressSettings
 import android.annotation.SuppressLint
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
@@ -175,6 +177,7 @@ fun AirPodsSettingsRoute(
             setDynamicEndOfCharge = viewModel::setDynamicEndOfCharge,
             setOffListeningMode = viewModel::setOffListeningMode,
             disconnect = viewModel::disconnect,
+            onPressActionSelected = viewModel::setPressAction,
 
             navigateToRename = navigateToRename,
             navigateToHearingProtection = navigateToHearingProtection,
@@ -235,6 +238,7 @@ fun AirPodsSettingsScreen(
 
         activateDemoMode: () -> Unit,
         reconnectFromSavedMac: () -> Unit,
+        onPressActionSelected: (String, StemAction) -> Unit = { _, _ -> },
 ) {
     val sharedPreferences = LocalContext.current.getSharedPreferences("settings", MODE_PRIVATE)
     var deviceName by remember {
@@ -378,6 +382,15 @@ fun AirPodsSettingsScreen(
                         rightAction = state.rightAction,
                         navigateToLeftLongPress = navigateToLeftLongPress,
                         navigateToRightLongPress = navigateToRightLongPress
+                    )
+                }
+                item(key = "spacer_stem_presses") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                item(key = "stem_presses") {
+                    StemPressSettings(
+                        pressActions = state.pressActions,
+                        onSelect = onPressActionSelected
                     )
                 }
             }

@@ -1221,6 +1221,14 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 }
             }
 
+            StemAction.VOLUME_UP, StemAction.VOLUME_DOWN -> {
+                getSystemService(AudioManager::class.java).adjustStreamVolume(
+                    AudioManager.STREAM_MUSIC,
+                    if (action == StemAction.VOLUME_UP) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                    AudioManager.FLAG_SHOW_UI
+                )
+            }
+
             StemAction.CYCLE_NOISE_CONTROL_MODES -> {
                 Log.d("AirPodsParser", "Cycling noise control modes")
                 sendBroadcast(Intent("me.kavishdevar.librepods.SET_ANC_MODE").apply {
