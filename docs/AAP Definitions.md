@@ -9,6 +9,8 @@ This packet is necessary to establish a connection with the AirPods. Or else, th
 00 00 04 00 01 00 02 00 00 00 00 00 00 00 00 00
 ```
 
+After the handshake, third-party hosts should send [host capabilities (`0x004D`)](/docs/host-capabilities.md) before requesting notifications. See that document for timing notes and Android L2CAP pitfalls.
+
 # Setting specific features for AirPods Pro 2
 
 > *may work for airpods 4 anc also, not tested*
