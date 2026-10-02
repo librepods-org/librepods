@@ -197,7 +197,7 @@ bool MediaController::restartWirePlumber() {
 }
 
 void MediaController::activateA2dpProfile() {
-  if (connectedDeviceMacAddress.isEmpty() || m_deviceOutputName.isEmpty()) {
+  if (!ensureDeviceOutputName()) {
     LOG_WARN("Connected device MAC address or output name is empty, cannot activate A2DP profile");
     return;
   }
@@ -230,7 +230,7 @@ void MediaController::activateA2dpProfile() {
 }
 
 void MediaController::removeAudioOutputDevice() {
-  if (connectedDeviceMacAddress.isEmpty() || m_deviceOutputName.isEmpty()) {
+  if (!ensureDeviceOutputName()) {
     LOG_WARN("Connected device MAC address or output name is empty, cannot remove audio output device");
     return;
   }
@@ -405,6 +405,21 @@ void MediaController::pause()
 }
 
 MediaController::~MediaController() {
+}
+
+// The card name is looked up when the device connects, but the PipeWire/PulseAudio
+// card may not exist yet at that moment. Retry the lookup lazily so a single miss
+// doesn't leave the AirPods unable to switch profiles (e.g. stuck on "off").
+bool MediaController::ensureDeviceOutputName()
+{
+  if (connectedDeviceMacAddress.isEmpty()) { return false; }
+  if (m_deviceOutputName.isEmpty()) {
+    m_deviceOutputName = getAudioDeviceName();
+    if (!m_deviceOutputName.isEmpty()) {
+      LOG_INFO("Device output name resolved on retry: " << m_deviceOutputName);
+    }
+  }
+  return !m_deviceOutputName.isEmpty();
 }
 
 QString MediaController::getAudioDeviceName()
