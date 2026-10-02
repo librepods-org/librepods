@@ -166,7 +166,8 @@ private fun <T : Any> SwipeBackSceneContent(
         }
     }
 
-    PredictiveBackHandler { progressFlow ->
+    // only intercept back when there is a screen to go back to, otherwise let the activity handle it (exit the app)
+    PredictiveBackHandler(enabled = previousEntry != null) { progressFlow ->
         try {
             progressFlow.collect { backEvent ->
                 if (previousEntry == null) return@collect
