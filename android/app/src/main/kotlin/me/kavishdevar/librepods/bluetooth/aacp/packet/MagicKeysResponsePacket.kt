@@ -43,10 +43,12 @@ data class MagicKeyResponsePacket(
                 try {
                     keys[MagicKeyType.fromByte(keyType)] = key
                 } catch (e: Exception) {
-                    Log.e(TAG, "incorrect key type received: $keyType, ${key.toHexString()}", e)
+                    Log.e(TAG, "incorrect key type received: $keyType", e)
                 }
                 offset += keyLength
-                Log.d(TAG, "Parsed Proximity Key: Type: ${keyType}, Length: $keyLength, Key: ${key.toHexString()}")
+                // never log the key itself: the IRK/encryption key let anyone resolve and decrypt these AirPods' BLE
+                // advertisements, and logs end up in bug reports
+                Log.d(TAG, "Parsed Proximity Key: Type: ${keyType}, Length: $keyLength")
             }
 
             return MagicKeyResponsePacket(keys, payload)
