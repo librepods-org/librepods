@@ -16,6 +16,8 @@
 #include <QLibraryInfo>
 #include <QDir>
 #include <QStandardPaths>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include "airpods_packets.h"
 #include "logger.h"
@@ -135,6 +137,12 @@ public:
     int retryAttempts() const { return m_retryAttempts; }
     bool hideOnStart() const { return m_hideOnStart; }
     DeviceInfo *deviceInfo() const { return m_deviceInfo; }
+    QByteArray infoJson() const
+    {
+        QJsonObject info = m_deviceInfo->toJson();
+        info["connected"] = areAirpodsConnected();
+        return QJsonDocument(info).toJson(QJsonDocument::Compact) + '\n';
+    }
     QString phoneMacStatus() const { return m_phoneMacStatus; }
     bool hearingAidEnabled() const { return m_deviceInfo->hearingAidEnabled(); }
 
@@ -715,6 +723,12 @@ private slots:
                 LOG_INFO("Noise control mode received: " << m_deviceInfo->noiseControlMode());
             }
         }
+        // Adaptive noise level
+        else if (data.size() == 11 && data.startsWith(AirPodsPackets::AdaptiveNoise::HEADER))
+        {
+            m_deviceInfo->setAdaptiveNoiseLevel(static_cast<quint8>(data[7]));
+            LOG_INFO("Adaptive noise level received: " << m_deviceInfo->adaptiveNoiseLevel());
+        }
         // Ear Detection
         else if (data.size() == 8 && data.startsWith(AirPodsPackets::Parse::EAR_DETECTION))
         {
@@ -1076,7 +1090,7 @@ int main(int argc, char *argv[]) {
         QLocalSocket* socket = server.nextPendingConnection();
         // Handles Proper Connection
         QObject::connect(socket, &QLocalSocket::readyRead, [socket, &engine, &trayApp]() {
-            QString msg = socket->readAll();
+            QString msg = QString::fromUtf8(socket->readAll()).trimmed();
             // Check if the message is "reopen", if so, trigger onOpenApp function
             if (msg == "reopen") {
                 LOG_INFO("Reopening app window");
@@ -1100,6 +1114,9 @@ int main(int argc, char *argv[]) {
             }
             else if (msg == "noise:adaptive") {
                 trayApp->setNoiseControlModeInt(3);
+            }
+            else if (msg == "info") {
+                socket->write(trayApp->infoJson());
             }
             else
             {
