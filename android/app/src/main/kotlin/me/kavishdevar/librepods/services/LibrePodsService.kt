@@ -19,11 +19,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.BatteryManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelUuid
 import android.os.ext.SdkExtensions
 import android.provider.Settings
@@ -44,6 +46,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.LibrePodsApplication
@@ -74,11 +77,13 @@ import me.kavishdevar.librepods.utils.MediaController
 import me.kavishdevar.librepods.utils.calculateLevel
 import me.kavishdevar.librepods.utils.redactMac
 import java.time.ZoneOffset
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaInstant
 
 private const val TAG = "LibrePodsService"
+private val A2DP_RECONNECT_TIMEOUT = 15.seconds
 
 @SuppressLint("MissingPermission")
 class LibrePodsService: Service() {
@@ -92,6 +97,7 @@ class LibrePodsService: Service() {
     val devices = _devices.asStateFlow()
 
     private val deviceJobs = mutableMapOf<MacAddress, MutableList<Job>>()
+    private val devicesBeingConnected: MutableSet<MacAddress> = ConcurrentHashMap.newKeySet()
 
     val irkMap = mutableMapOf<MacAddress, ByteArray>()
     val rpasByPublicMac = mutableMapOf<MacAddress, MutableSet<MacAddress>>()
@@ -272,59 +278,77 @@ class LibrePodsService: Service() {
             return
         }
 
-        when (device) {
-            is AppleDevice -> CoroutineScope(Dispatchers.IO).launch {
-                Log.i(TAG, "Loading device ${device.macAddress.toRedactedString()} from db")
-
-                appleRepository.load(device.macAddress)?.let { entity ->
-                    val cache = entity.cache
-                    Log.i(
-                        TAG,
-                        "Loaded cached state for device ${device.macAddress.toRedactedString()}: $cache"
-                    )
-                    val settings = entity.settings
-                    Log.i(
-                        TAG,
-                        "Loaded settings for device ${device.macAddress.toRedactedString()}: $settings"
-                    )
-                    val metadata = entity.metadata
-                    Log.i(
-                        TAG,
-                        "Loaded metadata for device ${device.macAddress.toRedactedString()}: $metadata"
-                    )
-
-                    device.loadInitialState(
-                        state = AppleState().copy(
-                            capabilities = cache.capabilities,
-                            magicKeys = cache.magicKeys,
-                            controlStates = cache.controlStates,
-                        ),
-                        settings = settings,
-                        metadata = metadata
-                    )
-
-                    if (device.settings.value.hrmAlertEnabled) {
-                        device.startHr()
-                    }
-                }
-
-                deviceJobs[MacAddress(bluetoothDevice.address)] = mutableListOf()
-
-                deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleState(device))
-                deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleSettings(device))
-                deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleMetadata(device))
-                deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleMicrophoneFrames(device))
-            }
+        // ACL_CONNECTED and ACTION_UUID can both arrive for the same connection; set the device up once at a time
+        if (!devicesBeingConnected.add(device.macAddress)) {
+            Log.d(TAG, "Device already being connected: ${bluetoothDevice.address}")
+            return
         }
 
-        device.connect()
+        when (device) {
+            is AppleDevice -> CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    Log.i(TAG, "Loading device ${device.macAddress.toRedactedString()} from db")
 
-        Log.i(
-            TAG,
-            "Device connected: ${device.macAddress.toRedactedString()} (${device.javaClass.simpleName})"
-        )
+                    appleRepository.load(device.macAddress)?.let { entity ->
+                        val cache = entity.cache
+                        Log.i(
+                            TAG,
+                            "Loaded cached state for device ${device.macAddress.toRedactedString()}: $cache"
+                        )
+                        val settings = entity.settings
+                        Log.i(
+                            TAG,
+                            "Loaded settings for device ${device.macAddress.toRedactedString()}: $settings"
+                        )
+                        val metadata = entity.metadata
+                        Log.i(
+                            TAG,
+                            "Loaded metadata for device ${device.macAddress.toRedactedString()}: $metadata"
+                        )
 
-        _devices.update { it + (device.macAddress to device) }
+                        device.loadInitialState(
+                            state = AppleState().copy(
+                                capabilities = cache.capabilities,
+                                magicKeys = cache.magicKeys,
+                                controlStates = cache.controlStates,
+                            ),
+                            settings = settings,
+                            metadata = metadata
+                        )
+                    }
+
+                    // createDevice() already registered observers for this device; cancel them so each state change is handled once
+                    deviceJobs[MacAddress(bluetoothDevice.address)]?.forEach { it.cancel() }
+                    deviceJobs[MacAddress(bluetoothDevice.address)] = mutableListOf()
+
+                    deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleState(device))
+                    deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleSettings(device))
+                    deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleMetadata(device))
+                    deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleMicrophoneFrames(device))
+
+                    // connect only after the cached state is loaded and the observers are registered, otherwise
+                    // loadInitialState() can overwrite what the first packets set and the observers miss those changes.
+                    // This also keeps the blocking socket connect off the main thread (this runs from a broadcast receiver).
+                    device.connect()
+                    // connect() returns right away if another caller (e.g. the device list) is already connecting,
+                    // so wait for that attempt to finish before using the connection
+                    val connected = device.connectionState.first { it != ConnectionState.CONNECTING } == ConnectionState.CONNECTED
+
+                    Log.i(
+                        TAG,
+                        "Device ${if (connected) "connected" else "failed to connect"}: ${device.macAddress.toRedactedString()} (${device.javaClass.simpleName})"
+                    )
+
+                    _devices.update { it + (device.macAddress to device) }
+
+                    if (connected && device.settings.value.hrmAlertEnabled) {
+                        device.startHr()
+                    }
+                } finally {
+                    devicesBeingConnected.remove(device.macAddress)
+                }
+            }
+        }
     }
 
     private fun onDeviceDisconnected(mac: MacAddress) {
@@ -676,7 +700,9 @@ class LibrePodsService: Service() {
 
                     Log.d(TAG, "updating island window")
                     if (islandWindow?.isVisible == true) {
-                        islandWindow?.updateBattery(state.battery)
+                        CoroutineScope(Dispatchers.Main).launch {
+                            islandWindow?.updateBattery(state.battery)
+                        }
                     }
 
                     Log.d(TAG, "updating notification")
@@ -919,6 +945,14 @@ class LibrePodsService: Service() {
         reversed: Boolean = false,
         otherDeviceName: String? = null
     ) {
+        // the island is a window, so it has to be added from the main thread (state observers run on IO)
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            CoroutineScope(Dispatchers.Main).launch {
+                showIsland(device, type, reversed, otherDeviceName)
+            }
+            return
+        }
+
         Log.d(TAG, "Showing island window")
 
         val state = device.state.value
@@ -1221,7 +1255,9 @@ class LibrePodsService: Service() {
         }
 
         if (new == EarPresence.NONE && islandWindow?.isVisible == true) {
-            islandWindow?.close()
+            CoroutineScope(Dispatchers.Main).launch {
+                islandWindow?.close()
+            }
         }
 
         var justEnabledA2dp = false
@@ -1233,20 +1269,38 @@ class LibrePodsService: Service() {
                     "User put in at least one component, enabling audio for device ${device.macAddress.toRedactedString()}"
                 )
                 device.enableAudio()
-                device.connectA2dp()
+                // both profiles: disconnectAudio() drops A2DP and the headset profile when all components are taken out
+                device.connectAudio()
                 justEnabledA2dp = true
 
-                device.waitForA2dpConnection(this) {
-                    MediaController.sendPlay()
-                    MediaController.iPausedTheMedia = false
+                // the heart rate sensor only streams while worn; a request made while the buds were in the case
+                // (e.g. on connect) doesn't start delivering once they are put in, so request it again now
+                if (device is AppleDevice && device.settings.value.hrmAlertEnabled) {
+                    device.startHr()
                 }
 
                 if (MediaController.getMusicActive()) {
                     MediaController.userPlayedTheMedia = true
                 }
-                if (new == EarPresence.PARTIAL) {
+
+                if (isA2dpAudioConnected(device.macAddress)) {
                     MediaController.sendPlay()
                     MediaController.iPausedTheMedia = false
+                } else {
+                    // resuming before A2DP is up starts playback on the phone speaker, so wait for it
+                    val receiver = device.waitForA2dpConnection(this) {
+                        MediaController.sendPlay()
+                        MediaController.iPausedTheMedia = false
+                    }
+                    // if A2DP doesn't connect, don't leave the receiver around to resume playback much later
+                    CoroutineScope(Dispatchers.Main).launch {
+                        delay(A2DP_RECONNECT_TIMEOUT)
+                        try {
+                            unregisterReceiver(receiver)
+                        } catch (_: IllegalArgumentException) {
+                            // already unregistered itself after A2DP connected
+                        }
+                    }
                 }
             }
 
@@ -1282,6 +1336,11 @@ class LibrePodsService: Service() {
             }
         }
     }
+
+    private fun isA2dpAudioConnected(macAddress: MacAddress): Boolean =
+        getSystemService(AudioManager::class.java)
+            .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP && it.address.equals(macAddress.value, ignoreCase = true) }
 
     private fun processHeartRateSample(heartRateSample: HeartRateSample, interval: Duration, alertThreshold: Int) {
         CoroutineScope(Dispatchers.IO).launch {
