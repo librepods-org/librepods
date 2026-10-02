@@ -260,9 +260,16 @@ class AppleDevice(
         }
     }
 
+    // null until the AirPods send their information packet (or it is restored from the db)
+    private fun firmwareMajorVersion(): Int? = metadata.value.version3.firstOrNull()?.digitToIntOrNull()
+
     fun startHeadTracking() {
+        val firmwareMajor = firmwareMajorVersion() ?: run {
+            Log.w(TAG, "firmware version unknown, not starting head tracking")
+            return
+        }
         aacp.setSensorServiceReportInterval(
-            sensorServiceType = if (metadata.value.version3.first().digitToInt() >= 8) SensorServiceType.DEVMOTION6 else SensorServiceType.ACTIVITY,
+            sensorServiceType = if (firmwareMajor >= 8) SensorServiceType.DEVMOTION6 else SensorServiceType.ACTIVITY,
             interval = _settings.value.headTrackingInterval
         )
         _state.update {
@@ -273,10 +280,13 @@ class AppleDevice(
     }
 
     fun stopHeadTracking() {
-        aacp.setSensorServiceReportInterval(
-            sensorServiceType = if (metadata.value.version3.first().digitToInt() >= 8) SensorServiceType.DEVMOTION6 else SensorServiceType.ACTIVITY,
-            interval = Duration.ZERO
-        )
+        val firmwareMajor = firmwareMajorVersion()
+        if (firmwareMajor != null) {
+            aacp.setSensorServiceReportInterval(
+                sensorServiceType = if (firmwareMajor >= 8) SensorServiceType.DEVMOTION6 else SensorServiceType.ACTIVITY,
+                interval = Duration.ZERO
+            )
+        }
         _state.update {
             it.copy(
                 headTrackingState = BuddyState.INACTIVE,
@@ -337,8 +347,12 @@ class AppleDevice(
 
     // AACPManager sets hrmActive true when a valid reading is received
     fun startHr(): Boolean {
+        val firmwareMajor = firmwareMajorVersion() ?: run {
+            Log.w(TAG, "firmware version unknown, not starting heart rate monitoring")
+            return false
+        }
         val success = aacp.setSensorServiceReportInterval(
-            sensorServiceType = if (metadata.value.version3.first().digitToInt() >= 9) SensorServiceType.HEARTRATE_COMMAND else SensorServiceType.HEARTRATE,
+            sensorServiceType = if (firmwareMajor >= 9) SensorServiceType.HEARTRATE_COMMAND else SensorServiceType.HEARTRATE,
             interval = 1.seconds
         )
         if (success) {
@@ -351,8 +365,12 @@ class AppleDevice(
         return success
     }
     fun stopHr(): Boolean {
+        val firmwareMajor = firmwareMajorVersion() ?: run {
+            Log.w(TAG, "firmware version unknown, can't stop heart rate monitoring")
+            return false
+        }
         val success = aacp.setSensorServiceReportInterval(
-            sensorServiceType = if (metadata.value.version3.first().digitToInt() >= 9) SensorServiceType.HEARTRATE_COMMAND else SensorServiceType.HEARTRATE,
+            sensorServiceType = if (firmwareMajor >= 9) SensorServiceType.HEARTRATE_COMMAND else SensorServiceType.HEARTRATE,
             interval = Duration.ZERO
         )
         if (state.value.hrmState != BuddyState.INACTIVE && success) _state.update {
