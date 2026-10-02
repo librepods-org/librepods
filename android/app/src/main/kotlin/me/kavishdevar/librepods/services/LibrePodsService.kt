@@ -24,6 +24,7 @@ import android.os.BatteryManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelUuid
 import android.os.ext.SdkExtensions
 import android.provider.Settings
@@ -308,6 +309,8 @@ class LibrePodsService: Service() {
                     }
                 }
 
+                // createDevice() already registered observers for this device; cancel them so each state change is handled once
+                deviceJobs[MacAddress(bluetoothDevice.address)]?.forEach { it.cancel() }
                 deviceJobs[MacAddress(bluetoothDevice.address)] = mutableListOf()
 
                 deviceJobs[MacAddress(bluetoothDevice.address)]?.add(observeAppleState(device))
@@ -676,7 +679,9 @@ class LibrePodsService: Service() {
 
                     Log.d(TAG, "updating island window")
                     if (islandWindow?.isVisible == true) {
-                        islandWindow?.updateBattery(state.battery)
+                        CoroutineScope(Dispatchers.Main).launch {
+                            islandWindow?.updateBattery(state.battery)
+                        }
                     }
 
                     Log.d(TAG, "updating notification")
@@ -919,6 +924,14 @@ class LibrePodsService: Service() {
         reversed: Boolean = false,
         otherDeviceName: String? = null
     ) {
+        // the island is a window, so it has to be added from the main thread (state observers run on IO)
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            CoroutineScope(Dispatchers.Main).launch {
+                showIsland(device, type, reversed, otherDeviceName)
+            }
+            return
+        }
+
         Log.d(TAG, "Showing island window")
 
         val state = device.state.value
@@ -1221,7 +1234,9 @@ class LibrePodsService: Service() {
         }
 
         if (new == EarPresence.NONE && islandWindow?.isVisible == true) {
-            islandWindow?.close()
+            CoroutineScope(Dispatchers.Main).launch {
+                islandWindow?.close()
+            }
         }
 
         var justEnabledA2dp = false

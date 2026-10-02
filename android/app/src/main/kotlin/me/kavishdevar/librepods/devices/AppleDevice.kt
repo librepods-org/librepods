@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.bluetooth.MacAddress
@@ -124,8 +125,13 @@ class AppleDevice(
     }
 
     override fun connect(): Boolean {
-        _connectionState.update {
-            ConnectionState.CONNECTING
+        // the service (ACL/UUID broadcasts) and the UI can both call connect(); only let one of them open a socket
+        val previousState = _connectionState.getAndUpdate {
+            if (it == ConnectionState.CONNECTING || it == ConnectionState.CONNECTED) it else ConnectionState.CONNECTING
+        }
+        if (previousState == ConnectionState.CONNECTING || previousState == ConnectionState.CONNECTED) {
+            Log.d(TAG, "connect() ignored, already $previousState")
+            return previousState == ConnectionState.CONNECTED
         }
 
         val success = aacp.connect() // && att.connect()
