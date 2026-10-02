@@ -1,5 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <string name="app_name" translatable="false">LibrePods</string>
+    <string name="app_language">Language</string>
+    <string name="language_system_default">System default</string>
+    <string name="language_english" translatable="false">Eng</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
     <string name="app_description">Liberate your AirPods from Apple\'s ecosystem.</string>
     <string name="app_widget_description">See your AirPods battery status right from your home screen!</string>
     <string name="accessibility">Accessibility</string>

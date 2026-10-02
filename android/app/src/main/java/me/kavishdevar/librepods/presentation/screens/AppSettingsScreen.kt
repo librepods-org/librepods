@@ -18,10 +18,12 @@
 
 package me.kavishdevar.librepods.presentation.screens
 
+import android.app.LocaleManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.LocaleList
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,10 +38,13 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldState
@@ -50,6 +55,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,6 +64,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +72,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -114,6 +122,7 @@ fun AppSettingsScreen(
     val backdrop = rememberLayerBackdrop()
 
     val contactBottomSheet = remember { mutableStateOf(false) }
+    val showLanguageDialog = rememberSaveable { mutableStateOf(false) }
     val subjectState = remember { TextFieldState() }
     val descriptionState = remember { TextFieldState() }
     val subjectFocusRequester = remember { FocusRequester() }
@@ -184,6 +193,66 @@ fun AppSettingsScreen(
                 )
             }
         }
+
+        val localeManager = context.getSystemService(LocaleManager::class.java)
+        val selectedLanguage = localeManager.applicationLocales[0]?.language.orEmpty()
+        val languages = listOf(
+            "" to stringResource(R.string.language_system_default),
+            "en" to stringResource(R.string.language_english),
+            "ko" to stringResource(R.string.language_korean)
+        )
+        StyledList {
+            StyledListItem(
+                name = stringResource(R.string.app_language),
+                description = languages.firstOrNull { it.first == selectedLanguage }?.second
+                    ?: localeManager.applicationLocales[0]?.getDisplayName(localeManager.applicationLocales[0]),
+                onClick = { showLanguageDialog.value = true }
+            )
+        }
+        if (showLanguageDialog.value) {
+            AlertDialog(
+                onDismissRequest = { showLanguageDialog.value = false },
+                title = { Text(stringResource(R.string.app_language)) },
+                text = {
+                    Column(Modifier.selectableGroup()) {
+                        languages.forEach { (languageTag, label) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .selectable(
+                                        selected = selectedLanguage == languageTag,
+                                        role = Role.RadioButton,
+                                        onClick = {
+                                            showLanguageDialog.value = false
+                                            if (selectedLanguage != languageTag) {
+                                                localeManager.applicationLocales =
+                                                    LocaleList.forLanguageTags(languageTag)
+                                            }
+                                        }
+                                    )
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                RadioButton(
+                                    selected = selectedLanguage == languageTag,
+                                    onClick = null
+                                )
+                                Text(label, style = MaterialTheme.typography.bodyLarge)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showLanguageDialog.value = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
 
         StyledToggle(
             title = stringResource(R.string.appearance),
@@ -501,7 +570,7 @@ fun AppSettingsScreen(
                         Toast.makeText(context, successText, Toast.LENGTH_SHORT).show()
                     }) {
                     Text(
-                        "Save",
+                        stringResource(R.string.save),
                         fontFamily = FontFamily(Font(R.font.sf_pro)),
                         fontWeight = FontWeight.Medium
                     )
@@ -510,7 +579,7 @@ fun AppSettingsScreen(
                 TextButton(
                     onClick = { viewModel.setShowCameraDialog(false) }) {
                     Text(
-                        "Cancel",
+                        stringResource(R.string.cancel),
                         fontFamily = FontFamily(Font(R.font.sf_pro)),
                         fontWeight = FontWeight.Medium
                     )

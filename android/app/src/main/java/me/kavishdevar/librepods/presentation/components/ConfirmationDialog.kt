@@ -18,6 +18,7 @@
 
 package me.kavishdevar.librepods.presentation.components
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -74,8 +75,8 @@ fun ConfirmationDialog(
     showDialog: MutableState<Boolean>,
     title: String,
     message: String,
-    confirmText: String = "Enable",
-    dismissText: String = "Cancel",
+    confirmText: String = stringResource(R.string.enable_action),
+    dismissText: String = stringResource(R.string.cancel),
     onConfirm: () -> Unit,
     onDismiss: () -> Unit = { showDialog.value = false },
     backdrop: LayerBackdrop,

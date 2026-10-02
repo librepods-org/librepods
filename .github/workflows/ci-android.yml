@@ -42,7 +42,7 @@ jobs:
       - name: Accept Licenses
         run: yes | sdkmanager --licenses
       - name: Install NDK
-        run: sdkmanager "ndk;30.0.14904198"
+        run: sdkmanager "ndk;28.2.13676358"
       - name: Create local.properties
         if: github.event_name != 'pull_request'
         run: |

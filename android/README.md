@@ -1,3 +1,19 @@
+## Building a debug APK
+
+Use JDK 21, Android SDK Platform 36, NDK 28.2.13676358, and CMake 3.22.1.
+The included Gradle wrapper uses Gradle 9.2.1. Accept the Android SDK licenses
+and set `sdk.dir` in `android/local.properties` to your SDK installation.
+
+From the `android` directory, run `./gradlew assembleFossDebug` (or
+`.\gradlew.bat assembleFossDebug` in Windows PowerShell with `JAVA_HOME` set to
+JDK 21). The APK is generated at
+`app/build/outputs/apk/foss/debug/app-foss-debug.apk` and uses a debug signing
+key when release signing credentials are not configured.
+
+Material 3 and Lifecycle are pinned to versions compatible with SDK 36.
+Roboto Flex is bundled to retain variable-font styling with this Compose
+version; its SIL Open Font License is included in `app/src/main/res/raw`.
+
 ## Root Requirement
 
 LibrePods *may* require root depending on your device/OS and what features you want access to:

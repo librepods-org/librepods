@@ -31,11 +31,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.tooling.preview.Devices.PIXEL_9_PRO_XL
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -88,12 +88,7 @@ val AppleTypography = Typography().run {
     )
 }
 
-val provider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
-
+@OptIn(ExperimentalTextApi::class)
 private fun robotoFlex(
     wght: Float = 400f,
     slnt: Float = 0f,
@@ -103,19 +98,16 @@ private fun robotoFlex(
     xopq: Float = 96f,
     yopq: Float = 79f,
 ) = FontFamily(
-    androidx.compose.ui.text.googlefonts.Font(
-//    Font(
-//        resId = R.font.roboto_flex,
-        googleFont = GoogleFont("Roboto Flex"),
-        fontProvider = provider,
+    Font(
+        resId = R.font.roboto_flex,
         variationSettings = FontVariation.Settings(
             FontVariation.Setting("wght", wght),
             FontVariation.Setting("wdth", wdth),
             FontVariation.Setting("slnt", slnt),
-            FontVariation.Setting("grad", grad),
-            FontVariation.Setting("xtra", xtra),
-            FontVariation.Setting("xopq", xopq),
-            FontVariation.Setting("yopq", yopq),
+            FontVariation.Setting("GRAD", grad),
+            FontVariation.Setting("XTRA", xtra),
+            FontVariation.Setting("XOPQ", xopq),
+            FontVariation.Setting("YOPQ", yopq),
         )
     )
 )

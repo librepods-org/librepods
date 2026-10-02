@@ -44,11 +44,11 @@ android {
         }
     }
     namespace = "me.kavishdevar.librepods"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "me.kavishdevar.librepods"
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 63
         versionName = appVersionName
     }
@@ -117,7 +117,7 @@ android {
         }
     }
 
-    ndkVersion = "30.0.14904198"
+    ndkVersion = "28.2.13676358"
 
     flavorDimensions += "env"
 }
