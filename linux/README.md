@@ -202,7 +202,8 @@ $ librepods-ctl info | jq
   "adaptive_noise_level": 50,
   "conversational_awareness": true,
   "one_bud_anc": false,
-  "hearing_aid": false
+  "hearing_aid": false,
+  "last_seen_ble": null
 }
 ```
 
@@ -211,6 +212,8 @@ $ librepods-ctl info | jq
 - `noise_control_mode` is one of `off`, `anc`, `transparency`, `adaptive` (the same names as the `noise:*` commands).
 - `adaptive_noise_level` is the raw 0–100 value sent to the AirPods, the same as the slider in the app.
 - Values are the last ones received from the AirPods. When `connected` is `false` they may be stale or empty.
+- `last_seen_ble` is the number of seconds since the last BLE advertisement from these AirPods (`null` if none yet). While not connected, battery and ear status come from these advertisements, so a small value means the data is current. LibrePods stops scanning once connected, so the value only grows then.
+- The case reports its battery through the pods, so `case` is only current while at least one pod is `in_case`.
 
 The same data is available without `librepods-ctl` by writing `info` to the `app_server` local socket, e.g. `echo info | socat - UNIX-CONNECT:/tmp/app_server`.
 

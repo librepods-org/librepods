@@ -141,6 +141,9 @@ public:
     {
         QJsonObject info = m_deviceInfo->toJson();
         info["connected"] = areAirpodsConnected();
+        info["last_seen_ble"] = m_lastBleSeen.isValid()
+            ? QJsonValue(m_lastBleSeen.secsTo(QDateTime::currentDateTime()))
+            : QJsonValue();
         return QJsonDocument(info).toJson(QJsonDocument::Compact) + '\n';
     }
     QString phoneMacStatus() const { return m_phoneMacStatus; }
@@ -894,7 +897,12 @@ private slots:
             m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());
             m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase, isModelHeadset(m_deviceInfo->model()));
-            m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar);
+            // Only the advertising pod is known to be in the case, unless both are
+            bool primaryInCase = device.areBothPodsInCase || (device.isOnePodInCase && device.isThisPodInTheCase);
+            bool secondaryInCase = device.areBothPodsInCase || (device.isOnePodInCase && !device.isThisPodInTheCase);
+            m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar,
+                                                                        primaryInCase, secondaryInCase);
+            m_lastBleSeen = QDateTime::currentDateTime();
         }
     }
 
@@ -998,6 +1006,7 @@ private:
     bool m_hideOnStart = false;
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
+    QDateTime m_lastBleSeen;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
     QString m_phoneMacStatus;
 };
