@@ -47,6 +47,26 @@ void PlayerStatusWatcher::onServiceOwnerChanged(const QString &name, const QStri
     }
 }
 
+QString PlayerStatusWatcher::playbackStatusOf(const QString &playerService)
+{
+    if (playerService.isEmpty()) {
+        return QString();
+    }
+
+    QDBusInterface props(playerService, "/org/mpris/MediaPlayer2",
+                         "org.freedesktop.DBus.Properties", QDBusConnection::sessionBus());
+    if (!props.isValid()) {
+        return QString();
+    }
+
+    QDBusReply<QVariant> reply = props.call("Get", "org.mpris.MediaPlayer2.Player", "PlaybackStatus");
+    if (!reply.isValid()) {
+        return QString();
+    }
+
+    return reply.value().toString();
+}
+
 QString PlayerStatusWatcher::getCurrentPlaybackStatus(const QString &playerService)
 {
     QDBusConnection bus = QDBusConnection::sessionBus();
@@ -54,14 +74,8 @@ QString PlayerStatusWatcher::getCurrentPlaybackStatus(const QString &playerServi
 
     for (const QString &service : services) {
         if (service.startsWith("org.mpris.MediaPlayer2.")) {
-            QDBusInterface iface(service, "/org/mpris/MediaPlayer2",
-                               "org.mpris.MediaPlayer2.Player", bus);
-            
-            if (iface.isValid()) {
-                QVariant status = iface.property("PlaybackStatus");
-                if (status.isValid() && status.toString() == "Playing") {
-                    return status.toString();
-                }
+            if (playbackStatusOf(service) == "Playing") {
+                return QStringLiteral("Playing");
             }
         }
     }

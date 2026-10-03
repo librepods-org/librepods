@@ -9,6 +9,9 @@ class PlayerStatusWatcher : public QObject {
 public:
     explicit PlayerStatusWatcher(const QString &playerService, QObject *parent = nullptr);
     static QString getCurrentPlaybackStatus(const QString &playerService);
+    // Chromium serves an empty Introspect document, so the metaobject QDBusInterface builds
+    // from it has no PlaybackStatus and property() reads invalid on a player that is Playing.
+    static QString playbackStatusOf(const QString &playerService);
 
 signals:
     void playbackStatusChanged(const QString &status);
