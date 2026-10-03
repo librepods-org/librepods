@@ -11,7 +11,7 @@
 
 using namespace AirpodsTrayApp::Enums;
 
-TrayIconManager::TrayIconManager(QObject *parent) : QObject(parent)
+TrayIconManager::TrayIconManager(QObject *parent, bool noTray) : QObject(parent), m_noTray(noTray)
 {
     // Initialize tray icon
     trayIcon = new QSystemTrayIcon(QIcon(":/icons/assets/airpods.png"), this);
@@ -24,7 +24,10 @@ TrayIconManager::TrayIconManager(QObject *parent) : QObject(parent)
     trayIcon->setContextMenu(trayMenu);
     connect(trayIcon, &QSystemTrayIcon::activated, this, &TrayIconManager::onTrayIconActivated);
 
-    trayIcon->show();
+    // Only show tray icon if not disabled
+    if (!noTray) {
+        trayIcon->show();
+    }
 }
 
 void TrayIconManager::showNotification(const QString &title, const QString &message)

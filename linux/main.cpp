@@ -30,6 +30,8 @@
 #include "ble/bleutils.h"
 #include "QRCodeImageProvider.hpp"
 #include "systemsleepmonitor.hpp"
+#include "dbusadaptor.hpp"
+#include <QDBusConnection>
 
 using namespace AirpodsTrayApp::Enums;
 
@@ -49,17 +51,17 @@ class AirPodsTrayApp : public QObject {
     Q_PROPERTY(bool hearingAidEnabled READ hearingAidEnabled WRITE setHearingAidEnabled NOTIFY hearingAidEnabledChanged)
 
 public:
-    AirPodsTrayApp(bool debugMode, bool hideOnStart, QQmlApplicationEngine *parent = nullptr)
+    AirPodsTrayApp(bool debugMode, bool hideOnStart, bool noTray = false, QQmlApplicationEngine *parent = nullptr)
         : QObject(parent), debugMode(debugMode), m_settings(new QSettings("AirPodsTrayApp", "AirPodsTrayApp"))
-        , m_autoStartManager(new AutoStartManager(this)), m_hideOnStart(hideOnStart), parent(parent)
+        , m_autoStartManager(new AutoStartManager(this)), m_hideOnStart(hideOnStart), m_noTray(noTray), parent(parent)
         , m_deviceInfo(new DeviceInfo(this)), m_bleManager(new BleManager(this))
         , m_systemSleepMonitor(new SystemSleepMonitor(this))
     {
         QLoggingCategory::setFilterRules(QString("librepods.debug=%1").arg(debugMode ? "true" : "false"));
         LOG_INFO("Initializing LibrePods");
 
-        // Initialize tray icon and connect signals
-        trayManager = new TrayIconManager(this);
+        // Initialize tray icon and connect signals (skip if --no-tray)
+        trayManager = new TrayIconManager(this, noTray);
         trayManager->setNotificationsEnabled(loadNotificationsEnabled());
         connect(trayManager, &TrayIconManager::trayClicked, this, &AirPodsTrayApp::onTrayIconActivated);
         connect(trayManager, &TrayIconManager::openApp, this, &AirPodsTrayApp::onOpenApp);
@@ -149,7 +151,31 @@ private:
         bool isEnabled = true; // Ability to disable the feature
     } CrossDevice;
 
-    void initializeDBus() { }
+    void initializeDBus() {
+        // Create D-Bus adaptor for battery info
+        new BatteryDBusAdaptor(m_deviceInfo->getBattery(), m_deviceInfo, this);
+
+        // Register on session bus
+        QDBusConnection sessionBus = QDBusConnection::sessionBus();
+        if (!sessionBus.isConnected()) {
+            LOG_ERROR("Cannot connect to D-Bus session bus");
+            return;
+        }
+
+        // Register service
+        if (!sessionBus.registerService("me.kavishdevar.librepods")) {
+            LOG_ERROR("Cannot register D-Bus service: " << sessionBus.lastError().message());
+            return;
+        }
+
+        // Register object
+        if (!sessionBus.registerObject("/battery", this)) {
+            LOG_ERROR("Cannot register D-Bus object: " << sessionBus.lastError().message());
+            return;
+        }
+
+        LOG_INFO("D-Bus service registered: me.kavishdevar.librepods at /battery");
+    }
 
     bool isAirPodsDevice(const QBluetoothDeviceInfo &device)
     {
@@ -982,6 +1008,7 @@ private:
     AutoStartManager *m_autoStartManager;
     int m_retryAttempts = 3;
     bool m_hideOnStart = false;
+    bool m_noTray = false;
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
@@ -1034,18 +1061,22 @@ int main(int argc, char *argv[]) {
 
     bool debugMode = false;
     bool hideOnStart = false;
+    bool noTray = false;
     for (int i = 1; i < argc; ++i) {
         if (QString(argv[i]) == "--debug")
             debugMode = true;
 
         if (QString(argv[i]) == "--hide")
             hideOnStart = true;
+
+        if (QString(argv[i]) == "--no-tray")
+            noTray = true;
     }
 
     QQmlApplicationEngine engine;
     qmlRegisterType<Battery>("me.kavishdevar.Battery", 1, 0, "Battery");
     qmlRegisterType<DeviceInfo>("me.kavishdevar.DeviceInfo", 1, 0, "DeviceInfo");
-    AirPodsTrayApp *trayApp = new AirPodsTrayApp(debugMode, hideOnStart, &engine);
+    AirPodsTrayApp *trayApp = new AirPodsTrayApp(debugMode, hideOnStart, noTray, &engine);
     engine.rootContext()->setContextProperty("airPodsTrayApp", trayApp);
 
     // Expose PHONE_MAC_ADDRESS environment variable to QML for placeholder in settings

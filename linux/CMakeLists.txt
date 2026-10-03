@@ -41,6 +41,7 @@ qt_add_executable(librepods
     thirdparty/QR-Code-generator/qrcodegen.hpp
     QRCodeImageProvider.hpp
     eardetection.hpp
+    dbusadaptor.hpp
     media/playerstatuswatcher.cpp
     media/playerstatuswatcher.h
     systemsleepmonitor.hpp
