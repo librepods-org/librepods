@@ -47,6 +47,9 @@ public:
 
   void play();
   void pause();
+  void togglePlayPause();
+  void nextTrack();
+  void previousTrack();
   MediaState getCurrentMediaState() const;
 
 Q_SIGNALS:
