@@ -59,23 +59,22 @@ tBTA_STATUS fake_BTA_DmSetLocalDiRecord(tSDP_DI_RECORD *p_device_info, uint32_t 
 
     LOGI("fake_BTA_DmSetLocalDiRecord called");
 
-    if (original_BTA_DmSetLocalDiRecord &&
-        enableSdpHook.load(std::memory_order_relaxed))
-        original_BTA_DmSetLocalDiRecord(p_device_info, p_handle);
-
-    LOGI("fake_BTA_DmSetLocalDiRecord: modifying vendor to 0x004C, vendor_id_source to 0x0001");
-
     if (p_device_info) {
         p_device_info->vendor = 0x004C;
         p_device_info->vendor_id_source = 0x0001;
     }
 
-    LOGI("fake_BTA_DmSetLocalDiRecord: returning status %d",
-         original_BTA_DmSetLocalDiRecord ? original_BTA_DmSetLocalDiRecord(p_device_info, p_handle)
-                                         : BTA_FAILURE);
-    return original_BTA_DmSetLocalDiRecord ? original_BTA_DmSetLocalDiRecord(p_device_info,
-                                                                             p_handle)
-                                           : BTA_FAILURE;
+    tBTA_STATUS status = BTA_FAILURE;
+    if (original_BTA_DmSetLocalDiRecord && enableSdpHook.load(std::memory_order_relaxed)) {
+        LOGI("fake_BTA_DmSetLocalDiRecord: calling original");
+        status = original_BTA_DmSetLocalDiRecord(p_device_info, p_handle);
+    } else {
+        LOGI("fake_BTA_DmSetLocalDiRecord: original not called (hook disabled or null)");
+        status = BTA_SUCCESS; // Pretend it worked if we didn't call the original but modified the record
+    }
+
+    LOGI("fake_BTA_DmSetLocalDiRecord: returning status %d", status);
+    return status;
 }
 
 static bool decompressXZ(const uint8_t *input, size_t input_size, std::vector<uint8_t> &output) {
@@ -194,20 +193,21 @@ static uintptr_t getModuleBase(const char *name) {
     return base;
 }
 
+template<typename Ehdr, typename Shdr, typename Sym>
 static uint64_t
-findSymbolOffsetDynsym(const std::vector<uint8_t> &elf, const char *symbol_substring) {
+findSymbolOffsetDynsymTemplated(const std::vector<uint8_t> &elf, const char *symbol_substring) {
 
-    LOGI("findSymbolOffsetDynsym called with %s", symbol_substring);
+    LOGI("findSymbolOffsetDynsymTemplated called with %s", symbol_substring);
 
-    auto *eh = reinterpret_cast<const Elf64_Ehdr *>(elf.data());
-    auto *shdr = reinterpret_cast<const Elf64_Shdr *>(
+    auto *eh = reinterpret_cast<const Ehdr *>(elf.data());
+    auto *shdr = reinterpret_cast<const Shdr *>(
             elf.data() + eh->e_shoff);
 
     const char *shstr = reinterpret_cast<const char *>(
             elf.data() + shdr[eh->e_shstrndx].sh_offset);
 
-    const Elf64_Shdr *dynsym = nullptr;
-    const Elf64_Shdr *dynstr = nullptr;
+    const Shdr *dynsym = nullptr;
+    const Shdr *dynstr = nullptr;
 
     for (int i = 0; i < eh->e_shnum; ++i) {
         const char *secname = shstr + shdr[i].sh_name;
@@ -223,20 +223,27 @@ findSymbolOffsetDynsym(const std::vector<uint8_t> &elf, const char *symbol_subst
         return 0;
     }
 
-    auto *symbols = reinterpret_cast<const Elf64_Sym *>(
+    auto *symbols = reinterpret_cast<const Sym *>(
             elf.data() + dynsym->sh_offset);
 
     const char *strings = reinterpret_cast<const char *>(
             elf.data() + dynstr->sh_offset);
 
-    size_t count = dynsym->sh_size / sizeof(Elf64_Sym);
+    size_t count = dynsym->sh_size / sizeof(Sym);
 
     LOGI("findSymbolOffsetDynsym: scanning %zu symbols", count);
 
     for (size_t i = 0; i < count; ++i) {
         const char *name = strings + symbols[i].st_name;
 
-        if (strstr(name, symbol_substring) && ELF64_ST_TYPE(symbols[i].st_info) == STT_FUNC) {
+        bool is_func = false;
+        if constexpr (std::is_same_v<Sym, Elf64_Sym>) {
+            is_func = ELF64_ST_TYPE(symbols[i].st_info) == STT_FUNC;
+        } else {
+            is_func = ELF32_ST_TYPE(symbols[i].st_info) == STT_FUNC;
+        }
+
+        if (strstr(name, symbol_substring) && is_func) {
 
             LOGI("findSymbolOffsetDynsym: matched %s @ 0x%lx", name,
                  (unsigned long) symbols[i].st_value);
@@ -249,19 +256,21 @@ findSymbolOffsetDynsym(const std::vector<uint8_t> &elf, const char *symbol_subst
     return 0;
 }
 
-static uint64_t findSymbolOffset(const std::vector<uint8_t> &elf, const char *symbol_substring) {
+template<typename Ehdr, typename Shdr, typename Sym>
+static uint64_t
+findSymbolOffsetTemplated(const std::vector<uint8_t> &elf, const char *symbol_substring) {
 
-    LOGI("findSymbolOffset called with symbol_substring: %s", symbol_substring);
+    LOGI("findSymbolOffsetTemplated called with symbol_substring: %s", symbol_substring);
 
-    auto *eh = reinterpret_cast<const Elf64_Ehdr *>(elf.data());
-    auto *shdr = reinterpret_cast<const Elf64_Shdr *>(
+    auto *eh = reinterpret_cast<const Ehdr *>(elf.data());
+    auto *shdr = reinterpret_cast<const Shdr *>(
             elf.data() + eh->e_shoff);
 
     const char *shstr = reinterpret_cast<const char *>(
             elf.data() + shdr[eh->e_shstrndx].sh_offset);
 
-    const Elf64_Shdr *symtab = nullptr;
-    const Elf64_Shdr *strtab = nullptr;
+    const Shdr *symtab = nullptr;
+    const Shdr *strtab = nullptr;
 
     LOGI("findSymbolOffset: parsing ELF sections");
     for (int i = 0; i < eh->e_shnum; ++i) {
@@ -278,19 +287,26 @@ static uint64_t findSymbolOffset(const std::vector<uint8_t> &elf, const char *sy
     }
     LOGI("findSymbolOffset: found symtab and strtab");
 
-    auto *symbols = reinterpret_cast<const Elf64_Sym *>(
+    auto *symbols = reinterpret_cast<const Sym *>(
             elf.data() + symtab->sh_offset);
 
     const char *strings = reinterpret_cast<const char *>(
             elf.data() + strtab->sh_offset);
 
-    size_t count = symtab->sh_size / sizeof(Elf64_Sym);
+    size_t count = symtab->sh_size / sizeof(Sym);
 
     LOGI("findSymbolOffset: scanning %zu symbols", count);
     for (size_t i = 0; i < count; ++i) {
         const char *name = strings + symbols[i].st_name;
 
-        if (strstr(name, symbol_substring) && ELF64_ST_TYPE(symbols[i].st_info) == STT_FUNC) {
+        bool is_func = false;
+        if constexpr (std::is_same_v<Sym, Elf64_Sym>) {
+            is_func = ELF64_ST_TYPE(symbols[i].st_info) == STT_FUNC;
+        } else {
+            is_func = ELF32_ST_TYPE(symbols[i].st_info) == STT_FUNC;
+        }
+
+        if (strstr(name, symbol_substring) && is_func) {
 
             LOGI("findSymbolOffset: matched symbol %s at 0x%lx", name,
                  (unsigned long) symbols[i].st_value);
@@ -336,46 +352,76 @@ static bool hookLibrary(const char *libname) {
     read(fd, file.data(), st.st_size);
     close(fd);
 
-    auto *eh = reinterpret_cast<Elf64_Ehdr *>(file.data());
-    auto *shdr = reinterpret_cast<Elf64_Shdr *>(
-            file.data() + eh->e_shoff);
-
-    const char *shstr = reinterpret_cast<const char *>(
-            file.data() + shdr[eh->e_shstrndx].sh_offset);
+    uint8_t elf_class = file[EI_CLASS];
+    LOGI("hookLibrary: ELF class: %d (1=32bit, 2=64bit)", elf_class);
 
     uint64_t chk_offset = 0;
     uint64_t sdp_offset = 0;
 
-    for (int i = 0; i < eh->e_shnum; ++i) {
-        if (!strcmp(shstr + shdr[i].sh_name, ".gnu_debugdata")) {
-            LOGI("hookLibrary: found .gnu_debugdata section");
-
-            std::vector<uint8_t> compressed(file.begin() + shdr[i].sh_offset,
-                                            file.begin() + shdr[i].sh_offset + shdr[i].sh_size);
-
-            std::vector<uint8_t> decompressed;
-
-            if (decompressXZ(compressed.data(), compressed.size(), decompressed)) {
-
-                chk_offset = findSymbolOffset(decompressed, "l2c_fcr_chk_chan_modes");
-
-                sdp_offset = findSymbolOffset(decompressed, "BTA_DmSetLocalDiRecord");
+    auto parse_debugdata = [&](const uint8_t *debug_ptr, size_t debug_size) {
+        std::vector<uint8_t> compressed(debug_ptr, debug_ptr + debug_size);
+        std::vector<uint8_t> decompressed;
+        if (decompressXZ(compressed.data(), compressed.size(), decompressed)) {
+            if (elf_class == ELFCLASS64) {
+                chk_offset = findSymbolOffsetTemplated<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(
+                        decompressed, "l2c_fcr_chk_chan_modes");
+                sdp_offset = findSymbolOffsetTemplated<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(
+                        decompressed, "BTA_DmSetLocalDiRecord");
             } else {
-                LOGE("debugdata decompress failed");
+                chk_offset = findSymbolOffsetTemplated<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(
+                        decompressed, "l2c_fcr_chk_chan_modes");
+                sdp_offset = findSymbolOffsetTemplated<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(
+                        decompressed, "BTA_DmSetLocalDiRecord");
             }
+        } else {
+            LOGE("debugdata decompress failed");
+        }
+    };
 
-            break;
+    if (elf_class == ELFCLASS64) {
+        auto *eh = reinterpret_cast<Elf64_Ehdr *>(file.data());
+        auto *shdr = reinterpret_cast<Elf64_Shdr *>(file.data() + eh->e_shoff);
+        const char *shstr = reinterpret_cast<const char *>(file.data() +
+                                                           shdr[eh->e_shstrndx].sh_offset);
+        for (int i = 0; i < eh->e_shnum; ++i) {
+            if (!strcmp(shstr + shdr[i].sh_name, ".gnu_debugdata")) {
+                LOGI("hookLibrary: found .gnu_debugdata (64)");
+                parse_debugdata(file.data() + shdr[i].sh_offset, shdr[i].sh_size);
+                break;
+            }
+        }
+    } else {
+        auto *eh = reinterpret_cast<Elf32_Ehdr *>(file.data());
+        auto *shdr = reinterpret_cast<Elf32_Shdr *>(file.data() + eh->e_shoff);
+        const char *shstr = reinterpret_cast<const char *>(file.data() +
+                                                           shdr[eh->e_shstrndx].sh_offset);
+        for (int i = 0; i < eh->e_shnum; ++i) {
+            if (!strcmp(shstr + shdr[i].sh_name, ".gnu_debugdata")) {
+                LOGI("hookLibrary: found .gnu_debugdata (32)");
+                parse_debugdata(file.data() + shdr[i].sh_offset, shdr[i].sh_size);
+                break;
+            }
         }
     }
 
     if (!chk_offset) {
         LOGI("fallback dynsym chk");
-        chk_offset = findSymbolOffsetDynsym(file, "l2c_fcr_chk_chan_modes");
+        if (elf_class == ELFCLASS64)
+            chk_offset = findSymbolOffsetDynsymTemplated<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(file,
+                                                                                           "l2c_fcr_chk_chan_modes");
+        else
+            chk_offset = findSymbolOffsetDynsymTemplated<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(file,
+                                                                                           "l2c_fcr_chk_chan_modes");
     }
 
     if (!sdp_offset) {
         LOGI("fallback dynsym sdp");
-        sdp_offset = findSymbolOffsetDynsym(file, "BTA_DmSetLocalDiRecord");
+        if (elf_class == ELFCLASS64)
+            sdp_offset = findSymbolOffsetDynsymTemplated<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>(file,
+                                                                                           "BTA_DmSetLocalDiRecord");
+        else
+            sdp_offset = findSymbolOffsetDynsymTemplated<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>(file,
+                                                                                           "BTA_DmSetLocalDiRecord");
     }
 
     uintptr_t base = getModuleBase(libname);
