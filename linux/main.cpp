@@ -43,6 +43,7 @@ class AirPodsTrayApp : public QObject {
     Q_PROPERTY(AutoStartManager *autoStartManager READ autoStartManager CONSTANT)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
     Q_PROPERTY(int retryAttempts READ retryAttempts WRITE setRetryAttempts NOTIFY retryAttemptsChanged)
+    Q_PROPERTY(bool mediaTakeoverEnabled READ mediaTakeoverEnabled WRITE setMediaTakeoverEnabled NOTIFY mediaTakeoverEnabledChanged)
     Q_PROPERTY(bool hideOnStart READ hideOnStart CONSTANT)
     Q_PROPERTY(DeviceInfo *deviceInfo READ deviceInfo CONSTANT)
     Q_PROPERTY(QString phoneMacStatus READ phoneMacStatus NOTIFY phoneMacStatusChanged)
@@ -90,6 +91,7 @@ public:
         CrossDevice.isEnabled = loadCrossDeviceEnabled();
         setEarDetectionBehavior(loadEarDetectionSettings());
         setRetryAttempts(loadRetryAttempts());
+        m_mediaTakeoverEnabled = loadMediaTakeoverEnabled();
 
         monitor->checkAlreadyConnectedDevices();
         LOG_INFO("AirPodsTrayApp initialized");
@@ -133,6 +135,7 @@ public:
     bool notificationsEnabled() const { return trayManager->notificationsEnabled(); }
     void setNotificationsEnabled(bool enabled) { trayManager->setNotificationsEnabled(enabled); }
     int retryAttempts() const { return m_retryAttempts; }
+    bool mediaTakeoverEnabled() const { return m_mediaTakeoverEnabled; }
     bool hideOnStart() const { return m_hideOnStart; }
     DeviceInfo *deviceInfo() const { return m_deviceInfo; }
     QString phoneMacStatus() const { return m_phoneMacStatus; }
@@ -246,6 +249,17 @@ public slots:
             m_retryAttempts = attempts;
             emit retryAttemptsChanged(attempts);
             saveRetryAttempts(attempts);
+        }
+    }
+
+    void setMediaTakeoverEnabled(bool enabled)
+    {
+        if (m_mediaTakeoverEnabled != enabled)
+        {
+            LOG_DEBUG("Setting media takeover to: " << enabled);
+            m_mediaTakeoverEnabled = enabled;
+            emit mediaTakeoverEnabledChanged(enabled);
+            saveMediaTakeoverEnabled(enabled);
         }
     }
 
@@ -409,6 +423,9 @@ public slots:
 
     int loadRetryAttempts() const { return m_settings->value("bluetooth/retryAttempts", 3).toInt(); }
     void saveRetryAttempts(int attempts) { m_settings->setValue("bluetooth/retryAttempts", attempts); }
+
+    bool loadMediaTakeoverEnabled() const { return m_settings->value("media/takeoverEnabled", true).toBool(); }
+    void saveMediaTakeoverEnabled(bool enabled) { m_settings->setValue("media/takeoverEnabled", enabled); }
 
     void onSystemGoingToSleep()
     {
@@ -887,6 +904,10 @@ private slots:
 public:
     void handleMediaStateChange(MediaController::MediaState state) {
         if (state == MediaController::MediaState::Playing) {
+            if (!m_mediaTakeoverEnabled) {
+                LOG_DEBUG("Media started playing, but media takeover is disabled");
+                return;
+            }
             LOG_INFO("Media started playing, sending disconnect request to Android and taking over audio");
             sendDisconnectRequestToAndroid();
             connectToAirPods(true);
@@ -966,6 +987,7 @@ signals:
     void crossDeviceEnabledChanged(bool enabled);
     void notificationsEnabledChanged(bool enabled);
     void retryAttemptsChanged(int attempts);
+    void mediaTakeoverEnabledChanged(bool enabled);
     void oneBudANCModeChanged(bool enabled);
     void phoneMacStatusChanged();
     void hearingAidEnabledChanged(bool enabled);
@@ -981,6 +1003,7 @@ private:
     QSettings *m_settings;
     AutoStartManager *m_autoStartManager;
     int m_retryAttempts = 3;
+    bool m_mediaTakeoverEnabled = true;
     bool m_hideOnStart = false;
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
