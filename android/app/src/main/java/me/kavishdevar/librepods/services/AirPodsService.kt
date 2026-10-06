@@ -753,8 +753,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
         val bluetoothAdapter = getSystemService(BluetoothManager::class.java).adapter
 
+        // Cached UUIDs only: fetchUuidsWithSdp() pages every bonded device, which queues ~5s page timeouts
+        // for absent ones and pulls the AirPods off whatever host (e.g. an iPad) they are on.
         bluetoothAdapter.bondedDevices.forEach { device ->
-            device.fetchUuidsWithSdp()
             if (device.uuids != null) {
                 if (device.uuids.contains(ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a"))) {
                     bluetoothAdapter.getProfileProxy(
