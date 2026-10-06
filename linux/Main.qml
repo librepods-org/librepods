@@ -242,6 +242,18 @@ ApplicationWindow {
                     }
 
                     Switch {
+                        text: qsTr("Take Over Audio When Media Plays")
+                        checked: airPodsTrayApp.mediaTakeoverEnabled
+                        onCheckedChanged: airPodsTrayApp.mediaTakeoverEnabled = checked
+
+                        ToolTip {
+                            visible: parent.hovered
+                            text: qsTr("Automatically connect to the AirPods and take audio from\nother devices when media starts playing on this computer")
+                            delay: 500
+                        }
+                    }
+
+                    Switch {
                         visible: airPodsTrayApp.airpodsConnected
                         text: qsTr("One Bud ANC Mode")
                         checked: airPodsTrayApp.deviceInfo.oneBudANCMode
