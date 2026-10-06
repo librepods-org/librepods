@@ -83,7 +83,11 @@ signals:
     void deviceFound(const BleInfo &device);
 
 private:
+    void beginScanWindow();
+
     QBluetoothDeviceDiscoveryAgent *discoveryAgent;
+    QTimer *rescanTimer = nullptr;
+    bool scanRequested = false;
 };
 
 #endif // BLEMANAGER_H
