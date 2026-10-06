@@ -28,6 +28,6 @@ AACP (Apple Accessory Communication Protocol) uses various opcodes to define dif
 | 0x0030       | Accessory   | [BLE keys req](/docs/ble-keys.md)                                  |
 | 0x0031       | Host        | [BLE keys response](/docs/ble-keys.md)                             |
 | 0x004B       | Host        | [Conversation awareness](/docs/conversational-awareness.md)        |
-| 0x004D       | Accessory   | [Host capabilities](/docs/host-capabilities.md)                    |
+| 0x004D       | Accessory   | [Host capabilities](/docs/host-capabilities.md) (host → accessory) |
 | 0x004F       | Both        | Information req/res (doesn't work, even with apple's DID)          |
 | 0x0053       | Both        | [EQ data](/docs/eq.md)                                             |
