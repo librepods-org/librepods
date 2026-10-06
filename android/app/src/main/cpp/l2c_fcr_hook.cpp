@@ -59,23 +59,26 @@ tBTA_STATUS fake_BTA_DmSetLocalDiRecord(tSDP_DI_RECORD *p_device_info, uint32_t 
 
     LOGI("fake_BTA_DmSetLocalDiRecord called");
 
-    if (original_BTA_DmSetLocalDiRecord &&
-        enableSdpHook.load(std::memory_order_relaxed))
-        original_BTA_DmSetLocalDiRecord(p_device_info, p_handle);
-
-    LOGI("fake_BTA_DmSetLocalDiRecord: modifying vendor to 0x004C, vendor_id_source to 0x0001");
-
-    if (p_device_info) {
-        p_device_info->vendor = 0x004C;
-        p_device_info->vendor_id_source = 0x0001;
+    if (!original_BTA_DmSetLocalDiRecord) {
+        return BTA_FAILURE;
     }
 
-    LOGI("fake_BTA_DmSetLocalDiRecord: returning status %d",
-         original_BTA_DmSetLocalDiRecord ? original_BTA_DmSetLocalDiRecord(p_device_info, p_handle)
-                                         : BTA_FAILURE);
-    return original_BTA_DmSetLocalDiRecord ? original_BTA_DmSetLocalDiRecord(p_device_info,
-                                                                             p_handle)
-                                           : BTA_FAILURE;
+    if (!p_device_info || !enableSdpHook.load(std::memory_order_relaxed)) {
+        return original_BTA_DmSetLocalDiRecord(p_device_info, p_handle);
+    }
+
+    // Register one record only. Logging must not register additional SDP records,
+    // and the caller must retain its original vendor fields after this call.
+    const auto vendor = p_device_info->vendor;
+    const auto vendor_id_source = p_device_info->vendor_id_source;
+    p_device_info->vendor = 0x004C;
+    p_device_info->vendor_id_source = 0x0001;
+    const auto status = original_BTA_DmSetLocalDiRecord(p_device_info, p_handle);
+    p_device_info->vendor = vendor;
+    p_device_info->vendor_id_source = vendor_id_source;
+
+    LOGI("fake_BTA_DmSetLocalDiRecord: returning status %d", status);
+    return status;
 }
 
 static bool decompressXZ(const uint8_t *input, size_t input_size, std::vector<uint8_t> &output) {
