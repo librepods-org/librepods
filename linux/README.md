@@ -170,6 +170,7 @@ librepods-ctl
 | `noise:anc` | Enable Active Noise Cancellation |
 | `noise:transparency` | Enable Transparency mode |
 | `noise:adaptive` | Enable Adaptive mode |
+| `info` | Print the device status as one line of JSON |
 
 ### Example
 ```bash
@@ -179,6 +180,42 @@ librepods-ctl noise:anc
 # Enable Transparency mode
 librepods-ctl noise:transparency
 ```
+
+### Device status
+
+`librepods-ctl info` prints everything LibrePods currently knows about the connected AirPods, for status bars and scripts:
+
+```bash
+$ librepods-ctl info | jq
+{
+  "connected": true,
+  "name": "AirPods Pro",
+  "model": "AirPodsPro2USBC",
+  "model_number": "A3048",
+  "address": "AA:BB:CC:DD:EE:FF",
+  "battery": {
+    "left":  { "level": 80, "charging": false, "available": true, "ear": "in_ear" },
+    "right": { "level": 75, "charging": false, "available": true, "ear": "in_ear" },
+    "case":  { "level": 45, "charging": true,  "available": true }
+  },
+  "noise_control_mode": "adaptive",
+  "adaptive_noise_level": 50,
+  "conversational_awareness": true,
+  "one_bud_anc": false,
+  "hearing_aid": false,
+  "last_seen_ble": null
+}
+```
+
+- `battery` has a single `headset` entry instead of `left`/`right`/`case` for AirPods Max.
+- `ear` is one of `in_ear`, `out_of_ear`, `in_case`, `unknown`.
+- `noise_control_mode` is one of `off`, `anc`, `transparency`, `adaptive` (the same names as the `noise:*` commands).
+- `adaptive_noise_level` is the raw 0–100 value sent to the AirPods, the same as the slider in the app.
+- Values are the last ones received from the AirPods. When `connected` is `false` they may be stale or empty.
+- `last_seen_ble` is the number of seconds since the last BLE advertisement from these AirPods (`null` if none yet). While not connected, battery and ear status come from these advertisements, so a small value means the data is current. LibrePods stops scanning once connected, so the value only grows then.
+- The case reports its battery through the pods, so `case` is only current while at least one pod is `in_case`.
+
+The same data is available without `librepods-ctl` by writing `info` to the `app_server` local socket, e.g. `echo info | socat - UNIX-CONNECT:/tmp/app_server`.
 
 
 ## Hearing Aid

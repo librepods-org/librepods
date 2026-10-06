@@ -48,10 +48,13 @@ public:
 
         return true;
     }
-    void overrideEarDetectionStatus(bool primaryInEar, bool secondaryInEar)
+    void overrideEarDetectionStatus(bool primaryInEar, bool secondaryInEar, bool primaryInCase = false, bool secondaryInCase = false)
     {
-        primaryStatus = primaryInEar ? EarDetectionStatus::InEar : EarDetectionStatus::NotInEar;
-        secondaryStatus = secondaryInEar ? EarDetectionStatus::InEar : EarDetectionStatus::NotInEar;
+        auto status = [](bool inEar, bool inCase) {
+            return inEar ? EarDetectionStatus::InEar : inCase ? EarDetectionStatus::InCase : EarDetectionStatus::NotInEar;
+        };
+        primaryStatus = status(primaryInEar, primaryInCase);
+        secondaryStatus = status(secondaryInEar, secondaryInCase);
         emit statusChanged();
     }
 

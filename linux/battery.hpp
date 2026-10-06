@@ -285,6 +285,6 @@ private:
     }
 
     QMap<Component, BatteryState> states;
-    Component primaryPod;
-    Component secondaryPod;
+    Component primaryPod{};
+    Component secondaryPod{};
 };

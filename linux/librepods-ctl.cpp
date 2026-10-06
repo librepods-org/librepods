@@ -11,7 +11,8 @@ int main(int argc, char *argv[]) {
                             << "  noise:off           Disable noise control\n"
                             << "  noise:anc           Enable Active Noise Cancellation\n"
                             << "  noise:transparency  Enable Transparency mode\n"
-                            << "  noise:adaptive      Enable Adaptive mode\n";
+                            << "  noise:adaptive      Enable Adaptive mode\n"
+                            << "  info                Print device status (battery, noise mode, ...) as JSON\n";
         return 1;
     }
 
@@ -23,9 +24,24 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    socket.write(QByteArray(argv[1]));
+    QByteArray command(argv[1]);
+    socket.write(command);
     socket.flush();
     socket.waitForBytesWritten(200);
+
+    if (command == "info") {
+        QByteArray reply;
+        while (socket.waitForReadyRead(1000))
+            reply += socket.readAll();
+        reply += socket.readAll();
+        if (reply.isEmpty()) {
+            QTextStream(stderr) << "No reply from librepods\n";
+            return 1;
+        }
+        QTextStream(stdout) << reply;
+        return 0;
+    }
+
     socket.disconnectFromServer();
     return 0;
 }
