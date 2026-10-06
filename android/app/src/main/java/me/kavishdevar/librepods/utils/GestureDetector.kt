@@ -53,6 +53,7 @@ class GestureDetector(
         private const val MAX_REQUIRED_EXTREMES = 4
 
         private const val MAX_VALID_ORIENTATION_VALUE = 6000
+        private const val SLOW_SAMPLE_INTERVAL_MS = 100
     }
 
     val audio = GestureFeedback(ServiceManager.getService()?.baseContext!!)
@@ -91,6 +92,7 @@ class GestureDetector(
 
     private var significantMotion = false
     private var lastSignificantMotionTime = 0L
+    private var lastSampleAt = 0L
 
     init {
         while (horizontalAvgBuffer.size < 3) horizontalAvgBuffer.add(0.0)
@@ -180,8 +182,14 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
         prevHorizontal = horizontal.toDouble()
         prevVertical = vertical.toDouble()
 
-        val smoothHorizontal = applySmoothing(horizontal.toDouble(), horizontalAvgBuffer)
-        val smoothVertical = applySmoothing(vertical.toDouble(), verticalAvgBuffer)
+        // During a call the AirPods send head tracking at ~5 Hz instead of ~25 Hz. At that rate
+        // consecutive samples land on opposite sides of a nod, and averaging three of them
+        // cancels the motion out, so no peak ever passes peakThreshold. Use raw values then.
+        val now = System.currentTimeMillis()
+        val slowSamples = lastSampleAt > 0 && now - lastSampleAt > SLOW_SAMPLE_INTERVAL_MS
+        lastSampleAt = now
+        val smoothHorizontal = if (slowSamples) horizontal.toDouble() else applySmoothing(horizontal.toDouble(), horizontalAvgBuffer)
+        val smoothVertical = if (slowSamples) vertical.toDouble() else applySmoothing(vertical.toDouble(), verticalAvgBuffer)
 
         synchronized(horizontalBuffer) {
             horizontalBuffer.add(smoothHorizontal)
@@ -410,6 +418,7 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
         lastPeakTime = 0
         significantMotion = false
         lastSignificantMotionTime = 0L
+        lastSampleAt = 0L
     }
 
     private fun Double.pow(exponent: Int): Double = this.pow(exponent.toDouble())
