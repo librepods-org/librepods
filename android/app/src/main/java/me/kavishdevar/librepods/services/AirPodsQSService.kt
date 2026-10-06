@@ -216,7 +216,9 @@ class AirPodsQSService : TileService() {
             tile.state = Tile.STATE_UNAVAILABLE
             tile.label = "AirPods"
             tile.subtitle = "Disconnected"
-            tile.icon = Icon.createWithResource(this, R.drawable.airpods)
+            tile.icon = Icon.createWithResource(
+                this, ServiceManager.getService()?.currentIconRes ?: R.drawable.airpods
+            )
         }
 
         try {
@@ -232,11 +234,12 @@ class AirPodsQSService : TileService() {
     }
 
     private fun getAvailableModes(): List<Int> {
-        val modes = mutableListOf(
-            NoiseControlMode.TRANSPARENCY.ordinal + 1,
-            NoiseControlMode.ADAPTIVE.ordinal + 1,
-            NoiseControlMode.NOISE_CANCELLATION.ordinal + 1
-        )
+        val modes = mutableListOf(NoiseControlMode.TRANSPARENCY.ordinal + 1)
+        // The AirPods Max have no Adaptive mode, so the tile must not cycle through it.
+        if (ServiceManager.getService()?.supportsAdaptiveMode != false) {
+            modes.add(NoiseControlMode.ADAPTIVE.ordinal + 1)
+        }
+        modes.add(NoiseControlMode.NOISE_CANCELLATION.ordinal + 1)
         if (isOffModeEnabled()) {
             modes.add(0, NoiseControlMode.OFF.ordinal + 1)
         }

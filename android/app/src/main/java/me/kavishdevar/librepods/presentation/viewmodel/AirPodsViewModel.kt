@@ -592,10 +592,14 @@ class AirPodsViewModel(
     }
 
     private fun loadInstance() {
+        // Falling straight back to a Pro 2 would mislabel anything we could not identify - most
+        // visibly the AirPods Max, which would show up as earbuds. Try to resolve the real model
+        // from the BLE id or the Bluetooth name first.
+        val fallbackModel = service.resolveModel()
         val instance = service.airpodsInstance ?: AirPodsInstance(
-            name = "AirPods",
-            model = AirPodsModels.getModelByModelNumber("A3049")!!,
-            actualModelNumber = "A3049",
+            name = fallbackModel?.displayName ?: "AirPods",
+            model = fallbackModel ?: AirPodsModels.getModelByModelNumber("A3049")!!,
+            actualModelNumber = fallbackModel?.modelNumber?.firstOrNull() ?: "A3049",
             serialNumber = null,
             leftSerialNumber = null,
             rightSerialNumber = null,

@@ -82,6 +82,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/left_battery_container"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent"
@@ -124,6 +125,7 @@
                 <ImageView
                     android:layout_width="28dp"
                     android:layout_height="28dp"
+                    android:id="@+id/left_battery_icon"
                     android:src="@drawable/airpods_pro_left_notification"
                     android:tint="@color/white"
                     android:layout_gravity="center"
@@ -144,6 +146,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/right_battery_container"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent"
@@ -205,6 +208,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/case_battery_container"
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="match_parent"

@@ -91,6 +91,7 @@ import me.kavishdevar.librepods.bluetooth.BLEManager
 import me.kavishdevar.librepods.bluetooth.BluetoothConnectionManager
 import me.kavishdevar.librepods.bluetooth.createBluetoothSocket
 import me.kavishdevar.librepods.data.AirPodsInstance
+import me.kavishdevar.librepods.data.AirPodsBase
 import me.kavishdevar.librepods.data.AirPodsModels
 import me.kavishdevar.librepods.data.AirPodsNotifications
 import me.kavishdevar.librepods.data.Battery
@@ -110,6 +111,7 @@ import me.kavishdevar.librepods.utils.GestureDetector
 import me.kavishdevar.librepods.utils.HeadTracking
 import me.kavishdevar.librepods.utils.MediaController
 import me.kavishdevar.librepods.utils.SystemApisUtils
+import me.kavishdevar.librepods.utils.SystemApisUtils.DEVICE_TYPE_DEFAULT
 import me.kavishdevar.librepods.utils.SystemApisUtils.DEVICE_TYPE_UNTETHERED_HEADSET
 import me.kavishdevar.librepods.utils.SystemApisUtils.METADATA_COMPANION_APP
 import me.kavishdevar.librepods.utils.SystemApisUtils.METADATA_DEVICE_TYPE
@@ -1050,7 +1052,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 config.airpodsHardwareRevision = deviceInformation.hardwareRevision
                 config.airpodsUpdaterIdentifier = deviceInformation.updaterIdentifier
 
-                val model = AirPodsModels.getModelByModelNumber(config.airpodsModelNumber)
+                val model = resolveModel()
                 if (model != null) {
                     airpodsInstance = AirPodsInstance(
                         name = config.airpodsName,
@@ -1668,7 +1670,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             return
         }
         val popupWindow = PopupWindow(service.applicationContext)
-        popupWindow.open(name, batteryNotification)
+        popupWindow.open(name, batteryNotification, airpodsInstance?.model ?: resolveModel())
         popupShown = true
     }
 
@@ -1947,6 +1949,22 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 if (caseBattery?.status == BatteryStatus.CHARGING || caseBattery?.status == BatteryStatus.OPTIMIZED_CHARGING ) View.VISIBLE else View.GONE
             )
 
+            // The AirPods Max report one battery, mirrored onto both sides. Show it once, under a
+            // headphone icon, instead of three identical-looking readings.
+            val model = airpodsInstance?.model ?: resolveModel()
+            val singleBattery = model?.isSingleBattery == true || batteryNotification.isSingleBattery
+            it.setViewVisibility(
+                R.id.right_battery_container, if (singleBattery) View.GONE else View.VISIBLE
+            )
+            it.setViewVisibility(
+                R.id.case_battery_container, if (singleBattery) View.GONE else View.VISIBLE
+            )
+            it.setImageViewResource(
+                R.id.left_battery_icon,
+                if (singleBattery) (model?.iconRes ?: R.drawable.airpods_max_icon)
+                else R.drawable.airpods_pro_left_notification
+            )
+
             it.setViewVisibility(
                 R.id.phone_battery_widget_container,
                 if (widgetMobileBatteryEnabled) View.VISIBLE else View.GONE
@@ -2054,33 +2072,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         if (BluetoothConnectionManager.aacpSocket?.isConnected == true) {
             val updatedNotificationBuilder =
                 NotificationCompat.Builder(this, "airpods_connection_status")
-                    .setSmallIcon(R.drawable.airpods)
+                    .setSmallIcon(currentIconRes)
                     .setContentTitle(airpodsName ?: config.deviceName).setContentText(
-                        """${
-                        batteryList?.find { it.component == BatteryComponent.LEFT }?.let {
-                            if (it.status != BatteryStatus.DISCONNECTED) {
-                                "L: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
-                            } else {
-                                ""
-                            }
-                        } ?: ""
-                    } ${
-                        batteryList?.find { it.component == BatteryComponent.RIGHT }?.let {
-                            if (it.status != BatteryStatus.DISCONNECTED) {
-                                "R: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
-                            } else {
-                                ""
-                            }
-                        } ?: ""
-                    } ${
-                        batteryList?.find { it.component == BatteryComponent.CASE }?.let {
-                            if (it.status != BatteryStatus.DISCONNECTED) {
-                                "Case: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
-                            } else {
-                                ""
-                            }
-                        } ?: ""
-                    }""").setContentIntent(pendingIntent).setCategory(Notification.CATEGORY_STATUS)
+                        buildBatteryText(batteryList)).setContentIntent(pendingIntent).setCategory(Notification.CATEGORY_STATUS)
                     .setPriority(NotificationCompat.PRIORITY_LOW).setOngoing(true)
 
             if (disconnectedBecauseReversed) {
@@ -2210,7 +2204,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private fun resToUri(resId: Int): Uri? {
         return try {
             Uri.Builder().scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
-                .authority("me.kavishdevar.librepods")
+                .authority(packageName)
                 .appendPath(applicationContext.resources.getResourceTypeName(resId))
                 .appendPath(applicationContext.resources.getResourceEntryName(resId)).build()
         } catch (_: Resources.NotFoundException) {
@@ -2325,6 +2319,59 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         Log.d(TAG, "Broadcast battery level $batteryUnified% to system")
     }
 
+    /**
+     * Battery line for the status notification. Over-ear models report a single battery which is
+     * mirrored onto both sides, so collapse it instead of printing the same value twice.
+     */
+    private fun buildBatteryText(batteryList: List<Battery>?): String {
+        if (batteryList == null) return ""
+
+        fun format(prefix: String, battery: Battery?): String {
+            if (battery == null || battery.status == BatteryStatus.DISCONNECTED) return ""
+            val bolt = if (battery.status == BatteryStatus.CHARGING) "⚡" else ""
+            return "$prefix$bolt ${battery.level}%".trim()
+        }
+
+        val singleBattery = (airpodsInstance?.model ?: resolveModel())?.isSingleBattery == true ||
+                batteryNotification.isSingleBattery
+        if (singleBattery) {
+            return format("", batteryList.find { it.component == BatteryComponent.LEFT })
+        }
+
+        return listOf(
+            format("L: ", batteryList.find { it.component == BatteryComponent.LEFT }),
+            format("R: ", batteryList.find { it.component == BatteryComponent.RIGHT }),
+            format("Case: ", batteryList.find { it.component == BatteryComponent.CASE })
+        ).filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    /**
+     * Whether the connected model offers the Adaptive listening mode. The AirPods Max and the
+     * first-generation Pro do not. Defaults to true while the model is still unknown.
+     */
+    val supportsAdaptiveMode: Boolean
+        get() = (airpodsInstance?.model ?: resolveModel())
+            ?.capabilities?.contains(Capability.ADAPTIVE_AUDIO) ?: true
+
+    /** Icon for the connected model, so the AirPods Max show headphones rather than earbuds. */
+    val currentIconRes: Int
+        get() = (airpodsInstance?.model ?: resolveModel())?.iconRes ?: R.drawable.airpods
+
+    /**
+     * Resolves the connected model. The AACP model number is authoritative, but firmware we have
+     * no entry for still identifies itself through its BLE proximity-pairing id or its Bluetooth
+     * name, which is what lets the AirPods Max be told apart from the earbuds.
+     */
+    fun resolveModel(): AirPodsBase? {
+        return AirPodsModels.resolveModel(
+            modelNumber = config.airpodsModelNumber,
+            bleModelId = if (::bleManager.isInitialized) {
+                bleManager.getMostRecentStatus()?.modelId?.takeIf { it != 0 }
+            } else null,
+            name = config.airpodsName.ifBlank { config.deviceName }
+        )
+    }
+
     private fun setMetadatas(d: BluetoothDevice) {
         if (checkSelfPermission("android.permission.BLUETOOTH_PRIVILEGED") != PackageManager.PERMISSION_GRANTED) {
             Log.d(TAG, "no permission BLUETOOTH_PRIVILEGED, returning")
@@ -2334,47 +2381,58 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         d.let { device ->
             val instance = airpodsInstance
             if (instance != null) {
-                val metadataSet = SystemApisUtils.setMetadata(
+                val model = instance.model
+                var metadataSet = SystemApisUtils.setMetadata(
                     device,
                     device.METADATA_MAIN_ICON,
-                    resToUri(instance.model.budCaseRes).toString().toByteArray()
+                    resToUri(model.budCaseRes).toString().toByteArray()
                 ) && SystemApisUtils.setMetadata(
-                    device, device.METADATA_MODEL_NAME, instance.model.name.toByteArray()
+                    device, device.METADATA_MODEL_NAME, model.name.toByteArray()
                 ) && SystemApisUtils.setMetadata(
                     device,
                     device.METADATA_DEVICE_TYPE,
-                    device.DEVICE_TYPE_UNTETHERED_HEADSET.toByteArray()
-                ) && SystemApisUtils.setMetadata(
-                    device,
-                    device.METADATA_UNTETHERED_CASE_ICON,
-                    resToUri(instance.model.caseRes).toString().toByteArray()
-                ) && SystemApisUtils.setMetadata(
-                    device,
-                    device.METADATA_UNTETHERED_RIGHT_ICON,
-                    resToUri(instance.model.rightBudsRes).toString().toByteArray()
-                ) && SystemApisUtils.setMetadata(
-                    device,
-                    device.METADATA_UNTETHERED_LEFT_ICON,
-                    resToUri(instance.model.leftBudsRes).toString().toByteArray()
+                    // Over-ear models are a single device: reporting them as untethered makes the
+                    // system show three battery readings that the AirPods Max never send.
+                    if (model.hasCase) {
+                        device.DEVICE_TYPE_UNTETHERED_HEADSET.toByteArray()
+                    } else {
+                        device.DEVICE_TYPE_DEFAULT.toByteArray()
+                    }
                 ) && SystemApisUtils.setMetadata(
                     device,
                     device.METADATA_MANUFACTURER_NAME,
-                    instance.model.manufacturer.toByteArray()
+                    model.manufacturer.toByteArray()
                 ) && SystemApisUtils.setMetadata(
-                    device, device.METADATA_COMPANION_APP, "me.kavishdevar.librepods".toByteArray()
-                ) && SystemApisUtils.setMetadata(
-                    device,
-                    device.METADATA_UNTETHERED_CASE_LOW_BATTERY_THRESHOLD,
-                    "20".toByteArray()
-                ) && SystemApisUtils.setMetadata(
-                    device,
-                    device.METADATA_UNTETHERED_LEFT_LOW_BATTERY_THRESHOLD,
-                    "20".toByteArray()
-                ) && SystemApisUtils.setMetadata(
-                    device,
-                    device.METADATA_UNTETHERED_RIGHT_LOW_BATTERY_THRESHOLD,
-                    "20".toByteArray()
+                    device, device.METADATA_COMPANION_APP, packageName.toByteArray()
                 )
+
+                if (model.hasCase) {
+                    metadataSet = metadataSet && SystemApisUtils.setMetadata(
+                        device,
+                        device.METADATA_UNTETHERED_CASE_ICON,
+                        resToUri(model.caseRes).toString().toByteArray()
+                    ) && SystemApisUtils.setMetadata(
+                        device,
+                        device.METADATA_UNTETHERED_RIGHT_ICON,
+                        resToUri(model.rightBudsRes).toString().toByteArray()
+                    ) && SystemApisUtils.setMetadata(
+                        device,
+                        device.METADATA_UNTETHERED_LEFT_ICON,
+                        resToUri(model.leftBudsRes).toString().toByteArray()
+                    ) && SystemApisUtils.setMetadata(
+                        device,
+                        device.METADATA_UNTETHERED_CASE_LOW_BATTERY_THRESHOLD,
+                        "20".toByteArray()
+                    ) && SystemApisUtils.setMetadata(
+                        device,
+                        device.METADATA_UNTETHERED_LEFT_LOW_BATTERY_THRESHOLD,
+                        "20".toByteArray()
+                    ) && SystemApisUtils.setMetadata(
+                        device,
+                        device.METADATA_UNTETHERED_RIGHT_LOW_BATTERY_THRESHOLD,
+                        "20".toByteArray()
+                    )
+                }
                 Log.d(TAG, "Metadata set: $metadataSet")
             } else {
                 Log.w(
@@ -2677,9 +2735,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         BluetoothConnectionManager.attSocket = attSocket
 
                         // Create AirPodsInstance from stored config if available
-                        if (airpodsInstance == null && config.airpodsModelNumber.isNotEmpty()) {
-                            val model =
-                                AirPodsModels.getModelByModelNumber(config.airpodsModelNumber)
+                        if (airpodsInstance == null) {
+                            val model = resolveModel()
                             if (model != null) {
                                 airpodsInstance = AirPodsInstance(
                                     name = config.airpodsName,
