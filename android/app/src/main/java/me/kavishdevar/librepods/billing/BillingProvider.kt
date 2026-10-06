@@ -21,6 +21,10 @@ package me.kavishdevar.librepods.billing
 import android.app.Activity
 import kotlinx.coroutines.flow.StateFlow
 
+/** Internal price states; UI resolves them in the current locale. */
+const val PRICE_LOADING = "__price_loading__"
+const val PRICE_UNAVAILABLE = "__price_unavailable__"
+
 interface BillingProvider {
     val isPremium: StateFlow<Boolean>
     val price: StateFlow<String>

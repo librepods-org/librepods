@@ -281,10 +281,10 @@ fun AirPodsSettingsScreen(
                                 val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
                                     data = "mailto:".toUri()
                                     putExtra(Intent.EXTRA_EMAIL, arrayOf("billing@kavish.xyz"))
-                                    putExtra(Intent.EXTRA_SUBJECT, "LibrePods Play billing error")
+                                    putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.billing_error_email_subject))
                                     putExtra(
                                         Intent.EXTRA_TEXT,
-                                        "Please enter your GitHub username to restore your premium access:\n\nGitHub username: "
+                                        context.getString(R.string.billing_error_email_body)
                                     )
                                 }
                                 context.startActivity(emailIntent)
