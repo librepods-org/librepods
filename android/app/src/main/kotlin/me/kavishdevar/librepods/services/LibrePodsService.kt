@@ -55,6 +55,7 @@ import me.kavishdevar.librepods.bluetooth.MacAddress
 import me.kavishdevar.librepods.bluetooth.aacp.types.ControlCommandIdentifier
 import me.kavishdevar.librepods.bluetooth.aacp.types.MagicKeyType
 import me.kavishdevar.librepods.bluetooth.verifyRPA
+import me.kavishdevar.librepods.data.apple.BuddyState
 import me.kavishdevar.librepods.data.heartrate.HeartRateSample
 import me.kavishdevar.librepods.data.recording.Recording
 import me.kavishdevar.librepods.database.app.AppSettingsEntity
@@ -906,6 +907,13 @@ class LibrePodsService: Service() {
                 Log.d(TAG, "metadata: $metadata")
 
                 appleRepository.saveMetadata(device.macAddress, metadata)
+
+                // startHr() needs the firmware version; on connect it may not have been known yet
+                if (previousMetadata.version3.isEmpty() && metadata.version3.isNotEmpty() &&
+                    device.settings.value.hrmAlertEnabled && device.state.value.hrmState == BuddyState.INACTIVE
+                ) {
+                    device.startHr()
+                }
 
                 setAppleBluetoothMetadata(device)
 
