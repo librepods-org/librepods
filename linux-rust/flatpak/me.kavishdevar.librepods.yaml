@@ -1,0 +1,43 @@
+app-id: me.kavishdevar.librepods
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: librepods
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --system-talk-name=org.bluez
+  - --allow=bluetooth
+  - --share=network
+  - --socket=session-bus
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/librepods/cargo
+    CARGO_NET_OFFLINE: 'true'
+    RUSTUP_HOME: /usr/lib/sdk/rust-stable
+
+modules:
+  - name: librepods
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      - cargo build --release --frozen --offline --verbose
+      - install -Dm755 target/release/librepods ${FLATPAK_DEST}/bin/librepods
+      - install -Dm644 assets/icon.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png
+      - install -Dm644 assets/me.kavishdevar.librepods.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 flatpak/me.kavishdevar.librepods.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+    sources:
+      - type: archive
+#        path: ../dist/librepods-vlocal-source.tar.gz
+        url: https://github.com/kavishdevar/librepods/releases/download/linux-v0.1.0/librepods-v0.1.0-source.tar.gz
+        sha256: 78828d6113dcdc37be9aa006d7a437ec1705978669cddb9342824ec9546a7b4e
+
