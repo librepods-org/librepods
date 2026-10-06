@@ -2571,14 +2571,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             return
         }
 
-        val shouldTakeOver = when (bleManager.getMostRecentStatus()?.connectionState) {
+        val airPodsState = bleManager.getMostRecentStatus()?.connectionState
+        Log.d(TAG, "AirPods state for takeover: $airPodsState")
+        val shouldTakeOver = when (airPodsState) {
             "Disconnected" -> config.takeoverWhenDisconnected
             "Idle" -> config.takeoverWhenIdle
             "Music" -> config.takeoverWhenMusic
             "Call" -> config.takeoverWhenCall
             "Ringing" -> config.takeoverWhenCall
             "Hanging Up" -> config.takeoverWhenCall
-            else -> false
+            // The first advertisement after the AirPods reappear often carries a state byte that
+            // isn't mapped (or there is no status yet). Refusing then means the takeover only
+            // happens on the next media change, so follow the media setting instead.
+            else -> config.takeoverWhenMusic
         }
 
         if (!shouldTakeOver) {
