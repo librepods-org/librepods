@@ -66,7 +66,19 @@ public:
         connect(trayManager, &TrayIconManager::openSettings, this, &AirPodsTrayApp::onOpenSettings);
         connect(trayManager, &TrayIconManager::noiseControlChanged, this, &AirPodsTrayApp::setNoiseControlMode);
         connect(trayManager, &TrayIconManager::conversationalAwarenessToggled, this, &AirPodsTrayApp::setConversationalAwareness);
-        connect(m_deviceInfo, &DeviceInfo::batteryStatusChanged, trayManager, &TrayIconManager::updateBatteryStatus);
+        // Per-device battery wiring: key = bluetooth address, name = device name
+        connect(m_deviceInfo, &DeviceInfo::batteryStatusChanged, trayManager, [this](const QString &status) {
+            const QString addr = m_deviceInfo->bluetoothAddress();
+            if (addr.isEmpty() || status.isEmpty())
+                return; // reset() signals — ignore them
+            trayManager->setActiveDevice(addr);
+            trayManager->updateDeviceBattery(addr, m_deviceInfo->deviceName(), status);
+        });
+        connect(m_deviceInfo, &DeviceInfo::deviceNameChanged, trayManager, [this](const QString &name) {
+            const QString addr = m_deviceInfo->bluetoothAddress();
+            if (!addr.isEmpty())
+                trayManager->updateDeviceName(addr, name);
+        });
         connect(m_deviceInfo, &DeviceInfo::noiseControlModeChanged, trayManager, &TrayIconManager::updateNoiseControlState);
         connect(m_deviceInfo, &DeviceInfo::conversationalAwarenessChanged, trayManager, &TrayIconManager::updateConversationalAwareness);
         connect(trayManager, &TrayIconManager::notificationsEnabledChanged, this, &AirPodsTrayApp::saveNotificationsEnabled);
@@ -506,6 +518,12 @@ private slots:
     void onDeviceDisconnected(const QBluetoothAddress &address)
     {
         LOG_INFO("Device disconnected: " << address.toString());
+
+        // Remove this device from the tray registry so any other still-connected
+        // device keeps its entry. Only fall back to resetTrayIcon() if no devices remain.
+        const QString addrStr = address.toString();
+        trayManager->removeDevice(addrStr);
+
         if (socket)
         {
             LOG_WARN("Socket is still open, closing it");
@@ -527,7 +545,6 @@ private slots:
         trayManager->showNotification(
             tr("AirPods Disconnected"),
             tr("Your AirPods have been disconnected"));
-        trayManager->resetTrayIcon();
     }
 
     void bluezDeviceDisconnected(const QString &address, const QString &name)
@@ -608,6 +625,11 @@ private slots:
 
         LOG_INFO("Connecting to device: " << device.name());
 
+        if (device.address().toString() != m_deviceInfo->bluetoothAddress())
+        {
+            m_deviceInfo->reset();
+        }
+
         // Clean up any existing socket
         if (socket)
         {
@@ -656,6 +678,7 @@ private slots:
 
         localSocket->connectToService(device.address(), QBluetoothUuid("74ec2172-0bad-4d01-8f77-997b2be0722a"));
         m_deviceInfo->setBluetoothAddress(device.address().toString());
+        m_deviceInfo->setDeviceName(device.name());
         notifyAndroidDevice();
     }
 
@@ -876,6 +899,12 @@ private slots:
 
     void bleDeviceFound(const BleInfo &device)
     {
+        // If a live AACP/L2CAP connection is up, the broadcast may be from a
+        // *different* paired device whose IRK happens to match (BLE addresses are
+        // anonymised). The socket is authoritative — ignore BLE updates while connected.
+        if (areAirpodsConnected())
+            return;
+
         if (BLEUtils::isValidIrkRpa(m_deviceInfo->magicAccIRK(), device.address)) {
             m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());
