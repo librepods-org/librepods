@@ -21,3 +21,7 @@
 #-renamesourcefileattribute SourceFile
 
 -keep class me.kavishdevar.librepods.utils.KotlinModule { *; }
+-keep class me.kavishdevar.librepods.utils.NativeBridge { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}

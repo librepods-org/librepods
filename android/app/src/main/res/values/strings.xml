@@ -248,7 +248,7 @@
         Many devices are not supported due to limitations in the Android Bluetooth stack.
         \nOn these devices, root access with an Xposed framework is required for full functionality.
         \n\nThis limitation has been addressed in newer Android versions. The following device configurations can run the app natively:
-        \n• Google Pixel® running Android 16 March update and later with the lateset Play system update
+        \n• Google Pixel® running Android 16 March update and later with the latest Play system update
         \n• Google Pixel® running 17 Beta 3 and above
         \n• OnePlus devices running OxygenOS 16 or later
         \n• Oppo devices running ColorOS 16 or later

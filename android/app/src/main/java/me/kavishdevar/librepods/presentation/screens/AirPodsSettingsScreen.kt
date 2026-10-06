@@ -495,7 +495,7 @@ fun AirPodsSettingsScreen(
                     automaticEarDetectionEnabled = state.automaticEarDetectionEnabled,
                     onAutomaticEarDetectionChanged = onAutomaticEarDetectionChanged,
                     automaticConnectionEnabled = state.automaticConnectionEnabled,
-                    onAutomaticConnectionChanged = onAutomaticConnectionChanged
+                    onAutomaticConnectionChanged = onAutomaticConnectionChanged,
                 )
             }
 
