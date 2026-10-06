@@ -43,16 +43,16 @@ A native Linux application to control your AirPods, with support for:
 
    ```bash
    # For Arch Linux / EndeavourOS
-   sudo pacman -S qt6-base qt6-connectivity qt6-multimedia-ffmpeg qt6-multimedia
+   sudo pacman -S qt6-base qt6-connectivity qt6-multimedia-ffmpeg qt6-multimedia qt6-tools
 
    # For Debian
    sudo apt-get install qt6-base-dev qt6-declarative-dev qt6-connectivity-dev qt6-multimedia-dev \
         qml6-module-qtquick-controls qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
-        qml6-module-qtquick-window qml6-module-qtquick-layouts
+        qml6-module-qtquick-window qml6-module-qtquick-layouts qt6-tools-dev
 
     # For Fedora
     sudo dnf install qt6-qtbase-devel qt6-qtconnectivity-devel \
-        qt6-qtmultimedia-devel qt6-qtdeclarative-devel
+        qt6-qtmultimedia-devel qt6-qtdeclarative-devel qt6-linguist
    ```
 3. OpenSSL development headers
 
