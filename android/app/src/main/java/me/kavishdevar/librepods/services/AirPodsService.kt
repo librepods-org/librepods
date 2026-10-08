@@ -55,6 +55,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelUuid
+import android.os.PowerManager
+import android.os.SystemClock
 import android.os.UserHandle
 import android.provider.Settings
 import android.telecom.TelecomManager
@@ -135,6 +137,12 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.time.Duration.Companion.milliseconds
 
 private const val TAG = "AirPodsService"
+// How long after a connection's first battery report it still counts as having just connected
+private const val OPEN_CASE_REPORT_WINDOW_MS = 5000L
+// How long after the popup opens it isn't shown again while the AirPods aren't connected to this
+// phone. Once they are, which took under 3s from the lid opening in testing, it isn't shown again
+// until they disconnect, which they do when the lid closes.
+private const val CASE_POPUP_REPEAT_MS = 15000L
 
 object ServiceManager {
     private var service: AirPodsService? = null
@@ -259,21 +267,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             }
             Log.d(TAG, "Device status changed")
             if (BluetoothConnectionManager.aacpSocket?.isConnected == true) return
-            val leftLevel = bleManager.getMostRecentStatus()?.leftBattery ?: 0
-            val rightLevel = bleManager.getMostRecentStatus()?.rightBattery ?: 0
-            val caseLevel = bleManager.getMostRecentStatus()?.caseBattery ?: 0
-            val leftCharging = bleManager.getMostRecentStatus()?.isLeftCharging
-            val rightCharging = bleManager.getMostRecentStatus()?.isRightCharging
-            val caseCharging = bleManager.getMostRecentStatus()?.isCaseCharging
-
-            batteryNotification.setBatteryDirect(
-                leftLevel = leftLevel,
-                leftCharging = leftCharging == true,
-                rightLevel = rightLevel,
-                rightCharging = rightCharging == true,
-                caseLevel = caseLevel,
-                caseCharging = caseCharging == true
-            )
+            setBatteryFromBle(device)
             updateBattery()
         }
 
@@ -286,28 +280,12 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         ) {
             if (lidOpen) {
                 Log.d(TAG, "Lid opened")
-                showPopup(
-                    this@AirPodsService,
-                    getSharedPreferences("settings", MODE_PRIVATE).getString("name", "AirPods Pro")
-                        ?: "AirPods"
-                )
-                if (BluetoothConnectionManager.aacpSocket?.isConnected == true) return
-                val leftLevel = bleManager.getMostRecentStatus()?.leftBattery ?: 0
-                val rightLevel = bleManager.getMostRecentStatus()?.rightBattery ?: 0
-                val caseLevel = bleManager.getMostRecentStatus()?.caseBattery ?: 0
-                val leftCharging = bleManager.getMostRecentStatus()?.isLeftCharging
-                val rightCharging = bleManager.getMostRecentStatus()?.isRightCharging
-                val caseCharging = bleManager.getMostRecentStatus()?.isCaseCharging
-
-                batteryNotification.setBatteryDirect(
-                    leftLevel = leftLevel,
-                    leftCharging = leftCharging == true,
-                    rightLevel = rightLevel,
-                    rightCharging = rightCharging == true,
-                    caseLevel = caseLevel,
-                    caseCharging = caseCharging == true
-                )
-                sendBatteryBroadcast()
+                // Refresh before opening the popup so it doesn't start out with stale levels
+                if (BluetoothConnectionManager.aacpSocket?.isConnected != true) {
+                    bleManager.getMostRecentStatus()?.let { setBatteryFromBle(it) }
+                    sendBatteryBroadcast()
+                }
+                showPopup()
             } else {
                 Log.d(TAG, "Lid closed")
             }
@@ -324,26 +302,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             }
         }
 
-        override fun onBatteryChanged(device: BLEManager.AirPodsStatus) {
-            if (BluetoothConnectionManager.aacpSocket?.isConnected == true) return
-            val leftLevel = bleManager.getMostRecentStatus()?.leftBattery ?: 0
-            val rightLevel = bleManager.getMostRecentStatus()?.rightBattery ?: 0
-            val caseLevel = bleManager.getMostRecentStatus()?.caseBattery ?: 0
-            val leftCharging = bleManager.getMostRecentStatus()?.isLeftCharging
-            val rightCharging = bleManager.getMostRecentStatus()?.isRightCharging
-            val caseCharging = bleManager.getMostRecentStatus()?.isCaseCharging
-
-            batteryNotification.setBatteryDirect(
-                leftLevel = leftLevel,
-                leftCharging = leftCharging == true,
-                rightLevel = rightLevel,
-                rightCharging = rightCharging == true,
-                caseLevel = caseLevel,
-                caseCharging = caseCharging == true
-            )
-            updateBattery()
-            Log.d(TAG, "Battery changed")
-        }
+        // onDeviceStatusChanged has already shown the new levels
+        override fun onBatteryChanged(device: BLEManager.AirPodsStatus) {}
 
         override fun onDeviceDisappeared() {
             Log.d(TAG, "All disappeared")
@@ -351,6 +311,17 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 false
             )
         }
+    }
+
+    private fun setBatteryFromBle(status: BLEManager.AirPodsStatus) {
+        batteryNotification.setBatteryDirect(
+            leftLevel = status.leftBattery,
+            leftCharging = status.isLeftCharging,
+            rightLevel = status.rightBattery,
+            rightCharging = status.isRightCharging,
+            caseLevel = status.caseBattery,
+            caseCharging = status.isCaseCharging
+        )
     }
 
     fun isBluetoothSocketExempted(): Boolean {
@@ -694,7 +665,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 } else if (intent?.action == AirPodsNotifications.AIRPODS_DISCONNECTED) {
                     device = null
 //                    isConnectedLocally = false
-                    popupShown = false
+                    firstBatteryReportElapsed = 0L
+                    openCasePopupShown = false
+                    casePopupOpenedElapsed = 0L
                     updateNotificationContent(false)
                     aacpManager.disconnected()
                     BluetoothConnectionManager.aacpSocket = null
@@ -879,6 +852,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         "${battery.getComponentName()}: ${battery.getStatusName()} at ${battery.level}% "
                     )
                 }
+
+                showPopupIfConnectedFromOpenCase()
 
                 if (batteryNotification.getBattery()[0].status == BatteryStatus.CHARGING && batteryNotification.getBattery()[1].status == BatteryStatus.CHARGING) {
                     disconnectAudio(this@AirPodsService, device)
@@ -1655,21 +1630,55 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
 
-    var popupShown = false
-    fun showPopup(service: Service, name: String) {
+    // Elapsed time of this connection's first battery report, 0 until it arrives
+    @Volatile private var firstBatteryReportElapsed = 0L
+    @Volatile private var openCasePopupShown = false
+    // Elapsed time the popup last opened at, 0 again once the AirPods disconnect
+    @Volatile private var casePopupOpenedElapsed = 0L
+
+    // The AirPods only connect while the lid is open, so buds charging in the case right after
+    // connecting means the lid was just opened. This is a fallback for when the BLE scans didn't
+    // catch the lid opening, e.g. on phones that can't scan for it and never get the AirPods'
+    // advertisements otherwise.
+    private fun showPopupIfConnectedFromOpenCase() {
+        val now = SystemClock.elapsedRealtime()
+        if (firstBatteryReportElapsed == 0L) firstBatteryReportElapsed = now
+        if (openCasePopupShown || now - firstBatteryReportElapsed > OPEN_CASE_REPORT_WINDOW_MS) return
+        if (!batteryNotification.budsChargingInCase()) return
+        openCasePopupShown = true
+        Log.d(TAG, "Connected with the buds in an open case")
+        Handler(Looper.getMainLooper()).post { showPopup() }
+    }
+
+    private var popupWindow: PopupWindow? = null
+    fun showPopup() {
         if (!sharedPreferences.getBoolean("show_bottom_sheet_popup", true)) {
             return
         }
-        if (!Settings.canDrawOverlays(service)) {
+        if (!Settings.canDrawOverlays(this)) {
             Log.d(TAG, "No permission for SYSTEM_ALERT_WINDOW")
             return
         }
-        if (popupShown) {
+        // It would only be drawn behind the lock screen
+        if (!getSystemService(PowerManager::class.java).isInteractive) {
             return
         }
-        val popupWindow = PopupWindow(service.applicationContext)
-        popupWindow.open(name, batteryNotification)
-        popupShown = true
+        if (popupWindow != null) {
+            return
+        }
+        // Once per opening of the lid, even after the popup is dismissed: the lid scan and
+        // showPopupIfConnectedFromOpenCase() can both report the same opening
+        val now = SystemClock.elapsedRealtime()
+        if (casePopupOpenedElapsed != 0L && (BluetoothConnectionManager.aacpSocket?.isConnected == true ||
+                    now - casePopupOpenedElapsed < CASE_POPUP_REPEAT_MS)) {
+            Log.d(TAG, "Popup already shown for this opening of the lid")
+            return
+        }
+        // Assigned before open() since a failed open() calls back right away
+        val popup = PopupWindow(applicationContext) { popupWindow = null }
+        popupWindow = popup
+        casePopupOpenedElapsed = now
+        popup.open(config.deviceName, batteryNotification)
     }
 
     var islandOpen = false
@@ -2058,7 +2067,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     .setContentTitle(airpodsName ?: config.deviceName).setContentText(
                         """${
                         batteryList?.find { it.component == BatteryComponent.LEFT }?.let {
-                            if (it.status != BatteryStatus.DISCONNECTED) {
+                            if (it.isKnown) {
                                 "L: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
                             } else {
                                 ""
@@ -2066,7 +2075,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         } ?: ""
                     } ${
                         batteryList?.find { it.component == BatteryComponent.RIGHT }?.let {
-                            if (it.status != BatteryStatus.DISCONNECTED) {
+                            if (it.isKnown) {
                                 "R: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
                             } else {
                                 ""
@@ -2074,7 +2083,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                         } ?: ""
                     } ${
                         batteryList?.find { it.component == BatteryComponent.CASE }?.let {
-                            if (it.status != BatteryStatus.DISCONNECTED) {
+                            if (it.isKnown) {
                                 "Case: ${if (it.status == BatteryStatus.CHARGING) "⚡" else ""} ${it.level}%"
                             } else {
                                 ""
@@ -2248,10 +2257,10 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         val leftBattery = batteryList.find { it.component == BatteryComponent.LEFT }
         val rightBattery = batteryList.find { it.component == BatteryComponent.RIGHT }
 
-        // Calculate unified battery level (minimum of left and right)
-        val batteryUnified = minOf(
-            leftBattery?.level ?: 100, rightBattery?.level ?: 100
-        )
+        // Calculate unified battery level (minimum of the buds whose level is known)
+        val batteryUnified = listOfNotNull(leftBattery, rightBattery)
+            .filter { it.isKnown }
+            .minOfOrNull { it.level } ?: return
 
         // Check charging status
         val isLeftCharging = leftBattery?.status == BatteryStatus.CHARGING

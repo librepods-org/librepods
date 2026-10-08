@@ -47,6 +47,13 @@ object BatteryStatus {
 
 @Parcelize
 data class Battery(val component: Int, val level: Int, val status: Int) : Parcelable {
+    // A 0% that doesn't come with a charge state (e.g. disconnected, or the 3 that AirPods 3 send
+    // for the case right before disconnecting) means the component can't be reached. A component
+    // that's disconnected but has a level is real data (e.g. a bud resting in the case).
+    val isKnown: Boolean
+        get() = level > 0 || status == BatteryStatus.CHARGING ||
+            status == BatteryStatus.NOT_CHARGING || status == BatteryStatus.OPTIMIZED_CHARGING
+
     fun getComponentName(): String? {
         return when (component) {
             BatteryComponent.LEFT -> "LEFT"
@@ -154,72 +161,86 @@ class AirPodsNotifications {
     }
 
     class BatteryNotification {
-        private var first: Battery = Battery(BatteryComponent.LEFT, 0, BatteryStatus.DISCONNECTED)
-        private var second: Battery = Battery(BatteryComponent.RIGHT, 0, BatteryStatus.DISCONNECTED)
+        private var left: Battery = Battery(BatteryComponent.LEFT, 0, BatteryStatus.DISCONNECTED)
+        private var right: Battery = Battery(BatteryComponent.RIGHT, 0, BatteryStatus.DISCONNECTED)
         private var case: Battery = Battery(BatteryComponent.CASE, 0, BatteryStatus.DISCONNECTED)
 
+        // 04 00 04 00 04 00 [count] ([component] 01 [level] [status] 01) * count
         fun isBatteryData(data: ByteArray): Boolean {
-            if (data.joinToString("") { "%02x".format(it) }.startsWith("040004000400")) {
-                Log.d("BatteryNotification", "Battery data starts with 040004000400. Most likely is a battery packet.")
-            } else {
-                return false
+            if (data.size < 7) return false
+            for (i in BATTERY_HEADER.indices) {
+                if (data[i] != BATTERY_HEADER[i]) return false
             }
-            if (data.size != 22) {
-                Log.d("BatteryNotification", "Battery data size is not 22, probably being used with Airpods with fewer or more battery count.")
-                return false
-            }
-            Log.d("BatteryNotification", data.joinToString("") { "%02x".format(it) }.startsWith("040004000400").toString())
-            return data.joinToString("") { "%02x".format(it) }.startsWith("040004000400")
+            return data.size == 7 + 5 * (data[6].toInt() and 0xFF)
         }
 
+        // A null level means the advertisement didn't carry that value.
         fun setBatteryDirect(
-            leftLevel: Int,
+            leftLevel: Int?,
             leftCharging: Boolean,
-            rightLevel: Int,
+            rightLevel: Int?,
             rightCharging: Boolean,
-            caseLevel: Int,
+            caseLevel: Int?,
             caseCharging: Boolean
         ) {
-            first = Battery(BatteryComponent.LEFT, leftLevel, if (leftCharging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
-            second = Battery(BatteryComponent.RIGHT, rightLevel, if (rightCharging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
-            case = Battery(BatteryComponent.CASE, caseLevel, if (caseCharging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
+            left = reading(left, leftLevel, leftCharging)
+            right = reading(right, rightLevel, rightCharging)
+            case = reading(case, caseLevel, caseCharging)
         }
 
+        // Components come in no fixed order and not every packet lists all of them, so merge
+        // each one into the last known state instead of replacing everything.
         fun setBattery(data: ByteArray) {
-            if (data.size != 22) {
+            if (!isBatteryData(data)) {
+                Log.d("BatteryNotification", "Ignoring malformed battery packet: ${data.joinToString("") { "%02x".format(it) }}")
                 return
             }
-//            first = if (data[10].toInt() == BatteryStatus.DISCONNECTED) {
-//                Battery(first.component, first.level, data[10].toInt())
-//            } else {
-//                Battery(data[7].toInt(), data[9].toInt(), data[10].toInt())
-//            }
-//            second = if (data[15].toInt() == BatteryStatus.DISCONNECTED) {
-//                Battery(second.component, second.level, data[15].toInt())
-//            } else {
-//                Battery(data[12].toInt(), data[14].toInt(), data[15].toInt())
-//            }
-//            case = if (data[20].toInt() == BatteryStatus.DISCONNECTED && case.status != BatteryStatus.DISCONNECTED) {
-//                Battery(case.component, case.level, data[20].toInt())
-//            } else {
-//                Battery(data[17].toInt(), data[19].toInt(), data[20].toInt())
-//            }
-//            sometimes it shows battery as -1%, just skip all that and set it normally
-            first = Battery(
-                data[7].toInt(), data[9].toInt(), data[10].toInt()
-            )
-            second = Battery(
-                data[12].toInt(), data[14].toInt(), data[15].toInt()
-            )
-            case = Battery(
-                data[17].toInt(), data[19].toInt(), data[20].toInt()
-            )
+            for (i in 0 until (data[6].toInt() and 0xFF)) {
+                val offset = 7 + 5 * i
+                val level = data[offset + 2].toInt() and 0xFF
+                val status = data[offset + 3].toInt() and 0xFF
+                when (data[offset].toInt() and 0xFF) {
+                    BatteryComponent.LEFT -> left = merge(left, level, status)
+                    BatteryComponent.RIGHT -> right = merge(right, level, status)
+                    BatteryComponent.CASE -> case = merge(case, level, status)
+                }
+            }
         }
 
         fun getBattery(): List<Battery> {
-            val left = if (first.component == BatteryComponent.LEFT) first else second
-            val right = if (first.component == BatteryComponent.LEFT) second else first
             return listOf(left, right, case)
+        }
+
+        // A bud is charging in a case that is reporting its own battery
+        fun budsChargingInCase(): Boolean =
+            case.isKnown && case.status != BatteryStatus.DISCONNECTED && listOf(left, right).any {
+                it.status == BatteryStatus.CHARGING || it.status == BatteryStatus.OPTIMIZED_CHARGING
+            }
+
+        private fun merge(previous: Battery, level: Int, status: Int): Battery {
+            // 0xFF is sent transiently while the AirPods are still working out the level
+            if (level > 100) return previous
+            val reading = Battery(previous.component, level, status)
+            return if (reading.isKnown) reading else unreachable(previous)
+        }
+
+        private fun reading(previous: Battery, level: Int?, charging: Boolean): Battery =
+            if (level == null) {
+                unreachable(previous)
+            } else {
+                Battery(previous.component, level, if (charging) BatteryStatus.CHARGING else BatteryStatus.NOT_CHARGING)
+            }
+
+        // The case can only report through a bud sitting in it, so it's unreachable whenever both
+        // buds are out. Keep showing its last known level then, like iOS does.
+        private fun unreachable(previous: Battery): Battery = Battery(
+            previous.component,
+            if (previous.component == BatteryComponent.CASE) previous.level else 0,
+            BatteryStatus.DISCONNECTED
+        )
+
+        companion object {
+            private val BATTERY_HEADER = Enums.PREFIX.value + byteArrayOf(0x04, 0x00)
         }
     }
 
