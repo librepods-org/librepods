@@ -240,7 +240,7 @@ class AirPodsNotifications {
         )
 
         companion object {
-            private val BATTERY_HEADER = byteArrayOf(0x04, 0x00, 0x04, 0x00, 0x04, 0x00)
+            private val BATTERY_HEADER = Enums.PREFIX.value + byteArrayOf(0x04, 0x00)
         }
     }
 

@@ -139,6 +139,10 @@ import kotlin.time.Duration.Companion.milliseconds
 private const val TAG = "AirPodsService"
 // How long after a connection's first battery report it still counts as having just connected
 private const val OPEN_CASE_REPORT_WINDOW_MS = 5000L
+// How long after the popup opens it isn't shown again while the AirPods aren't connected to this
+// phone. Once they are, which took under 3s from the lid opening in testing, it isn't shown again
+// until they disconnect, which they do when the lid closes.
+private const val CASE_POPUP_REPEAT_MS = 15000L
 
 object ServiceManager {
     private var service: AirPodsService? = null
@@ -281,11 +285,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     bleManager.getMostRecentStatus()?.let { setBatteryFromBle(it) }
                     sendBatteryBroadcast()
                 }
-                showPopup(
-                    this@AirPodsService,
-                    getSharedPreferences("settings", MODE_PRIVATE).getString("name", "AirPods Pro")
-                        ?: "AirPods"
-                )
+                showPopup()
             } else {
                 Log.d(TAG, "Lid closed")
             }
@@ -302,12 +302,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             }
         }
 
-        override fun onBatteryChanged(device: BLEManager.AirPodsStatus) {
-            if (BluetoothConnectionManager.aacpSocket?.isConnected == true) return
-            setBatteryFromBle(device)
-            updateBattery()
-            Log.d(TAG, "Battery changed")
-        }
+        // onDeviceStatusChanged has already shown the new levels
+        override fun onBatteryChanged(device: BLEManager.AirPodsStatus) {}
 
         override fun onDeviceDisappeared() {
             Log.d(TAG, "All disappeared")
@@ -671,6 +667,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 //                    isConnectedLocally = false
                     firstBatteryReportElapsed = 0L
                     openCasePopupShown = false
+                    casePopupOpenedElapsed = 0L
                     updateNotificationContent(false)
                     aacpManager.disconnected()
                     BluetoothConnectionManager.aacpSocket = null
@@ -1636,10 +1633,13 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     // Elapsed time of this connection's first battery report, 0 until it arrives
     @Volatile private var firstBatteryReportElapsed = 0L
     @Volatile private var openCasePopupShown = false
+    // Elapsed time the popup last opened at, 0 again once the AirPods disconnect
+    @Volatile private var casePopupOpenedElapsed = 0L
 
     // The AirPods only connect while the lid is open, so buds charging in the case right after
-    // connecting means the lid was just opened. Unlike the lid state in BLE advertisements, this
-    // also works for AirPods that only advertise for Find My (like AirPods 3 used without an iPhone).
+    // connecting means the lid was just opened. This is a fallback for when the BLE scans didn't
+    // catch the lid opening, e.g. on phones that can't scan for it and never get the AirPods'
+    // advertisements otherwise.
     private fun showPopupIfConnectedFromOpenCase() {
         val now = SystemClock.elapsedRealtime()
         if (firstBatteryReportElapsed == 0L) firstBatteryReportElapsed = now
@@ -1647,21 +1647,15 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         if (!batteryNotification.budsChargingInCase()) return
         openCasePopupShown = true
         Log.d(TAG, "Connected with the buds in an open case")
-        Handler(Looper.getMainLooper()).post {
-            showPopup(
-                this,
-                getSharedPreferences("settings", MODE_PRIVATE).getString("name", "AirPods Pro")
-                    ?: "AirPods"
-            )
-        }
+        Handler(Looper.getMainLooper()).post { showPopup() }
     }
 
     private var popupWindow: PopupWindow? = null
-    fun showPopup(service: Service, name: String) {
+    fun showPopup() {
         if (!sharedPreferences.getBoolean("show_bottom_sheet_popup", true)) {
             return
         }
-        if (!Settings.canDrawOverlays(service)) {
+        if (!Settings.canDrawOverlays(this)) {
             Log.d(TAG, "No permission for SYSTEM_ALERT_WINDOW")
             return
         }
@@ -1672,10 +1666,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         if (popupWindow != null) {
             return
         }
+        // Once per opening of the lid, even after the popup is dismissed: the lid scan and
+        // showPopupIfConnectedFromOpenCase() can both report the same opening
+        val now = SystemClock.elapsedRealtime()
+        if (casePopupOpenedElapsed != 0L && (BluetoothConnectionManager.aacpSocket?.isConnected == true ||
+                    now - casePopupOpenedElapsed < CASE_POPUP_REPEAT_MS)) {
+            Log.d(TAG, "Popup already shown for this opening of the lid")
+            return
+        }
         // Assigned before open() since a failed open() calls back right away
-        val popup = PopupWindow(service.applicationContext) { popupWindow = null }
+        val popup = PopupWindow(applicationContext) { popupWindow = null }
         popupWindow = popup
-        popup.open(name, batteryNotification)
+        casePopupOpenedElapsed = now
+        popup.open(config.deviceName, batteryNotification)
     }
 
     var islandOpen = false
