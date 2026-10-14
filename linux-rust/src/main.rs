@@ -1,5 +1,6 @@
 mod bluetooth;
 mod devices;
+mod handoff_probe;
 mod media_controller;
 mod ui;
 mod utils;
@@ -29,6 +30,17 @@ use tokio::sync::mpsc::unbounded_channel;
 
 #[derive(Parser)]
 struct Args {
+    #[arg(
+        long,
+        help = "Run interactive handoff diagnostics for an AirPods Bluetooth address"
+    )]
+    handoff_probe: Option<bluer::Address>,
+    #[arg(
+        long,
+        requires = "handoff_probe",
+        help = "Run automatic handoff without interactive input"
+    )]
+    handoff_auto: bool,
     #[arg(long, short = 'd', help = "Enable debug logging")]
     debug: bool,
     #[arg(
@@ -49,6 +61,20 @@ struct Args {
 
 fn main() -> iced::Result {
     let args = Args::parse();
+
+    if let Some(address) = args.handoff_probe {
+        env_logger::Builder::new()
+            .filter_level(log::LevelFilter::Warn)
+            .init();
+        let result = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(handoff_probe::run(address, args.handoff_auto));
+        if let Err(error) = result {
+            eprintln!("Handoff probe: {error}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
 
     if args.version {
         println!(

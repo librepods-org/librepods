@@ -181,7 +181,7 @@ impl MediaController {
         }
     }
 
-    fn check_if_playing() -> bool {
+    pub(crate) fn check_if_playing() -> bool {
         let conn = match Connection::new_session() {
             Ok(c) => c,
             Err(_) => return false,
