@@ -235,6 +235,7 @@ pub enum AudioSourceType {
     None = 0x00,
     Call = 0x01,
     Media = 0x02,
+    Unknown = 0xFF,
 }
 
 #[repr(u8)]
@@ -333,6 +334,17 @@ pub struct AACPManagerState {
 }
 
 impl AACPManagerState {
+    fn clear_connection(&mut self) {
+        self.sender = None;
+        self.owns = false;
+        self.control_command_status_list.clear();
+        self.connected_devices.clear();
+        self.old_connected_devices.clear();
+        self.audio_source = None;
+        self.ear_detection_status.clear();
+        self.old_ear_detection_status.clear();
+    }
+
     fn new() -> Self {
         let devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
             .ok()
@@ -364,6 +376,11 @@ pub struct AACPManager {
 }
 
 impl AACPManager {
+    pub async fn disconnect(&self) {
+        self.tasks.lock().await.shutdown().await;
+        self.state.lock().await.clear_connection();
+    }
+
     pub fn new() -> Self {
         AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
@@ -610,6 +627,9 @@ impl AACPManager {
                 }
             }
             opcodes::EAR_DETECTION => {
+                if packet.len() < 8 {
+                    return;
+                }
                 let primary_status = packet[6];
                 let secondary_status = packet[7];
                 let mut statuses = Vec::new();
@@ -694,6 +714,9 @@ impl AACPManager {
                     if let Ok(s) = std::str::from_utf8(str_bytes) {
                         strings.push(s.to_string());
                     }
+                }
+                if strings.is_empty() {
+                    return;
                 }
                 strings.remove(0);
                 let info = AirPodsInformation {
@@ -847,7 +870,7 @@ impl AACPManager {
                     "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
                     payload[7], payload[6], payload[5], payload[4], payload[3], payload[2]
                 );
-                let typ = AudioSourceType::from_u8(payload[8]).unwrap_or(AudioSourceType::None);
+                let typ = AudioSourceType::from_u8(payload[8]).unwrap_or(AudioSourceType::Unknown);
                 let audio_source = AudioSource { mac, r#type: typ };
                 let mut state = self.state.lock().await;
                 state.audio_source = Some(audio_source.clone());
@@ -857,15 +880,15 @@ impl AACPManager {
                 info!("Received Audio Source: {:?}", state.audio_source);
             }
             opcodes::CONNECTED_DEVICES => {
-                if payload.len() < 3 {
+                if payload.len() < 5 {
                     error!(
                         "Connected Devices packet too short: {}",
                         hex::encode(payload)
                     );
                     return;
                 }
-                let count = payload[2] as usize;
-                if payload.len() < 3 + count * 8 {
+                let count = payload[4] as usize;
+                if payload.len() < 5 + count * 8 {
                     error!(
                         "Connected Devices packet length mismatch: {}",
                         hex::encode(payload)
@@ -905,6 +928,9 @@ impl AACPManager {
                 info!("Received Connected Devices: {:?}", state.connected_devices);
             }
             opcodes::SMART_ROUTING_RESP => {
+                if payload.len() < 2 {
+                    return;
+                }
                 let packet_string = String::from_utf8_lossy(&payload[2..]);
                 info!("Received Smart Routing Response: {}", packet_string);
                 if packet_string.contains("SetOwnershipToFalse") {
@@ -1220,16 +1246,11 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
                 info!(
                     "We have probably disconnected, clearing state variables (owns=false, connected_devices=empty, control_command_status_list=empty)."
                 );
-                let mut state = manager.state.lock().await;
-                state.owns = false;
-                state.connected_devices.clear();
-                state.control_command_status_list.clear();
                 break;
             }
         }
     }
-    let mut state = manager.state.lock().await;
-    state.sender = None;
+    manager.state.lock().await.clear_connection();
 }
 
 async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
