@@ -159,7 +159,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
             }
 
             StyledToggle(
-                label = "Head Gestures",
+                label = stringResource(R.string.head_gestures),
                 checked = state.headGesturesEnabled,
                 onCheckedChange = { viewModel.setHeadGesturesEnabled(it) },
                 enabled = state.isPremium || state.headGesturesEnabled,
@@ -171,7 +171,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                "Velocity",
+                stringResource(R.string.velocity),
                 style = TextStyle(
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
@@ -195,12 +195,14 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
             }
         }
         val gestureTextValue = stringResource(R.string.shake_your_head_or_nod)
+        val yesGestureDetected = stringResource(R.string.yes_gesture_detected)
+        val noGestureDetected = stringResource(R.string.no_gesture_detected)
         StyledButton(
             onClick = {
                 gestureText = gestureTextValue
                 coroutineScope.launch {
                     val accepted = ServiceManager.getService()?.testHeadGestures() ?: false
-                    gestureText = if (accepted) "\"Yes\" gesture detected." else "\"No\" gesture detected."
+                    gestureText = if (accepted) yesGestureDetected else noGestureDetected
                 }
             },
             backdrop = backdrop,
@@ -210,7 +212,7 @@ fun HeadTrackingScreen(viewModel: AirPodsViewModel, navigateToPurchase: () -> Un
             maxScale = 0.05f
         ) {
             Text(
-                "Test Head Gestures",
+                stringResource(R.string.test_head_gestures),
                 style = TextStyle(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
@@ -277,6 +279,8 @@ private fun Plot() {
     val maxPoints = 100
     val points = remember { mutableStateListOf<Pair<Float, Float>>() }
     val darkTheme = isSystemInDarkTheme()
+    val horizontalLabel = stringResource(R.string.horizontal)
+    val verticalLabel = stringResource(R.string.vertical)
 
     var maxAbs by remember { mutableFloatStateOf(1000f) }
 
@@ -387,7 +391,7 @@ private fun Plot() {
                         textSize = 12.sp.toPx()
                         textAlign = Paint.Align.LEFT
                     }
-                    drawText("Horizontal", width - 140.dp.toPx(), textOffsetY, paint)
+                    drawText(horizontalLabel, width - 140.dp.toPx(), textOffsetY, paint)
                 }
 
                 drawCircle(verticalColor, 5.dp.toPx(), Offset(width - 70.dp.toPx(), legendY))
@@ -397,7 +401,7 @@ private fun Plot() {
                         textSize = 12.sp.toPx()
                         textAlign = Paint.Align.LEFT
                     }
-                    drawText("Vertical", width - 60.dp.toPx(), textOffsetY, paint)
+                    drawText(verticalLabel, width - 60.dp.toPx(), textOffsetY, paint)
                 }
             }
         }

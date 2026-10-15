@@ -18,6 +18,7 @@
 
 package me.kavishdevar.librepods.presentation.components
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -231,12 +232,13 @@ private fun getModeIconRes(mode: NoiseControlMode): Int {
     }
 }
 
+@Composable
 private fun getModeLabel(mode: NoiseControlMode): String {
     return when (mode) {
-        NoiseControlMode.OFF -> "Off"
-        NoiseControlMode.TRANSPARENCY -> "Transparency"
-        NoiseControlMode.ADAPTIVE -> "Adaptive"
-        NoiseControlMode.NOISE_CANCELLATION -> "Noise Cancellation"
+        NoiseControlMode.OFF -> stringResource(R.string.off)
+        NoiseControlMode.TRANSPARENCY -> stringResource(R.string.transparency)
+        NoiseControlMode.ADAPTIVE -> stringResource(R.string.adaptive)
+        NoiseControlMode.NOISE_CANCELLATION -> stringResource(R.string.noise_cancellation)
     }
 }
 

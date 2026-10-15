@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.billing.BillingManager
+import me.kavishdevar.librepods.billing.PRICE_LOADING
 
 data class PurchaseUiState(
     val isPremium: Boolean = false,
@@ -17,7 +18,7 @@ data class PurchaseUiState(
 )
 
 class PurchaseViewModel(application: Application) : AndroidViewModel(application) {
-    private val _uiState = MutableStateFlow(PurchaseUiState())
+    private val _uiState = MutableStateFlow(PurchaseUiState(price = PRICE_LOADING))
     val uiState = _uiState.asStateFlow()
 
     init {

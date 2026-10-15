@@ -157,7 +157,7 @@ fun LongPress(viewModel: AirPodsViewModel, name: String, navigateToPurchase: () 
                         leadingContent = {
                             Icon(
                                 painter = painterResource(R.drawable.noise_cancellation),
-                                contentDescription = "Icon",
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
                                     .height(42.dp)
@@ -178,7 +178,7 @@ fun LongPress(viewModel: AirPodsViewModel, name: String, navigateToPurchase: () 
                     leadingContent = {
                         Icon(
                             painter = painterResource(R.drawable.transparency),
-                            contentDescription = "Icon",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .height(42.dp)
@@ -198,7 +198,7 @@ fun LongPress(viewModel: AirPodsViewModel, name: String, navigateToPurchase: () 
                     leadingContent = {
                         Icon(
                             painter = painterResource(R.drawable.adaptive),
-                            contentDescription = "Icon",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .height(42.dp)
@@ -218,7 +218,7 @@ fun LongPress(viewModel: AirPodsViewModel, name: String, navigateToPurchase: () 
                     leadingContent = {
                         Icon(
                             painter = painterResource(R.drawable.noise_cancellation),
-                            contentDescription = "Icon",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .height(42.dp)
