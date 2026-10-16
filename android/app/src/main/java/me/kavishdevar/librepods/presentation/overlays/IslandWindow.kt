@@ -74,6 +74,16 @@ enum class IslandType {
     MOVED_TO_OTHER_DEVICE,
 }
 
+private const val ISLAND_PHONE_WIDTH_RATIO = 0.95f
+private const val ISLAND_TABLET_MAX_WIDTH_DP = 400
+
+internal fun calculateIslandWindowWidth(screenWidthPx: Int, density: Float): Int {
+    val proportionalWidth = (screenWidthPx * ISLAND_PHONE_WIDTH_RATIO).toInt()
+    val maxTabletWidth = (ISLAND_TABLET_MAX_WIDTH_DP * density).toInt()
+
+    return minOf(proportionalWidth, maxTabletWidth)
+}
+
 class IslandWindow(private val context: Context) {
     private val windowManager: WindowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     @SuppressLint("InflateParams")
@@ -170,7 +180,7 @@ class IslandWindow(private val context: Context) {
         else ServiceManager.getService()?.islandOpen = true
 
         val displayMetrics = Resources.getSystem().displayMetrics
-        val width = (displayMetrics.widthPixels * 0.95).toInt()
+        val width = calculateIslandWindowWidth(displayMetrics.widthPixels, displayMetrics.density)
         screenHeight = displayMetrics.heightPixels
 
         val batteryList = ServiceManager.getService()?.getBattery()
