@@ -15,6 +15,7 @@ public:
 
     bool initialize();
     QString getDefaultSink();
+    QString getDefaultSinkMacAddress();
     int getSinkVolume(const QString &sinkName);
     bool setSinkVolume(const QString &sinkName, int volumePercent);
     bool setCardProfile(const QString &cardName, const QString &profileName);
@@ -32,6 +33,7 @@ private:
     static void serverInfoCallback(pa_context *c, const pa_server_info *info, void *userdata);
 
     bool waitForOperation(pa_operation *op);
+    QString getMacAddressBySinkName(const QString &sinkName);
 };
 
 #endif // PULSEAUDIOCONTROLLER_H

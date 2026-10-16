@@ -105,9 +105,58 @@ QString PulseAudioController::getDefaultSink()
         waitForOperation(op);
         pa_operation_unref(op);
     }
+
     pa_threaded_mainloop_unlock(m_mainloop);
 
     return data.sinkName;
+}
+
+QString PulseAudioController::getDefaultSinkMacAddress() {
+    return this->getMacAddressBySinkName(this->getDefaultSink());
+}
+
+QString PulseAudioController::getMacAddressBySinkName(const QString &sinkName)
+{
+    if (!m_initialized) return QString();
+
+    struct CallbackData {
+        QString sinkMacAddress;
+        pa_threaded_mainloop *mainloop;
+    } data;
+    data.mainloop = m_mainloop;
+
+    auto callback = [](pa_context *c, const pa_sink_info *info, int eol, void *userdata)
+    {
+        CallbackData *d = static_cast<CallbackData*>(userdata);
+        if (eol > 0)
+        {
+            pa_threaded_mainloop_signal(d->mainloop, 0);
+            return;
+        }
+
+        const char *addr = pa_proplist_gets(
+        info->proplist,
+        "device.string"
+        );
+
+        if (addr)
+        {
+            d->sinkMacAddress = QString::fromUtf8(addr);
+            pa_threaded_mainloop_signal(d->mainloop, 0);
+        }
+    };
+
+    pa_threaded_mainloop_lock(m_mainloop);
+    pa_operation *op = pa_context_get_sink_info_by_name(m_context, sinkName.toUtf8().constData(), callback, &data);
+    if (op)
+    {
+        waitForOperation(op);
+        pa_operation_unref(op);
+    }
+
+    pa_threaded_mainloop_unlock(m_mainloop);
+
+    return data.sinkMacAddress;
 }
 
 int PulseAudioController::getSinkVolume(const QString &sinkName)
@@ -215,8 +264,10 @@ QString PulseAudioController::getCardNameForDevice(const QString &macAddress)
         }
         if (info)
         {
-            QString name = QString::fromUtf8(info->name);
-            if (name.startsWith("bluez") && name.contains(d->targetMac))
+            const QString name = QString::fromUtf8(info->name);
+            const QString macAddress = pa_proplist_gets(info->proplist, "device.string");
+
+            if (d->targetMac == macAddress)
             {
                 d->cardName = name;
                 pa_threaded_mainloop_signal(d->mainloop, 0);

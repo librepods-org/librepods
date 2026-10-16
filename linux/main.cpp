@@ -105,8 +105,7 @@ public:
                 // On startup after reboot, activate A2DP profile for already connected AirPods
                 QTimer::singleShot(2000, this, [this, address]()
                 {
-                    QString formattedAddress = address.toString().replace(":", "_");
-                    mediaController->setConnectedDeviceMacAddress(formattedAddress);
+                    mediaController->setConnectedDeviceMacAddress(address.toString());
                     mediaController->activateA2dpProfile();
                     LOG_INFO("A2DP profile activation attempted for AirPods found on startup");
                 });
@@ -427,7 +426,7 @@ public slots:
         if (areAirpodsConnected() && m_deviceInfo && !m_deviceInfo->bluetoothAddress().isEmpty())
         {
             LOG_INFO("AirPods already connected after wake-up, re-activating A2DP profile");
-            mediaController->setConnectedDeviceMacAddress(m_deviceInfo->bluetoothAddress().replace(":", "_"));
+            mediaController->setConnectedDeviceMacAddress(m_deviceInfo->bluetoothAddress());
 
             // Always activate A2DP profile after system wake since the profile might have been lost
             QTimer::singleShot(1000, this, [this]()
@@ -494,9 +493,7 @@ private slots:
         {
             if (!address.isEmpty())
             {
-                QString formattedAddress = address;
-                formattedAddress = formattedAddress.replace(":", "_");
-                mediaController->setConnectedDeviceMacAddress(formattedAddress);
+                mediaController->setConnectedDeviceMacAddress(address);
                 mediaController->activateA2dpProfile();
                 LOG_INFO("A2DP profile activation attempted for newly connected device");
             }
@@ -738,7 +735,7 @@ private slots:
         {
             parseMetadata(data);
             initiateMagicPairing();
-            mediaController->setConnectedDeviceMacAddress(m_deviceInfo->bluetoothAddress().replace(":", "_"));
+            mediaController->setConnectedDeviceMacAddress(m_deviceInfo->bluetoothAddress());
             if (m_deviceInfo->getEarDetection()->oneOrMorePodsInEar()) // AirPods get added as output device only after this
             {
                 mediaController->activateA2dpProfile();
