@@ -367,33 +367,28 @@ fun startDetection(doNotStop: Boolean = false, onGestureDetected: (Boolean) -> U
         val requiredExtremes = getRequiredExtremes()
         Log.d(TAG, "Current required extremes: $requiredExtremes")
 
-        if (verticalPeaks.size + verticalTroughs.size >= requiredExtremes) {
+        val verticalConfidence = if (verticalPeaks.size + verticalTroughs.size >= requiredExtremes) {
             val allExtremes = (verticalPeaks + verticalTroughs).sortedBy { it.first }
+            calculateConfidenceScore(allExtremes, isVertical = true)
+        } else 0.0
 
-            val confidence = calculateConfidenceScore(allExtremes, isVertical = true)
-
-            Log.d(TAG, "Vertical motion confidence: $confidence (need $minConfidenceThreshold)")
-
-            if (confidence >= minConfidenceThreshold) {
-                Log.d(TAG, "\"Yes\" Gesture Detected (confidence: $confidence, extremes: ${allExtremes.size}/$requiredExtremes)")
-                return true
-            }
-        }
-
-        if (horizontalPeaks.size + horizontalTroughs.size >= requiredExtremes) {
+        val horizontalConfidence = if (horizontalPeaks.size + horizontalTroughs.size >= requiredExtremes) {
             val allExtremes = (horizontalPeaks + horizontalTroughs).sortedBy { it.first }
+            calculateConfidenceScore(allExtremes, isVertical = false)
+        } else 0.0
 
-            val confidence = calculateConfidenceScore(allExtremes, isVertical = false)
+        Log.d(TAG, "Confidence: vertical=$verticalConfidence horizontal=$horizontalConfidence (need $minConfidenceThreshold)")
 
-            Log.d(TAG, "Horizontal motion confidence: $confidence (need $minConfidenceThreshold)")
+        val maxConfidence = max(verticalConfidence, horizontalConfidence)
+        if (maxConfidence < minConfidenceThreshold) return null
 
-            if (confidence >= minConfidenceThreshold) {
-                Log.d(TAG, "\"No\" Gesture Detected (confidence: $confidence, extremes: ${allExtremes.size}/$requiredExtremes)")
-                return false
-            }
+        return if (verticalConfidence >= horizontalConfidence) {
+            Log.d(TAG, "\"Yes\" Gesture Detected (vertical=$verticalConfidence, horizontal=$horizontalConfidence)")
+            true
+        } else {
+            Log.d(TAG, "\"No\" Gesture Detected (vertical=$verticalConfidence, horizontal=$horizontalConfidence)")
+            false
         }
-
-        return null
     }
 
     private fun clearData() {
