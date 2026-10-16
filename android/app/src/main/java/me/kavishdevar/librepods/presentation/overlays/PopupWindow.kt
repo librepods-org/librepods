@@ -49,7 +49,6 @@ import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.AirPodsNotifications
 import me.kavishdevar.librepods.data.Battery
 import me.kavishdevar.librepods.data.BatteryComponent
-import me.kavishdevar.librepods.data.BatteryStatus
 
 @SuppressLint("InflateParams", "ClickableViewAccessibility")
 class PopupWindow(
@@ -220,7 +219,7 @@ class PopupWindow(
         val batteryCaseText = mView.findViewById<TextView>(R.id.case_battery)
 
         batteryLeftText.text = batteryList.find { it.component == BatteryComponent.LEFT }?.let {
-            if (it.status != BatteryStatus.DISCONNECTED) {
+            if (it.isKnown) {
                 "\uDBC3\uDC8E    ${it.level}%"
             } else {
                 ""
@@ -228,7 +227,7 @@ class PopupWindow(
         } ?: ""
 
         batteryRightText.text = batteryList.find { it.component == BatteryComponent.RIGHT }?.let {
-            if (it.status != BatteryStatus.DISCONNECTED) {
+            if (it.isKnown) {
                 "\uDBC3\uDC8D    ${it.level}%"
             } else {
                 ""
@@ -236,7 +235,7 @@ class PopupWindow(
         } ?: ""
 
         batteryCaseText.text = batteryList.find { it.component == BatteryComponent.CASE }?.let {
-            if (it.status != BatteryStatus.DISCONNECTED) {
+            if (it.isKnown) {
                 "\uDBC3\uDE6C    ${it.level}%"
             } else {
                 ""
