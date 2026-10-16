@@ -152,6 +152,26 @@ namespace AirPodsPackets
         static const QByteArray SET_SPECIFIC_FEATURES = QByteArray::fromHex("040004004d00d700000000000000");
         static const QByteArray REQUEST_NOTIFICATIONS = QByteArray::fromHex("040004000f00ffffffffff");
         static const QByteArray AIRPODS_DISCONNECTED = QByteArray::fromHex("00010000");
+        // STEM_CONFIG (0x39) bitmask 0x0F — customize single|double|triple|long.
+        static const QByteArray STEM_CONFIG_ENABLE = QByteArray::fromHex("040004000900390f000000");
+    }
+
+    // Stem press (opcode 0x19): 04 00 04 00 19 00 [type] [bud]
+    namespace StemPress
+    {
+        enum class Type : quint8 { Single = 0x05, Double = 0x06, Triple = 0x07, Long = 0x08 };
+        enum class Bud  : quint8 { Left = 0x01, Right = 0x02 };
+        struct Event { Type type; Bud bud; };
+
+        static const QByteArray HEADER = QByteArray::fromHex("040004001900");
+
+        inline std::optional<Event> parseEvent(const QByteArray &data)
+        {
+            if (data.size() < 8 || !data.startsWith(HEADER)) return std::nullopt;
+            const quint8 t = static_cast<quint8>(data.at(6));
+            if (t < 0x05 || t > 0x08) return std::nullopt;
+            return Event{ static_cast<Type>(t), static_cast<Bud>(data.at(7)) };
+        }
     }
 
     // Phone Communication Packets
