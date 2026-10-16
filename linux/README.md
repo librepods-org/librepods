@@ -32,8 +32,8 @@ A native Linux application to control your AirPods, with support for:
 - Battery monitoring
 - Auto play/pause on ear detection
 - Hearing Aid features
-   - Supports adjusting hearing aid- amplification, balance, tone, ambient noise reduction, own voice amplification, and conversation boost
-   - Supports setting the values for left and right hearing aids (this is not a hearing test! you need to have an audiogram to set the values)
+  - Supports adjusting hearing aid- amplification, balance, tone, ambient noise reduction, own voice amplification, and conversation boost
+  - Supports setting the values for left and right hearing aids (this is not a hearing test! you need to have an audiogram to set the values)
 - Seamless handoff between Android and Linux
 
 ## Prerequisites
@@ -48,12 +48,13 @@ A native Linux application to control your AirPods, with support for:
    # For Debian
    sudo apt-get install qt6-base-dev qt6-declarative-dev qt6-connectivity-dev qt6-multimedia-dev \
         qml6-module-qtquick-controls qml6-module-qtqml-workerscript qml6-module-qtquick-templates \
-        qml6-module-qtquick-window qml6-module-qtquick-layouts
+        qml6-module-qtquick-window qml6-module-qtquick-layouts qt6-tools-dev
 
     # For Fedora
     sudo dnf install qt6-qtbase-devel qt6-qtconnectivity-devel \
         qt6-qtmultimedia-devel qt6-qtdeclarative-devel
    ```
+
 3. OpenSSL development headers
 
     ```bash
@@ -66,6 +67,7 @@ A native Linux application to control your AirPods, with support for:
     # For Fedora
     sudo dnf install openssl-devel
     ```
+
 4. Libpulse development headers
 
     ```bash
@@ -78,6 +80,7 @@ A native Linux application to control your AirPods, with support for:
     # For Fedora
     sudo dnf install pulseaudio-libs-devel
     ```
+
 5. Cmake
 
     ```bash
