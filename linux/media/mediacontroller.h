@@ -55,6 +55,7 @@ Q_SIGNALS:
 private:
   MediaState mediaStateFromPlayerctlOutput(const QString &output) const;
   QString getAudioDeviceName();
+  bool ensureDeviceOutputName();
   QStringList getPlayingMediaPlayers();
 
   QStringList pausedByAppServices;
