@@ -177,7 +177,7 @@ jobs:
           if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
             TAG=$(gh release list \
               --limit 1000 \
-              --json tagName,publishedAt |
+              --json tagName,publishedAt | \
               jq -r --arg current "${{ steps.release_check.outputs.tag }}" \
                 '[.[] | select(.tagName | startswith("v") and (.tagName | startswith("rewrite-") | not) and .tagName != $current)]
                 | sort_by(.publishedAt)
@@ -186,7 +186,7 @@ jobs:
           else
             TAG=$(gh release list \
               --limit 1000 \
-              --json tagName,publishedAt |
+              --json tagName,publishedAt | \
               jq -r --arg current "${{ steps.release_check.outputs.tag }}" \
                 '[.[] | select(.tagName | startswith("rewrite-") and .tagName != $current)]
                 | sort_by(.publishedAt)
