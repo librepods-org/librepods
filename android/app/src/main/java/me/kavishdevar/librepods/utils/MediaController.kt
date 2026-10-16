@@ -140,7 +140,16 @@ object MediaController {
 
             Log.d("MediaController", "Current active content types: $currentActiveContentTypes")
 
-            val hasNewMusicOrMovie = currentActiveContentTypes.any { contentType ->
+            // Some players (e.g. Poweramp over OpenSL ES) leave the content type unknown, so a
+            // USAGE_MEDIA stream with no content type counts as music too.
+            val hasUntypedMedia = configs?.any { config ->
+                config.audioAttributes?.let { attrs ->
+                    attrs.usage == android.media.AudioAttributes.USAGE_MEDIA &&
+                    attrs.contentType == android.media.AudioAttributes.CONTENT_TYPE_UNKNOWN
+                } ?: false
+            } ?: false
+
+            val hasNewMusicOrMovie = hasUntypedMedia || currentActiveContentTypes.any { contentType ->
                 contentType == android.media.AudioAttributes.CONTENT_TYPE_MUSIC ||
                 contentType == android.media.AudioAttributes.CONTENT_TYPE_MOVIE
             }
