@@ -75,6 +75,9 @@ The following features related to Find My are planned, but require further RE an
 
 The app does not currently provide head tracking information to Android for the OS to perform HRTF. This has not been explored completely, and it might need root. 
 
+The rooted system-integration contract is documented in
+[Android system head-tracker bridge](docs/android-head-tracker-hid.md).
+
 Spatializing stereo sound is beyond this project's scope and will never be available. Many OEMs have an implementation of their own for this.
 
 ## Heart Rate Monitoring
