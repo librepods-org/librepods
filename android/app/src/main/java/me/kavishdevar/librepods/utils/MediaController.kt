@@ -74,7 +74,7 @@ object MediaController {
         this.sharedPreferences = sharedPreferences
         Log.d("MediaController", "Initializing MediaController")
         relativeVolume = sharedPreferences.getBoolean("relative_conversational_awareness_volume", false)
-        conversationalAwarenessVolume = sharedPreferences.getInt("conversational_awareness_volume", (audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) / 0.4).toInt())
+        conversationalAwarenessVolume = sharedPreferences.getInt("conversational_awareness_volume", (audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.4).toInt())
         conversationalAwarenessPauseMusic = sharedPreferences.getBoolean("conversational_awareness_pause_music", false)
 
         preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
