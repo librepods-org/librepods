@@ -39,6 +39,8 @@
     <string name="relative_conversational_awareness_volume_description">Reduces to a percentage of the current volume instead of the maximum volume.</string>
     <string name="conversational_awareness_pause_music">Pause Music</string>
     <string name="conversational_awareness_pause_music_description">When you start speaking, music will be paused.</string>
+    <string name="conversational_awareness_both_pods_only">Both AirPods in Ear</string>
+    <string name="conversational_awareness_both_pods_only_description">Conversational Awareness only activates when both AirPods are in your ears. This also suppresses the Pause Music action when wearing a single AirPod.</string>
     <string name="appwidget_text">EXAMPLE</string>
     <string name="add_widget">Add widget</string>
     <string name="noise_control_widget_description">Control Noise Control Mode directly from your Home Screen.</string>

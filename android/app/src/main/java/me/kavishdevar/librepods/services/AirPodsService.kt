@@ -165,6 +165,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         var deviceName: String = "AirPods",
         var earDetectionEnabled: Boolean = true,
         var conversationalAwarenessPauseMusic: Boolean = false,
+        var conversationalAwarenessBothPodsOnly: Boolean = false,
         var showPhoneBatteryInWidget: Boolean = true,
         var relativeConversationalAwarenessVolume: Boolean = true,
         var headGestures: Boolean = true,
@@ -439,6 +440,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             edit {
                 if (!contains("conversational_awareness_pause_music")) putBoolean(
                     "conversational_awareness_pause_music", false
+                )
+                if (!contains("conversational_awareness_both_pods_only")) putBoolean(
+                    "conversational_awareness_both_pods_only", false
                 )
                 if (!contains("personalized_volume")) putBoolean("personalized_volume", false)
                 if (!contains("automatic_ear_detection")) putBoolean(
@@ -912,10 +916,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     setPackage(packageName)
                 })
 
+                // Number of buds currently in the ear (0x00 == in ear).
+                val budsInEar = earDetectionNotification.status.count { it == 0x00.toByte() }
+                val blockedForSinglePod = config.conversationalAwarenessBothPodsOnly && budsInEar < 2
+
                 if (conversationAwarenessNotification.status == 1.toByte() || conversationAwarenessNotification.status == 2.toByte()) {
-                    MediaController.startSpeaking()
-                } else if (conversationAwarenessNotification.status == 6.toByte() ||conversationAwarenessNotification.status == 8.toByte() || conversationAwarenessNotification.status == 9.toByte()) {
-                    MediaController.stopSpeaking()
+                    if (blockedForSinglePod) {
+                        Log.d("AirPodsParser", "CA startSpeaking() suppressed — both-pods-only is ON and only $budsInEar bud(s) in ear")
+                    } else {
+                        Log.d("AirPodsParser", "CA startSpeaking() called (budsInEar=$budsInEar, bothPodsOnly=${config.conversationalAwarenessBothPodsOnly})")
+                        MediaController.startSpeaking()
+                    }
+                } else if (conversationAwarenessNotification.status == 6.toByte() || conversationAwarenessNotification.status == 8.toByte() || conversationAwarenessNotification.status == 9.toByte()) {
+                    MediaController.stopSpeaking() // Never gated — volume must always be restored.
                 }
 
                 Log.d(
@@ -1360,6 +1373,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             conversationalAwarenessPauseMusic = sharedPreferences.getBoolean(
                 "conversational_awareness_pause_music", false
             ),
+            conversationalAwarenessBothPodsOnly = sharedPreferences.getBoolean(
+                "conversational_awareness_both_pods_only", false
+            ),
             showPhoneBatteryInWidget = sharedPreferences.getBoolean(
                 "show_phone_battery_in_widget", true
             ),
@@ -1471,6 +1487,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 preferences.getBoolean(key, true)
 
             "conversational_awareness_pause_music" -> config.conversationalAwarenessPauseMusic =
+                preferences.getBoolean(key, false)
+
+            "conversational_awareness_both_pods_only" -> config.conversationalAwarenessBothPodsOnly =
                 preferences.getBoolean(key, false)
 
             "show_phone_battery_in_widget" -> {

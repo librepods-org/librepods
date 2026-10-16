@@ -231,6 +231,14 @@ fun AppSettingsScreen(
                 )
 
                 StyledToggle(
+                    label = stringResource(R.string.conversational_awareness_both_pods_only),
+                    description = stringResource(R.string.conversational_awareness_both_pods_only_description),
+                    checked = state.conversationalAwarenessBothPodsOnlyEnabled,
+                    onCheckedChange = viewModel::setConversationalAwarenessBothPodsOnlyEnabled,
+                    enabled = state.isPremium,
+                )
+
+                StyledToggle(
                     label = stringResource(R.string.relative_conversational_awareness_volume),
                     description = stringResource(R.string.relative_conversational_awareness_volume_description),
                     checked = state.relativeConversationalAwarenessVolumeEnabled,
