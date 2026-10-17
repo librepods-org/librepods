@@ -43,6 +43,8 @@ static uint8_t (*original_l2c_fcr_chk_chan_modes)(void *) = nullptr;
 
 static tBTA_STATUS (*original_BTA_DmSetLocalDiRecord)(tSDP_DI_RECORD *, uint32_t *) = nullptr;
 
+static uint8_t (*original_l2c_fcr_process_peer_cfg_req)(void *, void *) = nullptr;
+
 static std::atomic<bool> enableSdpHook(false);
 
 uint8_t fake_l2c_fcr_chk_chan_modes(void *p_ccb) {
@@ -53,6 +55,36 @@ uint8_t fake_l2c_fcr_chk_chan_modes(void *p_ccb) {
 
     LOGI("fake_l2c_fcr_chk_chan_modes: orig = %d, returning 1", orig);
     return 1;
+}
+
+/*
+ * l2c_fcr_chk_chan_modes() only reports whether ertm_info.allowed_modes is
+ * non-zero -- forcing it to return 1 does not actually put BASIC back into the
+ * bitmask. On stacks where allowed_modes ends up 0 (observed on Qualcomm's
+ * libbluetooth_qti), l2c_fcr_process_peer_cfg_req() then re-tests the bitmask
+ * when the peer sends its config request and tears the channel down with
+ * "incompatible configurations disconnect", which kills the AAP channel right
+ * after PSM 0x1001 was accepted.
+ *
+ * Only rewrite the verdict when the original asks for a disconnect, so normal
+ * mode negotiation on every other L2CAP channel is left untouched.
+ */
+/* values from AOSP stack/l2cap/l2c_int.h -- OK is 1, not 0 */
+#define L2CAP_PEER_CFG_UNACCEPTABLE 0
+#define L2CAP_PEER_CFG_OK 1
+#define L2CAP_PEER_CFG_DISCONNECT 2
+
+uint8_t fake_l2c_fcr_process_peer_cfg_req(void *p_ccb, void *p_cfg) {
+    uint8_t orig = L2CAP_PEER_CFG_OK;
+    if (original_l2c_fcr_process_peer_cfg_req)
+        orig = original_l2c_fcr_process_peer_cfg_req(p_ccb, p_cfg);
+
+    if (orig == L2CAP_PEER_CFG_DISCONNECT) {
+        LOGI("fake_l2c_fcr_process_peer_cfg_req: orig = %d (DISCONNECT), overriding to OK", orig);
+        return L2CAP_PEER_CFG_OK;
+    }
+
+    return orig;
 }
 
 tBTA_STATUS fake_BTA_DmSetLocalDiRecord(tSDP_DI_RECORD *p_device_info, uint32_t *p_handle) {
@@ -345,6 +377,7 @@ static bool hookLibrary(const char *libname) {
 
     uint64_t chk_offset = 0;
     uint64_t sdp_offset = 0;
+    uint64_t cfg_offset = 0;
 
     for (int i = 0; i < eh->e_shnum; ++i) {
         if (!strcmp(shstr + shdr[i].sh_name, ".gnu_debugdata")) {
@@ -360,6 +393,8 @@ static bool hookLibrary(const char *libname) {
                 chk_offset = findSymbolOffset(decompressed, "l2c_fcr_chk_chan_modes");
 
                 sdp_offset = findSymbolOffset(decompressed, "BTA_DmSetLocalDiRecord");
+
+                cfg_offset = findSymbolOffset(decompressed, "l2c_fcr_process_peer_cfg_req");
             } else {
                 LOGE("debugdata decompress failed");
             }
@@ -376,6 +411,11 @@ static bool hookLibrary(const char *libname) {
     if (!sdp_offset) {
         LOGI("fallback dynsym sdp");
         sdp_offset = findSymbolOffsetDynsym(file, "BTA_DmSetLocalDiRecord");
+    }
+
+    if (!cfg_offset) {
+        LOGI("fallback dynsym cfg");
+        cfg_offset = findSymbolOffsetDynsym(file, "l2c_fcr_process_peer_cfg_req");
     }
 
     uintptr_t base = getModuleBase(libname);
@@ -398,7 +438,14 @@ static bool hookLibrary(const char *libname) {
         LOGI("hooked sdp");
     }
 
-    return chk_offset || sdp_offset;
+    if (cfg_offset) {
+        void *target = reinterpret_cast<void *>(base + cfg_offset);
+        hook_func(target, (void *) fake_l2c_fcr_process_peer_cfg_req,
+                  (void **) &original_l2c_fcr_process_peer_cfg_req);
+        LOGI("hooked peer cfg req");
+    }
+
+    return chk_offset || sdp_offset || cfg_offset;
 }
 
 static void on_library_loaded(const char *name, void *) {
