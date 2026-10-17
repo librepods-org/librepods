@@ -16,6 +16,8 @@
 #include <QLibraryInfo>
 #include <QDir>
 #include <QStandardPaths>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include "airpods_packets.h"
 #include "logger.h"
@@ -135,6 +137,15 @@ public:
     int retryAttempts() const { return m_retryAttempts; }
     bool hideOnStart() const { return m_hideOnStart; }
     DeviceInfo *deviceInfo() const { return m_deviceInfo; }
+    QByteArray infoJson() const
+    {
+        QJsonObject info = m_deviceInfo->toJson();
+        info["connected"] = areAirpodsConnected();
+        info["last_seen_ble"] = m_lastBleSeen.isValid()
+            ? QJsonValue(m_lastBleSeen.secsTo(QDateTime::currentDateTime()))
+            : QJsonValue();
+        return QJsonDocument(info).toJson(QJsonDocument::Compact) + '\n';
+    }
     QString phoneMacStatus() const { return m_phoneMacStatus; }
     bool hearingAidEnabled() const { return m_deviceInfo->hearingAidEnabled(); }
 
@@ -715,6 +726,12 @@ private slots:
                 LOG_INFO("Noise control mode received: " << m_deviceInfo->noiseControlMode());
             }
         }
+        // Adaptive noise level
+        else if (data.size() == 11 && data.startsWith(AirPodsPackets::AdaptiveNoise::HEADER))
+        {
+            m_deviceInfo->setAdaptiveNoiseLevel(static_cast<quint8>(data[7]));
+            LOG_INFO("Adaptive noise level received: " << m_deviceInfo->adaptiveNoiseLevel());
+        }
         // Ear Detection
         else if (data.size() == 8 && data.startsWith(AirPodsPackets::Parse::EAR_DETECTION))
         {
@@ -880,7 +897,12 @@ private slots:
             m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());
             m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase, isModelHeadset(m_deviceInfo->model()));
-            m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar);
+            // Only the advertising pod is known to be in the case, unless both are
+            bool primaryInCase = device.areBothPodsInCase || (device.isOnePodInCase && device.isThisPodInTheCase);
+            bool secondaryInCase = device.areBothPodsInCase || (device.isOnePodInCase && !device.isThisPodInTheCase);
+            m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar,
+                                                                        primaryInCase, secondaryInCase);
+            m_lastBleSeen = QDateTime::currentDateTime();
         }
     }
 
@@ -984,6 +1006,7 @@ private:
     bool m_hideOnStart = false;
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
+    QDateTime m_lastBleSeen;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
     QString m_phoneMacStatus;
 };
@@ -1076,7 +1099,7 @@ int main(int argc, char *argv[]) {
         QLocalSocket* socket = server.nextPendingConnection();
         // Handles Proper Connection
         QObject::connect(socket, &QLocalSocket::readyRead, [socket, &engine, &trayApp]() {
-            QString msg = socket->readAll();
+            QString msg = QString::fromUtf8(socket->readAll()).trimmed();
             // Check if the message is "reopen", if so, trigger onOpenApp function
             if (msg == "reopen") {
                 LOG_INFO("Reopening app window");
@@ -1100,6 +1123,9 @@ int main(int argc, char *argv[]) {
             }
             else if (msg == "noise:adaptive") {
                 trayApp->setNoiseControlModeInt(3);
+            }
+            else if (msg == "info") {
+                socket->write(trayApp->infoJson());
             }
             else
             {

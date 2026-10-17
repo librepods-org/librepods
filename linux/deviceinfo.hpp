@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QByteArray>
 #include <QSettings>
+#include <QJsonObject>
+#include <QMetaEnum>
 #include "battery.hpp"
 #include "enums.h"
 #include "eardetection.hpp"
@@ -160,6 +162,62 @@ public:
     bool adaptiveModeActive() const { return noiseControlMode() == NoiseControlMode::Adaptive; }
 
     EarDetection *getEarDetection() const { return m_earDetection; }
+
+    EarDetection::EarDetectionStatus podEarStatus(Battery::Component pod) const
+    {
+        if (getBattery()->getPrimaryPod() == pod) return getEarDetection()->getprimaryStatus();
+        if (getBattery()->getSecondaryPod() == pod) return getEarDetection()->getsecondaryStatus();
+        return EarDetection::EarDetectionStatus::Disconnected;
+    }
+
+    // Snapshot of everything known about the device, for the IPC "info" command
+    QJsonObject toJson() const
+    {
+        static const char *noiseModes[] = {"off", "anc", "transparency", "adaptive"};
+        auto earStatus = [](EarDetection::EarDetectionStatus status) -> QString {
+            switch (status)
+            {
+            case EarDetection::EarDetectionStatus::InEar: return "in_ear";
+            case EarDetection::EarDetectionStatus::NotInEar: return "out_of_ear";
+            case EarDetection::EarDetectionStatus::InCase: return "in_case";
+            default: return "unknown";
+            }
+        };
+        auto component = [](quint8 level, bool charging, bool available) {
+            return QJsonObject{{"level", level}, {"charging", charging}, {"available", available}};
+        };
+
+        const Battery *b = getBattery();
+        QJsonObject battery;
+        if (isModelHeadset(model()))
+        {
+            battery["headset"] = component(b->getHeadsetLevel(), b->isHeadsetCharging(), b->isHeadsetAvailable());
+        }
+        else
+        {
+            QJsonObject left = component(b->getLeftPodLevel(), b->isLeftPodCharging(), b->isLeftPodAvailable());
+            left["ear"] = earStatus(podEarStatus(Battery::Component::Left));
+            QJsonObject right = component(b->getRightPodLevel(), b->isRightPodCharging(), b->isRightPodAvailable());
+            right["ear"] = earStatus(podEarStatus(Battery::Component::Right));
+            battery["left"] = left;
+            battery["right"] = right;
+            battery["case"] = component(b->getCaseLevel(), b->isCaseCharging(), b->isCaseAvailable());
+        }
+
+        int mode = noiseControlModeInt();
+        return QJsonObject{
+            {"name", deviceName()},
+            {"model", QString(QMetaEnum::fromType<AirPodsModel>().valueToKey(static_cast<int>(model())))},
+            {"model_number", modelNumber()},
+            {"address", bluetoothAddress()},
+            {"battery", battery},
+            {"noise_control_mode", mode >= 0 && mode <= 3 ? noiseModes[mode] : "unknown"},
+            {"adaptive_noise_level", adaptiveNoiseLevel()},
+            {"conversational_awareness", conversationalAwareness()},
+            {"one_bud_anc", oneBudANCMode()},
+            {"hearing_aid", hearingAidEnabled()},
+        };
+    }
 
     void reset()
     {
