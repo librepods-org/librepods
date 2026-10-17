@@ -44,6 +44,7 @@ class AirPodsTrayApp : public QObject {
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
     Q_PROPERTY(int retryAttempts READ retryAttempts WRITE setRetryAttempts NOTIFY retryAttemptsChanged)
     Q_PROPERTY(bool hideOnStart READ hideOnStart CONSTANT)
+    Q_PROPERTY(bool startHidden READ startHidden WRITE setStartHidden NOTIFY startHiddenChanged)
     Q_PROPERTY(DeviceInfo *deviceInfo READ deviceInfo CONSTANT)
     Q_PROPERTY(QString phoneMacStatus READ phoneMacStatus NOTIFY phoneMacStatusChanged)
     Q_PROPERTY(bool hearingAidEnabled READ hearingAidEnabled WRITE setHearingAidEnabled NOTIFY hearingAidEnabledChanged)
@@ -134,6 +135,12 @@ public:
     void setNotificationsEnabled(bool enabled) { trayManager->setNotificationsEnabled(enabled); }
     int retryAttempts() const { return m_retryAttempts; }
     bool hideOnStart() const { return m_hideOnStart; }
+    bool startHidden() const { return loadStartHidden(); }
+    void setStartHidden(bool enabled)
+    {
+        saveStartHidden(enabled);
+        emit startHiddenChanged(enabled);
+    }
     DeviceInfo *deviceInfo() const { return m_deviceInfo; }
     QString phoneMacStatus() const { return m_phoneMacStatus; }
     bool hearingAidEnabled() const { return m_deviceInfo->hearingAidEnabled(); }
@@ -406,6 +413,9 @@ public slots:
 
     bool loadNotificationsEnabled() const { return m_settings->value("notifications/enabled", true).toBool(); }
     void saveNotificationsEnabled(bool enabled) { m_settings->setValue("notifications/enabled", enabled); }
+
+    bool loadStartHidden() const { return m_settings->value("window/startHidden", false).toBool(); }
+    void saveStartHidden(bool enabled) { m_settings->setValue("window/startHidden", enabled); }
 
     int loadRetryAttempts() const { return m_settings->value("bluetooth/retryAttempts", 3).toInt(); }
     void saveRetryAttempts(int attempts) { m_settings->setValue("bluetooth/retryAttempts", attempts); }
@@ -965,6 +975,7 @@ signals:
     void earDetectionBehaviorChanged(int behavior);
     void crossDeviceEnabledChanged(bool enabled);
     void notificationsEnabledChanged(bool enabled);
+    void startHiddenChanged(bool enabled);
     void retryAttemptsChanged(int attempts);
     void oneBudANCModeChanged(bool enabled);
     void phoneMacStatusChanged();
@@ -1040,6 +1051,11 @@ int main(int argc, char *argv[]) {
 
         if (QString(argv[i]) == "--hide")
             hideOnStart = true;
+    }
+
+    {
+        QSettings settings("AirPodsTrayApp", "AirPodsTrayApp");
+        hideOnStart = hideOnStart || settings.value("window/startHidden", false).toBool();
     }
 
     QQmlApplicationEngine engine;

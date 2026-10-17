@@ -236,6 +236,18 @@ ApplicationWindow {
                     }
 
                     Switch {
+                        text: qsTr("Start Hidden (Tray Only)")
+                        checked: airPodsTrayApp.startHidden
+                        onCheckedChanged: airPodsTrayApp.startHidden = checked
+
+                        ToolTip {
+                            visible: parent.hovered
+                            text: qsTr("Launch without showing the main window.\nOpen it from the tray icon instead.\nUseful for tiling window managers.")
+                            delay: 500
+                        }
+                    }
+
+                    Switch {
                         text: qsTr("Enable System Notifications")
                         checked: airPodsTrayApp.notificationsEnabled
                         onCheckedChanged: airPodsTrayApp.notificationsEnabled = checked
