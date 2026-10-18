@@ -1,4 +1,4 @@
-#include <openssl/aes.h>
+#include <openssl/evp.h>
 #include "deviceinfo.hpp"
 #include "bleutils.h"
 #include <QDebug>
@@ -67,15 +67,27 @@ QByteArray BLEUtils::e(const QByteArray &key, const QByteArray &data)
     QByteArray reversedData(data);
     std::reverse(reversedData.begin(), reversedData.end());
 
-    // Set up AES encryption
-    AES_KEY aesKey;
-    if (AES_set_encrypt_key(reinterpret_cast<const unsigned char *>(reversedKey.constData()), 128, &aesKey) != 0)
+    // Set up AES-128-ECB encryption using EVP API
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx)
     {
         return QByteArray();
     }
 
     unsigned char out[16];
-    AES_encrypt(reinterpret_cast<const unsigned char *>(reversedData.constData()), out, &aesKey);
+    int outLen = 0;
+
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), nullptr,
+            reinterpret_cast<const unsigned char *>(reversedKey.constData()), nullptr) != 1 ||
+        EVP_CIPHER_CTX_set_padding(ctx, 0) != 1 ||
+        EVP_EncryptUpdate(ctx, out, &outLen,
+            reinterpret_cast<const unsigned char *>(reversedData.constData()), 16) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        return QByteArray();
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
 
     // Convert output to QByteArray and reverse it
     QByteArray result(reinterpret_cast<char *>(out), 16);
@@ -115,21 +127,31 @@ QByteArray BLEUtils::decryptLastBytes(const QByteArray &data, const QByteArray &
     // Extract the last 16 bytes
     QByteArray block = data.right(16);
 
-    // Set up AES decryption key (use key directly, no reversal)
-    AES_KEY aesKey;
-    if (AES_set_decrypt_key(reinterpret_cast<const unsigned char *>(key.constData()), 128, &aesKey) != 0)
+    // Set up AES-128-CBC decryption with zero IV using EVP API
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx)
     {
-        qDebug() << "Failed to set AES decryption key";
+        qDebug() << "Failed to create EVP cipher context";
         return QByteArray();
     }
 
     unsigned char out[16];
     unsigned char iv[16];
     memset(iv, 0, 16); // Zero IV for CBC mode
+    int outLen = 0;
 
-    // Perform AES decryption using CBC mode with zero IV
-    // AES_cbc_encrypt is used for both encryption and decryption depending on the key schedule
-    AES_cbc_encrypt(reinterpret_cast<const unsigned char *>(block.constData()), out, 16, &aesKey, iv, AES_DECRYPT);
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr,
+            reinterpret_cast<const unsigned char *>(key.constData()), iv) != 1 ||
+        EVP_CIPHER_CTX_set_padding(ctx, 0) != 1 ||
+        EVP_DecryptUpdate(ctx, out, &outLen,
+            reinterpret_cast<const unsigned char *>(block.constData()), 16) != 1)
+    {
+        qDebug() << "AES decryption failed";
+        EVP_CIPHER_CTX_free(ctx);
+        return QByteArray();
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
 
     // Convert output to QByteArray (no reversal)
     QByteArray result(reinterpret_cast<char *>(out), 16);
