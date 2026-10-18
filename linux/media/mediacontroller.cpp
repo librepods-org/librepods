@@ -288,8 +288,7 @@ QStringList MediaController::getPlayingMediaPlayers()
       continue;
     }
 
-    QVariant playbackStatus = playerInterface.property("PlaybackStatus");
-    if (playbackStatus.isValid() && playbackStatus.toString() == "Playing")
+    if (PlayerStatusWatcher::playbackStatusOf(service) == "Playing")
     {
       playingServices << service;
       LOG_DEBUG("Found playing service: " << service);
@@ -373,9 +372,9 @@ void MediaController::pause()
       continue;
     }
 
-    QVariant playbackStatus = playerInterface.property("PlaybackStatus");
-    LOG_DEBUG("PlaybackStatus for " << service << ": " << playbackStatus.toString());
-    if (!playbackStatus.isValid() || playbackStatus.toString() != "Playing")
+    const QString playbackStatus = PlayerStatusWatcher::playbackStatusOf(service);
+    LOG_DEBUG("PlaybackStatus for " << service << ": " << playbackStatus);
+    if (playbackStatus != "Playing")
     {
       continue;
     }
