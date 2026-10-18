@@ -97,7 +97,11 @@ void MediaController::followMediaChanges() {
 bool MediaController::isActiveOutputDeviceAirPods() {
   QString defaultSink = m_pulseAudio->getDefaultSink();
   LOG_DEBUG("Default sink: " << defaultSink);
-  return defaultSink.contains(connectedDeviceMacAddress);
+  LOG_DEBUG("Default macAddress: " << connectedDeviceMacAddress);
+  QString macForPulseWire = connectedDeviceMacAddress;
+  macForPulseWire.replace("_",":");
+  LOG_DEBUG("macAddress formated for PulseWire/PipeWire: " << macForPulseWire);
+  return defaultSink.contains(macForPulseWire, Qt::CaseInsensitive);
 }
 
 void MediaController::handleConversationalAwareness(const QByteArray &data) {
@@ -154,7 +158,7 @@ bool MediaController::isA2dpProfileAvailable() {
     return false;
   }
 
-  return m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc_xq") || 
+  return m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc_xq") ||
          m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc") ||
          m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink");
 }
@@ -164,7 +168,7 @@ QString MediaController::getPreferredA2dpProfile() {
     return QString();
   }
 
-  if (!m_cachedA2dpProfile.isEmpty() && 
+  if (!m_cachedA2dpProfile.isEmpty() &&
       m_pulseAudio->isProfileAvailable(m_deviceOutputName, m_cachedA2dpProfile)) {
     return m_cachedA2dpProfile;
   }
@@ -234,7 +238,7 @@ void MediaController::removeAudioOutputDevice() {
     LOG_WARN("Connected device MAC address or output name is empty, cannot remove audio output device");
     return;
   }
-  
+
   LOG_INFO("Removing AirPods as audio output device");
   if (!m_pulseAudio->setCardProfile(m_deviceOutputName, "off")) {
     LOG_ERROR("Failed to remove AirPods as audio output device");
