@@ -404,6 +404,26 @@ void MediaController::pause()
   }
 }
 
+// Invoke an MPRIS method on the first responsive org.mpris.MediaPlayer2.* service.
+static void invokeMprisMethod(const char *method)
+{
+  QDBusConnection bus = QDBusConnection::sessionBus();
+  for (const QString &service : bus.interface()->registeredServiceNames().value())
+  {
+    if (!service.startsWith("org.mpris.MediaPlayer2.")) continue;
+    QDBusInterface player(service, "/org/mpris/MediaPlayer2",
+                          "org.mpris.MediaPlayer2.Player", bus);
+    if (!player.isValid()) continue;
+    QDBusReply<void> reply = player.call(method);
+    if (reply.isValid()) { LOG_INFO("MPRIS " << method << " -> " << service); return; }
+  }
+  LOG_WARN("MPRIS " << method << ": no responsive player");
+}
+
+void MediaController::togglePlayPause() { invokeMprisMethod("PlayPause"); }
+void MediaController::nextTrack()       { invokeMprisMethod("Next"); }
+void MediaController::previousTrack()   { invokeMprisMethod("Previous"); }
+
 MediaController::~MediaController() {
 }
 
