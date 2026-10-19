@@ -289,4 +289,7 @@
     <string name="eq_low">Low</string>
     <string name="eq_mid">Mid</string>
     <string name="eq_high">High</string>
+    <string name="toggle_listening_mode">Toggle listening mode</string>
+    <string name="listening_mode_shortcut">Listening mode shortcut</string>
+    <string name="listening_mode_shortcut_description">The \"Toggle listening mode\" app shortcut switches between these two modes. Add it from your launcher, an automation app or a button mapping app.</string>
 </resources>

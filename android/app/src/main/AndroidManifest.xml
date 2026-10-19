@@ -88,6 +88,9 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
             <!-- <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -105,6 +108,15 @@
             android:excludeFromRecents="true"
             android:taskAffinity=""
              />
+
+        <activity
+            android:name=".ToggleListeningModeActivity"
+            android:exported="true"
+            android:icon="@drawable/noise_cancellation"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="" />
 
         <service
             android:name=".services.AirPodsService"

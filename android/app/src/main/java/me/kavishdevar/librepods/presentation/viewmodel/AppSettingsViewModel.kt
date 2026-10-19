@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.BuildConfig
+import me.kavishdevar.librepods.ToggleListeningModeActivity
 import me.kavishdevar.librepods.billing.BillingManager
 import me.kavishdevar.librepods.data.XposedRemotePrefProvider
 import kotlin.math.roundToInt
@@ -37,7 +38,8 @@ data class AppSettingsUiState(
     val showBottomSheetPopup: Boolean = true,
     val showIslandPopup: Boolean = true,
     val timeUntilFOSSPremiumExpiry: Long = 0L,
-    val m3eEnabled: Boolean = false
+    val m3eEnabled: Boolean = false,
+    val toggleListeningModes: List<Int> = emptyList()
 )
 
 class AppSettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -152,7 +154,8 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
                 connectionSuccessful = sharedPreferences.getBoolean("connection_successful", false),
                 showBottomSheetPopup = sharedPreferences.getBoolean("show_bottom_sheet_popup", true),
                 showIslandPopup = sharedPreferences.getBoolean("show_island_popup", true),
-                m3eEnabled = sharedPreferences.getBoolean("m3e_enabled", true)
+                m3eEnabled = sharedPreferences.getBoolean("m3e_enabled", true),
+                toggleListeningModes = ToggleListeningModeActivity.getModes(sharedPreferences)
             )
         }
     }
@@ -205,6 +208,17 @@ class AppSettingsViewModel(application: Application) : AndroidViewModel(applicat
     fun setTakeoverWhenMediaStart(enabled: Boolean) {
         sharedPreferences.edit { putBoolean("takeover_when_media_start", enabled) }
         _uiState.update { it.copy(takeoverWhenMediaStart = enabled) }
+    }
+
+    fun selectToggleListeningMode(mode: Int) {
+        val modes = _uiState.value.toggleListeningModes
+        if (mode in modes) return
+        // Keep exactly two modes: the newly picked one replaces the least recently picked.
+        val newModes = listOf(modes.last(), mode)
+        sharedPreferences.edit {
+            putString(ToggleListeningModeActivity.PREF_KEY, newModes.joinToString(","))
+        }
+        _uiState.update { it.copy(toggleListeningModes = newModes) }
     }
 
     fun setUseAlternateHeadTrackingPackets(enabled: Boolean) {
