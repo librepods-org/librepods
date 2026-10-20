@@ -30,6 +30,7 @@
 #include "ble/bleutils.h"
 #include "QRCodeImageProvider.hpp"
 #include "systemsleepmonitor.hpp"
+#include "stateexporter.hpp"
 
 using namespace AirpodsTrayApp::Enums;
 
@@ -85,6 +86,10 @@ public:
         connect(m_deviceInfo->getBattery(), &Battery::primaryChanged, this, &AirPodsTrayApp::primaryChanged);
         connect(m_systemSleepMonitor, &SystemSleepMonitor::systemGoingToSleep, this, &AirPodsTrayApp::onSystemGoingToSleep);
         connect(m_systemSleepMonitor, &SystemSleepMonitor::systemWakingUp, this, &AirPodsTrayApp::onSystemWakingUp);
+
+        // Mirror the live state to $XDG_RUNTIME_DIR/librepods/state.json for desktop widgets
+        m_stateExporter = new StateExporter(m_deviceInfo, [this]() { return areAirpodsConnected(); }, this);
+        connect(this, &AirPodsTrayApp::airPodsStatusChanged, m_stateExporter, &StateExporter::schedule);
 
         // Load settings
         CrossDevice.isEnabled = loadCrossDeviceEnabled();
@@ -983,6 +988,7 @@ private:
     int m_retryAttempts = 3;
     bool m_hideOnStart = false;
     DeviceInfo *m_deviceInfo;
+    StateExporter *m_stateExporter = nullptr;
     BleManager *m_bleManager;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
     QString m_phoneMacStatus;

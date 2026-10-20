@@ -181,6 +181,28 @@ librepods-ctl noise:transparency
 ```
 
 
+## State Export
+
+While LibrePods is running it keeps the live AirPods state in `$XDG_RUNTIME_DIR/librepods/state.json` (usually `/run/user/1000/librepods/state.json`), so desktop widgets and scripts can show it without talking to the AirPods themselves. The file is replaced atomically on every change and removed when LibrePods quits normally.
+
+```json
+{
+  "connected": true,
+  "name": "AirPods Pro",
+  "address": "AA:BB:CC:DD:EE:FF",
+  "model": 4,
+  "noiseMode": "anc",
+  "left": { "level": 88, "charging": false, "available": true },
+  "right": { "level": 23, "charging": false, "available": true },
+  "case": { "level": 64, "charging": true, "available": true },
+  "headset": { "level": 0, "charging": false, "available": false },
+  "inEar": { "left": true, "right": true },
+  "updated": 1792488818678
+}
+```
+
+`noiseMode` is one of `off`, `anc`, `transparency`, `adaptive`. `headset` is used by AirPods Max instead of `left`/`right`/`case`. `updated` is a Unix timestamp in milliseconds. Combine it with `librepods-ctl` to change the mode.
+
 ## Hearing Aid
 
 To use hearing aid features, you need to have an audiogram. To enable/disable hearing aid, you can use the toggle in the main app. But, to adjust the settings and set the audiogram, you need to use a different script which is located in this folder as `hearing_aid.py`. You can run it with:

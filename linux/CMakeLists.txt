@@ -44,6 +44,7 @@ qt_add_executable(librepods
     media/playerstatuswatcher.cpp
     media/playerstatuswatcher.h
     systemsleepmonitor.hpp
+    stateexporter.hpp
 )
 
 qt_add_qml_module(librepods
