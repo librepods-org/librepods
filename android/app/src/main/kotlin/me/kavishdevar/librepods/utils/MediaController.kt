@@ -356,6 +356,18 @@ object MediaController {
         )
     }
 
+    /**
+     * Conversation awareness levels are a fixed share of the maximum volume, so on their own they
+     * can sit *above* what the user was listening at. Never let ducking raise the volume.
+     */
+    @Synchronized
+    fun duckVolume(volumePercent: Int) {
+        val current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val ceiling = initialVolume ?: current
+        smoothVolumeTransition(current, minOf(maxVolume * volumePercent / 100, ceiling))
+    }
+
     @Synchronized
     fun startSpeaking() {
         if (initialVolume == null) {
@@ -381,14 +393,21 @@ object MediaController {
         initialVolume = null
     }
 
+    // Bumped by every transition; a stale one stops instead of finishing. Without this, a ramp still
+    // running towards the ducked level could finish after the restore and leave the volume there.
+    @Volatile
+    private var volumeTransitionGeneration = 0
+
     private fun smoothVolumeTransition(fromVolume: Int, toVolume: Int) {
         Log.d("MediaController", "Smooth volume transition from $fromVolume to $toVolume")
         val step = if (fromVolume < toVolume) 1 else -1
         val delay = 50L
         var currentVolume = fromVolume
+        val generation = ++volumeTransitionGeneration
 
         handler.post(object : Runnable {
             override fun run() {
+                if (generation != volumeTransitionGeneration) return
                 if (currentVolume != toVolume) {
                     currentVolume += step
                     audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, currentVolume, 0)
