@@ -122,7 +122,7 @@ fun HeartRateScreen(
                         ) {
                             Icon(
                                 imageVector = it,
-                                contentDescription = "Start/Stop",
+                                contentDescription = stringResource(R.string.start_stop),
                                 modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                             )
                         }
@@ -137,7 +137,7 @@ fun HeartRateScreen(
                         ) {
                             Icon(
                                 imageVector = it,
-                                contentDescription = "Start/Stop",
+                                contentDescription = stringResource(R.string.start_stop),
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onBackground
                             )
@@ -255,7 +255,7 @@ fun HeartRateScreen(
                                 ) {
                                     Icon(
                                         imageVector = LocalIcons.current.VitalSigns,
-                                        contentDescription = "vital signs",
+                                        contentDescription = stringResource(R.string.heart_rate),
                                         modifier = Modifier.size(24.dp),
                                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
@@ -285,7 +285,7 @@ fun HeartRateScreen(
                         ) {
                             Icon(
                                 imageVector = LocalIcons.current.VitalSigns,
-                                contentDescription = "vital signs",
+                                contentDescription = stringResource(R.string.heart_rate),
                                 modifier = Modifier.size(24.dp),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )

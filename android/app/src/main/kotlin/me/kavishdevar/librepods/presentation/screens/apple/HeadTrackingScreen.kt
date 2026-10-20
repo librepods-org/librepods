@@ -137,7 +137,7 @@ fun HeadTrackingScreen(
                     ) {
                         Icon(
                             imageVector = if (state.headTrackingState == BuddyState.ACTIVE) MaterialIcons.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
+                            contentDescription = stringResource(R.string.play_pause),
                             modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                         )
                     }
@@ -149,7 +149,7 @@ fun HeadTrackingScreen(
                     ) {
                         Icon(
                             imageVector = if (state.headTrackingState == BuddyState.ACTIVE) LocalIcons.current.Pause else LocalIcons.current.Play,
-                            contentDescription = "Play/Pause",
+                            contentDescription = stringResource(R.string.play_pause),
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onBackground
                         )
@@ -192,7 +192,7 @@ fun HeadTrackingScreen(
                 }
 
                 StyledToggle(
-                    label = "Head Gestures",
+                    label = stringResource(R.string.head_gestures),
                     checked = settings.headGesturesEnabled,
                     onCheckedChange = { viewModel.setHeadGesturesEnabled(it) },
                     enabled = uiState.isPremium || settings.headGesturesEnabled,
@@ -202,7 +202,7 @@ fun HeadTrackingScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    "Velocity",
+                    stringResource(R.string.velocity),
                     style = MaterialTheme.typography.labelSmallEmphasized,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
@@ -222,11 +222,13 @@ fun HeadTrackingScreen(
                 }
             }
             val gestureTextValue = stringResource(R.string.shake_your_head_or_nod)
+            val yesDetectedText = stringResource(R.string.head_gesture_yes_detected)
+            val noDetectedText = stringResource(R.string.head_gesture_no_detected)
             StyledButton(
                 onClick = {
                     gestureText = gestureTextValue
                     coroutineScope.launch {
-                        viewModel.detectHeadGestures { gestureText = if (it) "\"Yes\" gesture detected." else "\"No\" gesture detected." }
+                        viewModel.detectHeadGestures { gestureText = if (it) yesDetectedText else noDetectedText }
                     }
                 },
                 backdrop = backdrop,
@@ -236,7 +238,7 @@ fun HeadTrackingScreen(
                 materialButtonStyle = MaterialButtonStyle.Outlined
             ) {
                 Text(
-                    "Test Head Gestures",
+                    stringResource(R.string.test_head_gestures),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -338,6 +340,9 @@ private fun Plot() {
                 .padding(16.dp)
         ) {
             val onBackground = MaterialTheme.colorScheme.onBackground
+            // the Canvas draw scope is not composable, so resolve the legend labels here
+            val horizontalLabel = stringResource(R.string.horizontal)
+            val verticalLabel = stringResource(R.string.vertical)
             Canvas(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -420,7 +425,7 @@ private fun Plot() {
                         textSize = 12.sp.toPx()
                         textAlign = Paint.Align.LEFT
                     }
-                    drawText("Horizontal", width - 140.dp.toPx(), textOffsetY, paint)
+                    drawText(horizontalLabel, width - 140.dp.toPx(), textOffsetY, paint)
                 }
 
                 drawCircle(verticalColor, 5.dp.toPx(), Offset(width - 70.dp.toPx(), legendY))
@@ -430,7 +435,7 @@ private fun Plot() {
                         textSize = 12.sp.toPx()
                         textAlign = Paint.Align.LEFT
                     }
-                    drawText("Vertical", width - 60.dp.toPx(), textOffsetY, paint)
+                    drawText(verticalLabel, width - 60.dp.toPx(), textOffsetY, paint)
                 }
             }
         }

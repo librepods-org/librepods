@@ -1,6 +1,8 @@
 package me.kavishdevar.librepods.presentation.utils
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.core.devices.AirPodsSpec
 import me.kavishdevar.librepods.core.devices.Battery
 import me.kavishdevar.librepods.core.devices.BatteryComponent
@@ -93,7 +95,7 @@ fun createAirPodsBatteryRichText(
                 }
                 headsetIconName + statusIcon + " ${headsetLevel}%"
             } else {
-                "No battery info available"
+                stringResource(R.string.no_battery_info)
             }
         }
     )

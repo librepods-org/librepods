@@ -254,8 +254,8 @@ fun RecordingScreen(
             ) {
                 Text(
                     text = if (state.recordingState.isRecording) {
-                        "Stop Recording"
-                    } else "Start Recording",
+                        stringResource(R.string.stop_recording)
+                    } else stringResource(R.string.start_recording),
                     style = MaterialTheme.typography.labelMedium
                 )
             }

@@ -143,7 +143,7 @@ class NoiseControlWidgetConfigurationActivity: ComponentActivity() {
                         )
                     } ?: run {
                         Text(
-                            text = "Service not available. Please ensure LibrePods is running and try again.",
+                            text = stringResource(R.string.widget_service_not_available),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -175,7 +175,7 @@ private fun WidgetDevicePickerContent(
             Spacer(modifier = Modifier.size(topPadding))
             if (devices.isEmpty()) {
                 Text(
-                    text = "No devices found. Please ensure a compatible device is paired with your phone and try again.",
+                    text = stringResource(R.string.widget_no_devices_found),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -184,7 +184,7 @@ private fun WidgetDevicePickerContent(
                     onClick = onCancelClicked
                 ) {
                     Text(
-                        text = "Cancel",
+                        text = stringResource(R.string.cancel),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -228,7 +228,7 @@ private fun WidgetDevicePickerContent(
                     enabled = pickedDevice != null
                 ) {
                     Text(
-                        text = "Done",
+                        text = stringResource(R.string.done),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }

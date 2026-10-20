@@ -459,6 +459,15 @@ class LibrePodsService: Service() {
         }
     }
 
+    private fun batteryShortLabel(component: BatteryComponent): String = getString(
+        when (component) {
+            BatteryComponent.LEFT -> R.string.battery_short_left
+            BatteryComponent.RIGHT -> R.string.battery_short_right
+            BatteryComponent.CASE -> R.string.battery_short_case
+            BatteryComponent.HEADSET -> R.string.battery_short_headset
+        }
+    )
+
     private fun getDeviceFromBleMac(bleMac: MacAddress): Device<*, *, *>? {
         var deviceMac: MacAddress? = devices.value[bleMac]?.macAddress
 
@@ -1051,14 +1060,14 @@ class LibrePodsService: Service() {
                         NotificationCompat.Builder(this, "device_${device.macAddress}")
                             .setSmallIcon(R.drawable.ic_airpods)
                             .setContentTitle(device.metadata.value.name)
-                            .setContentText(device.state.value.battery.joinToString(" ") { "${it.component.name[0]}: ${it.level}%" })
+                            .setContentText(device.state.value.battery.joinToString(" ") { "${batteryShortLabel(it.component)}: ${it.level}%" })
                             .setContentIntent(pendingIntent)
                             .setCategory(Notification.CATEGORY_STATUS)
                             .setPriority(NotificationCompat.PRIORITY_LOW)
                             .setOngoing(true)
                             .addAction(
                                 R.drawable.ic_transparency, // icon never shows up?? (tested on AOSP ROMs)
-                                "Transparency",
+                                getString(R.string.transparency),
                                 PendingIntent.getService(
                                     this,
                                     notificationId + 3,
@@ -1072,7 +1081,7 @@ class LibrePodsService: Service() {
                             )
                             .addAction(
                                 R.drawable.ic_adaptive,
-                                "Adaptive",
+                                getString(R.string.adaptive),
                                 PendingIntent.getService(
                                     this,
                                     notificationId + 4,
@@ -1086,7 +1095,7 @@ class LibrePodsService: Service() {
                             )
                             .addAction(
                                 R.drawable.ic_noise_cancellation,
-                                "Noise Cancellation",
+                                getString(R.string.noise_cancellation),
                                 PendingIntent.getService(
                                     this,
                                     notificationId + 2,

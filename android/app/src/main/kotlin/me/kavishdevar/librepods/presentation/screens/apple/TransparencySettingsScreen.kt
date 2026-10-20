@@ -295,8 +295,11 @@ fun TransparencySettingsScreen(
                                     eq.value = newEQ
                                 },
                                 valueRange = 0f..100f,
+                                // weight, not fillMaxWidth(0.9f): the band label after the slider
+                                // only got the leftover width and was clipped in wider scripts
                                 modifier = Modifier
-                                    .fillMaxWidth(0.9f)
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp)
                                     .height(36.dp),
                                 colors = SliderDefaults.colors(
                                     thumbColor = thumbColor,

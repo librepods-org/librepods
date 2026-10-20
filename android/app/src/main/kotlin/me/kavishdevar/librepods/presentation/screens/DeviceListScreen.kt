@@ -109,7 +109,7 @@ fun DeviceListScreen(
                         ) {
                         Icon(
                             imageVector = Icons.Outlined.Settings,
-                            contentDescription = "settings",
+                            contentDescription = stringResource(R.string.settings),
                             modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                         )
                     }
@@ -120,7 +120,7 @@ fun DeviceListScreen(
                     ) {
                         Icon(
                             imageVector = LocalIcons.current.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = stringResource(R.string.settings),
                             tint = MaterialTheme.colorScheme.onBackground
                         )
                     }

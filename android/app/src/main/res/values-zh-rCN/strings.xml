@@ -55,7 +55,7 @@
     <string name="developer_options_header">开发者</string>
     <string name="more_settings_title">打开 AirPods 设置</string>
     <string name="more_settings_subtitle">管理 AirPods 功能与偏好</string>
-    <string name="ear_detection">自动人耳检测</string>
+    <string name="ear_detection">自动入耳检测</string>
     <string name="auto_play">自动播放</string>
     <string name="auto_pause">自动暂停</string>
     <string name="troubleshooting">故障排查</string>
@@ -337,10 +337,107 @@
     <string name="call_accepted">已接听来电</string>
     <string name="waiting_ellipsis">正在等待…</string>
     <string name="service_running">服务运行中</string>
-    <string name="foreground_notification_description">没什么用的通知，点它即可关闭。</string>
+    <string name="foreground_notification_description">没什么用的通知，点击即可关闭。</string>
     <string name="foreground_service_status">前台服务状态</string>
     <string name="high_heart_rate_notification_text">你的心率已超过设定阈值。（当前：%d bpm）</string>
     <string name="high_heart_rate">心率过高</string>
     <string name="hrm_alert_warning">此提醒目前不会考虑运动或体力活动的影响，仅供参考，不构成医疗建议。</string>
     <string name="heart_rate_alerts_disabled_warning">提醒已关闭，直到重新连接或重新开启心率监测为止。</string>
+    <string name="test">测试</string>
+    <string name="check_the_repository_for_more_info">
+        由于 Android 蓝牙协议栈的限制，许多设备暂不受支持。
+        \n在这些设备上，需要 Root 权限和 Xposed 框架才能使用完整功能。
+        \n\n较新的 Android 版本已解决这一限制。以下设备配置可以直接运行本应用：
+        \n• 运行 Android 16 三月更新及更高版本，并已安装最新 Play 系统更新的 Google Pixel®
+        \n• 运行 Android 17 Beta 3 及更高版本的 Google Pixel®
+        \n• 运行 OxygenOS 16 或更高版本的一加设备
+        \n• 运行 ColorOS 16 或更高版本的 OPPO 设备
+        \n\n详情请参阅项目文档。
+    </string>
+    <string name="differentiate_without_color">不以颜色区分</string>
+    <string name="fon">字体</string>
+    <string name="font">字体</string>
+    <string name="text_scale">字体缩放</string>
+    <string name="font_scale">字体缩放</string>
+    <string name="island_settings">灵动岛设置</string>
+    <string name="accessibility_service_description">相机控制和可交互的灵动岛弹窗</string>
+    <string name="size_and_position">大小与位置</string>
+    <string name="press_and_hold">按住</string>
+    <string name="customize">自定义</string>
+    <string name="open_something">打开 %s</string>
+    <string name="tap_to_expand">点按以展开</string>
+    <string name="tap_to_open_something">点按以打开 %s</string>
+    <string name="expand">展开</string>
+    <string name="keep_compact_island_visible">保持显示紧凑式灵动岛</string>
+    <string name="island_accessibility_service_needed">灵动岛显示在状态栏时，需要无障碍服务才能与其交互。</string>
+    <string name="accessibility_service">无障碍服务</string>
+    <string name="available">可用</string>
+    <string name="not_available">不可用</string>
+    <string name="battery_style">电池样式</string>
+    <string name="don_t_show">不显示</string>
+    <string name="ring">圆环</string>
+    <string name="text">文字</string>
+    <string name="both">两者</string>
+    <string name="hide_island">隐藏灵动岛</string>
+    <string name="show_island">显示灵动岛</string>
+    <string name="border_width">边框宽度</string>
+    <string name="border_radius">圆角半径</string>
+    <string name="horizontal_offset">水平偏移</string>
+    <string name="vertical_offset">垂直偏移</string>
+    <string name="height">高度</string>
+    <string name="width">宽度</string>
+    <string name="listening_mode_controls">聆听模式控制</string>
+    <string name="long_press_to_open_something">长按以打开 %s</string>
+    <string name="font_size">字号</string>
+    <string name="default_style">默认样式</string>
+    <string name="expanded">展开式</string>
+    <string name="compact">紧凑式</string>
+    <string name="opacity">不透明度</string>
+    <string name="monochrome">单色</string>
+    <string name="icon">图标</string>
+    <string name="image">图片</string>
+    <string name="cancel">取消</string>
+    <string name="reset_app_settings">重置应用设置</string>
+    <string name="reset_app_settings_description">所有应用设置（外观、交互、辅助功能、灵动岛等）都将被重置。</string>
+    <string name="reset_island_settings">重置灵动岛设置</string>
+    <string name="mute_unmute_notice">通话中可能无法通过 AirPods 上的控制将麦克风静音或取消静音。这是 Android 的已知问题，LibrePods 无法修复。</string>
+    <string name="compatibility_check_bypassed">已跳过兼容性检查。你确定你的设备兼容吗？</string>
+    <string name="not_compatible_update">你的设备目前不兼容。请更新设备后继续。</string>
+    <string name="not_compatible_description">由于 Android 的限制，需要较新版本的 Android 才能使用 LibrePods。
+        \n• Google Pixel 设备需要 Android 16 三月更新或更高版本，并安装最新的 Google Play 系统更新
+        \n• 一加和 OPPO 设备需要 Android 16
+        \n• 其他所有设备需要 Android 17（OneUI 9、MagicOS 11、Nothing OS 5.0 等）
+    </string>
+    <string name="eq_low">低</string>
+    <string name="eq_mid">中</string>
+    <string name="eq_high">高</string>
+    <string name="done">完成</string>
+    <string name="enable">启用</string>
+    <string name="close">关闭</string>
+    <string name="send">发送</string>
+    <string name="clear_text">清除文本</string>
+    <string name="headset">耳机</string>
+    <string name="disconnected">未连接</string>
+    <string name="unknown">未知</string>
+    <string name="velocity">速度</string>
+    <string name="test_head_gestures">测试头部动作</string>
+    <string name="horizontal">水平</string>
+    <string name="vertical">垂直</string>
+    <string name="enable_hearing_aid">启用助听</string>
+    <string name="enable_hearing_aid_description">启用助听后，耳机调节和自定义通透模式将被停用。</string>
+    <string name="start_recording">开始录音</string>
+    <string name="stop_recording">停止录音</string>
+    <string name="grant_all">全部授予</string>
+    <string name="no_battery_info">暂无电池信息</string>
+    <string name="widget_service_not_available">服务不可用。请确认 LibrePods 正在运行，然后重试。</string>
+    <string name="widget_no_devices_found">未找到设备。请确认已有兼容的设备与手机配对，然后重试。</string>
+    <string name="battery_short_left">左</string>
+    <string name="battery_short_right">右</string>
+    <string name="battery_short_case">盒</string>
+    <string name="battery_short_headset">耳机</string>
+    <string name="head_gesture_yes_detected">检测到点头。</string>
+    <string name="head_gesture_no_detected">检测到摇头。</string>
+    <string name="play_pause">播放/暂停</string>
+    <string name="start_stop">开始/停止</string>
+    <string name="next">下一步</string>
 </resources>

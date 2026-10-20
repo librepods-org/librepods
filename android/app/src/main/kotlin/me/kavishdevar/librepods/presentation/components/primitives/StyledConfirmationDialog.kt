@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -57,6 +58,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.presentation.design.DesignSystem
 import me.kavishdevar.librepods.presentation.design.LocalDesignSystem
 
@@ -66,8 +68,8 @@ fun StyledConfirmationDialog(
     showDialog: MutableState<Boolean>,
     title: String,
     message: String,
-    confirmText: String = "Enable",
-    dismissText: String = "Cancel",
+    confirmText: String = stringResource(R.string.enable),
+    dismissText: String = stringResource(R.string.cancel),
     onConfirm: () -> Unit,
     onDismiss: () -> Unit = { showDialog.value = false },
     backdrop: LayerBackdrop,
