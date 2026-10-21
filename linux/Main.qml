@@ -230,6 +230,12 @@ ApplicationWindow {
                     }
 
                     Switch {
+                        text: qsTr("Take Over AirPods When Media Plays")
+                        checked: airPodsTrayApp.takeOverOnMediaPlay
+                        onCheckedChanged: airPodsTrayApp.takeOverOnMediaPlay = checked
+                    }
+
+                    Switch {
                         text: qsTr("Auto-Start on Login")
                         checked: airPodsTrayApp.autoStartManager.autoStartEnabled
                         onCheckedChanged: airPodsTrayApp.autoStartManager.autoStartEnabled = checked

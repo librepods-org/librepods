@@ -40,6 +40,7 @@ class AirPodsTrayApp : public QObject {
     Q_PROPERTY(bool airpodsConnected READ areAirpodsConnected NOTIFY airPodsStatusChanged)
     Q_PROPERTY(int earDetectionBehavior READ earDetectionBehavior WRITE setEarDetectionBehavior NOTIFY earDetectionBehaviorChanged)
     Q_PROPERTY(bool crossDeviceEnabled READ crossDeviceEnabled WRITE setCrossDeviceEnabled NOTIFY crossDeviceEnabledChanged)
+    Q_PROPERTY(bool takeOverOnMediaPlay READ takeOverOnMediaPlay WRITE setTakeOverOnMediaPlay NOTIFY takeOverOnMediaPlayChanged)
     Q_PROPERTY(AutoStartManager *autoStartManager READ autoStartManager CONSTANT)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY notificationsEnabledChanged)
     Q_PROPERTY(int retryAttempts READ retryAttempts WRITE setRetryAttempts NOTIFY retryAttemptsChanged)
@@ -88,6 +89,7 @@ public:
 
         // Load settings
         CrossDevice.isEnabled = loadCrossDeviceEnabled();
+        m_takeOverOnMediaPlay = m_settings->value("media/takeOverOnPlay", true).toBool();
         setEarDetectionBehavior(loadEarDetectionSettings());
         setRetryAttempts(loadRetryAttempts());
 
@@ -129,6 +131,7 @@ public:
     bool areAirpodsConnected() const { return socket && socket->isOpen() && socket->state() == QBluetoothSocket::SocketState::ConnectedState; }
     int earDetectionBehavior() const { return mediaController->getEarDetectionBehavior(); }
     bool crossDeviceEnabled() const { return CrossDevice.isEnabled; }
+    bool takeOverOnMediaPlay() const { return m_takeOverOnMediaPlay; }
     AutoStartManager *autoStartManager() const { return m_autoStartManager; }
     bool notificationsEnabled() const { return trayManager->notificationsEnabled(); }
     void setNotificationsEnabled(bool enabled) { trayManager->setNotificationsEnabled(enabled); }
@@ -326,6 +329,15 @@ public slots:
         saveCrossDeviceEnabled();
         connectToPhone();
         emit crossDeviceEnabledChanged(enabled);
+    }
+
+    void setTakeOverOnMediaPlay(bool enabled)
+    {
+        if (m_takeOverOnMediaPlay == enabled)
+            return;
+        m_takeOverOnMediaPlay = enabled;
+        m_settings->setValue("media/takeOverOnPlay", enabled);
+        emit takeOverOnMediaPlayChanged(enabled);
     }
 
     void setPhoneMac(const QString &mac)
@@ -886,6 +898,10 @@ private slots:
 
 public:
     void handleMediaStateChange(MediaController::MediaState state) {
+        // Off: the AirPods stay with whatever device they are on (e.g. an iPhone)
+        // when something starts playing here.
+        if (!m_takeOverOnMediaPlay)
+            return;
         if (state == MediaController::MediaState::Playing) {
             LOG_INFO("Media started playing, sending disconnect request to Android and taking over audio");
             sendDisconnectRequestToAndroid();
@@ -964,6 +980,7 @@ signals:
     void airPodsStatusChanged();
     void earDetectionBehaviorChanged(int behavior);
     void crossDeviceEnabledChanged(bool enabled);
+    void takeOverOnMediaPlayChanged(bool enabled);
     void notificationsEnabledChanged(bool enabled);
     void retryAttemptsChanged(int attempts);
     void oneBudANCModeChanged(bool enabled);
@@ -982,6 +999,7 @@ private:
     AutoStartManager *m_autoStartManager;
     int m_retryAttempts = 3;
     bool m_hideOnStart = false;
+    bool m_takeOverOnMediaPlay = true;
     DeviceInfo *m_deviceInfo;
     BleManager *m_bleManager;
     SystemSleepMonitor *m_systemSleepMonitor = nullptr;
