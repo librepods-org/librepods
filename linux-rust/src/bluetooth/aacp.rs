@@ -314,6 +314,16 @@ pub struct AirPodsLEKeys {
     pub enc_key: String,
 }
 
+// Information packets do not contain proximity keys. Preserve the keys
+// already learned from pairing or a preceding proximity-key response.
+fn update_airpods_information(device: &mut DeviceData, mut information: AirPodsInformation) {
+    if let Some(DeviceInformation::AirPods(previous)) = &device.information {
+        information.le_keys = previous.le_keys.clone();
+    }
+    device.name = information.name.clone();
+    device.information = Some(DeviceInformation::AirPods(information));
+}
+
 pub struct AACPManagerState {
     pub sender: Option<mpsc::Sender<Vec<u8>>>,
     pub control_command_status_list: Vec<ControlCommandStatus>,
@@ -717,8 +727,7 @@ impl AACPManager {
                 if let Some(mac) = state.airpods_mac
                     && let Some(device_data) = state.devices.get_mut(&mac.to_string())
                 {
-                    device_data.name = info.name.clone();
-                    device_data.information = Some(DeviceInformation::AirPods(info.clone()));
+                    update_airpods_information(device_data, info.clone());
                 }
                 let json = serde_json::to_string(&state.devices).unwrap();
                 if let Some(parent) = get_devices_path().parent()
@@ -730,7 +739,7 @@ impl AACPManager {
                 if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
                     error!("Failed to save devices: {}", e);
                 }
-                info!("Received Information: {:?}", info);
+                info!("Received Information for {}", info.name);
             }
 
             opcodes::PROXIMITY_KEYS_RSP => {
@@ -767,12 +776,7 @@ impl AACPManager {
                     keys.push((key_type, key_data));
                     offset += key_length;
                 }
-                info!(
-                    "Received Proximity Keys Response: {:?}",
-                    keys.iter()
-                        .map(|(kt, kd)| (kt, hex::encode(kd)))
-                        .collect::<Vec<_>>()
-                );
+                info!("Received Proximity Keys Response ({} keys)", keys.len());
                 let mut state = self.state.lock().await;
                 for (key_type, key_data) in &keys {
                     if let Some(kt) = ProximityKeyType::from_u8(*key_type)
@@ -930,7 +934,6 @@ impl AACPManager {
 
     pub async fn send_set_feature_flags_packet(&self) -> Result<()> {
         let opcode = [opcodes::SET_FEATURE_FLAGS, 0x00];
-        // let data = [0xD7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
         let data = [0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]; // adaptive volume is actually useful, seeing if it works
         let packet = [opcode.as_slice(), data.as_slice()].concat();
         self.send_data_packet(&packet).await
@@ -1253,4 +1256,65 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
         }
     }
     info!("Send thread finished.");
+}
+
+#[cfg(test)]
+mod battery_recovery_tests {
+    use super::*;
+
+    fn information(name: &str, irk: &str, enc_key: &str) -> AirPodsInformation {
+        AirPodsInformation {
+            name: name.to_string(),
+            model_number: "A3440".into(),
+            manufacturer: "Apple".into(),
+            serial_number: String::new(),
+            version1: String::new(),
+            version2: String::new(),
+            hardware_revision: String::new(),
+            updater_identifier: String::new(),
+            left_serial_number: String::new(),
+            right_serial_number: String::new(),
+            version3: String::new(),
+            le_keys: AirPodsLEKeys {
+                irk: irk.into(),
+                enc_key: enc_key.into(),
+            },
+        }
+    }
+
+    #[test]
+    fn information_refresh_preserves_pairing_keys() {
+        let mut device = DeviceData {
+            name: "Old name".into(),
+            type_: DeviceType::AirPods,
+            information: Some(DeviceInformation::AirPods(information(
+                "Old name",
+                "test-identity",
+                "test-encryption",
+            ))),
+        };
+        update_airpods_information(&mut device, information("New name", "", ""));
+        assert_eq!(device.name, "New name");
+        let Some(DeviceInformation::AirPods(info)) = device.information else {
+            panic!("AirPods information missing")
+        };
+        assert_eq!(info.le_keys.irk, "test-identity");
+        assert_eq!(info.le_keys.enc_key, "test-encryption");
+        assert_eq!(info.model_number, "A3440");
+    }
+
+    #[test]
+    fn first_information_keeps_keys_unknown() {
+        let mut device = DeviceData {
+            name: "Address".into(),
+            type_: DeviceType::AirPods,
+            information: None,
+        };
+        update_airpods_information(&mut device, information("AirPods", "", ""));
+        let Some(DeviceInformation::AirPods(info)) = device.information else {
+            panic!("AirPods information missing")
+        };
+        assert!(info.le_keys.irk.is_empty());
+        assert!(info.le_keys.enc_key.is_empty());
+    }
 }

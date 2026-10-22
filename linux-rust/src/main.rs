@@ -47,7 +47,7 @@ struct Args {
     version: bool
 }
 
-fn main() -> iced::Result {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     if args.version {
@@ -59,10 +59,6 @@ fn main() -> iced::Result {
     }
 
     let log_level = if args.debug { "debug" } else { "info" };
-    // let wayland_display = env::var("WAYLAND_DISPLAY").is_ok();
-    // if wayland_display && env::var("WGPU_BACKEND").is_err() {
-    //     unsafe { env::set_var("WGPU_BACKEND", "gl") };
-    // }
     if env::var("RUST_LOG").is_err() {
         unsafe {
             env::set_var(
@@ -82,23 +78,23 @@ fn main() -> iced::Result {
     let device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>> =
         Arc::new(RwLock::new(HashMap::new()));
 
-    // Load stem_control initial value from settings JSON, then apply CLI override.
     if args.no_tray {
         // Run headless without UI
         info!("Running in headless mode (no GUI)");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async_main(ui_tx, device_managers)).unwrap();
+        rt.block_on(async_main(ui_tx, device_managers))?;
         Ok(())
     } else {
         // Run with UI
         let device_managers_clone = device_managers.clone();
         std::thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async_main(ui_tx, device_managers_clone))
-                .unwrap();
+            if let Err(e) = rt.block_on(async_main(ui_tx, device_managers_clone)) {
+                log::error!("Bluetooth initialization failed: {}", e);
+            }
         });
 
-        ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+        Ok(ui::window::start_ui(ui_rx, args.start_minimized, device_managers)?)
     }
 }
 
@@ -139,6 +135,8 @@ async fn async_main(
             battery_r_status: None,
             battery_c: None,
             battery_c_status: None,
+            active_airpods: None,
+            telemetry: Default::default(),
             connected: false,
             listening_mode: None,
             allow_off_option: None,
@@ -151,13 +149,17 @@ async fn async_main(
 
     let session = bluer::Session::new().await?;
     let adapter = session.default_adapter().await?;
-    adapter.set_powered(true).await?;
+    crate::bluetooth::wait_for_adapter_power(&adapter).await?;
 
     let le_tray_clone = tray_handle.clone();
     tokio::spawn(async move {
-        info!("Starting LE monitor...");
-        if let Err(e) = start_le_monitor(le_tray_clone).await {
-            log::error!("LE monitor error: {}", e);
+        loop {
+            info!("Starting LE monitor...");
+            match start_le_monitor(le_tray_clone.clone()).await {
+                Ok(()) => log::warn!("LE monitor ended; restarting"),
+                Err(e) => log::error!("LE monitor error: {}; restarting", e),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         }
     });
 
@@ -175,7 +177,6 @@ async fn async_main(
                 AirPodsDevice::new(device.address(), tray_handle.clone(), ui_tx.clone()).await;
 
             let mut managers = device_managers.write().await;
-            // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
             let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
             managers
                 .entry(device.address().to_string())
@@ -246,7 +247,6 @@ async fn async_main(
         if !path.contains("/org/bluez/hci") || !path.contains("/dev_") {
             return true;
         }
-        // debug!("PropertiesChanged signal for path: {}", path);
         let Ok((iface, changed, _)) =
             msg.read3::<String, HashMap<String, Variant<Box<dyn RefArg>>>, Vec<String>>()
         else {
@@ -315,7 +315,6 @@ async fn async_main(
         tokio::spawn(async move {
             let airpods_device = AirPodsDevice::new(addr, handle_clone, ui_tx_clone.clone()).await;
             let mut managers = device_managers.write().await;
-            // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
             let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
             managers
                 .entry(addr_str.clone())

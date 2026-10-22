@@ -19,6 +19,8 @@ pub struct MyTray {
     pub battery_r_status: Option<BatteryStatus>,
     pub battery_c: Option<u8>,
     pub battery_c_status: Option<BatteryStatus>,
+    pub active_airpods: Option<String>,
+    pub telemetry: crate::bluetooth::battery_telemetry::Telemetry,
     pub connected: bool,
     pub listening_mode: Option<u8>,
     pub allow_off_option: Option<u8>,
@@ -86,7 +88,7 @@ impl ksni::Tray for MyTray {
                     _ => {
                         let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
                         let suffix = if status == Some(BatteryStatus::Charging) {
-                            "⚡"
+                            " (charging)"
                         } else {
                             ""
                         };
@@ -97,7 +99,25 @@ impl ksni::Tray for MyTray {
 
         let l = format_component("L", self.battery_l, self.battery_l_status);
         let r = format_component("R", self.battery_r, self.battery_r_status);
-        let c = format_component("C", self.battery_c, self.battery_c_status);
+        let (case_level, case_status) = match self.active_airpods.as_deref() {
+            Some(device) => match self.telemetry.component(
+                device,
+                "case",
+                crate::bluetooth::battery_telemetry::now_ms(),
+            ) {
+                Some(sample) => (
+                    Some(sample.percentage),
+                    Some(if sample.charging {
+                        BatteryStatus::Charging
+                    } else {
+                        BatteryStatus::NotCharging
+                    }),
+                ),
+                None => (None, Some(BatteryStatus::Disconnected)),
+            },
+            None => (self.battery_c, self.battery_c_status),
+        };
+        let c = format_component("C", case_level, case_status);
 
         ToolTip {
             icon_name: "".to_string(),
@@ -251,18 +271,16 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
             }
         }
         if charging {
-            let emoji = "⚡";
-            let scale = PxScale::from(48.0);
-            let color = Rgba([0u8, 255u8, 0u8, 255u8]);
-            let scaled_font = font.as_scaled(scale);
-            let mut emoji_width = 0.0;
-            for c in emoji.chars() {
-                let glyph_id = font.glyph_id(c);
-                emoji_width += scaled_font.h_advance(glyph_id);
-            }
-            let x = ((width as f32 - emoji_width) / 2.0).max(0.0) as i32;
-            let y = ((height as f32 - scale.y) / 2.0).max(0.0) as i32;
-            draw_text_mut(&mut img, color, x, y, scale, &font, emoji);
+            use imageproc::{drawing::draw_polygon_mut, point::Point};
+            let bolt = [
+                Point::new(37, 14),
+                Point::new(25, 32),
+                Point::new(33, 32),
+                Point::new(27, 48),
+                Point::new(41, 27),
+                Point::new(33, 27),
+            ];
+            draw_polygon_mut(&mut img, &bolt, Rgba([0u8, 255u8, 0u8, 255u8]));
         }
     } else {
         // battery text
@@ -297,5 +315,77 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
         width: width as i32,
         height: height as i32,
         data,
+    }
+}
+
+#[cfg(test)]
+mod case_integration_tests {
+    use super::*;
+    use crate::bluetooth::battery_telemetry::{FRESH_MS, now_ms};
+    use ksni::Tray;
+
+    fn tray() -> MyTray {
+        MyTray {
+            conversation_detect_enabled: None,
+            battery_headphone: None,
+            battery_headphone_status: None,
+            battery_l: Some(91),
+            battery_l_status: Some(BatteryStatus::NotCharging),
+            battery_r: Some(81),
+            battery_r_status: Some(BatteryStatus::NotCharging),
+            battery_c: None,
+            battery_c_status: Some(BatteryStatus::Disconnected),
+            active_airpods: Some("pair-A".into()),
+            telemetry: Default::default(),
+            connected: true,
+            listening_mode: None,
+            allow_off_option: None,
+            command_tx: None,
+            ui_tx: None,
+        }
+    }
+
+    #[test]
+    fn independent_case_survives_unknown_aacp_and_remains_pair_specific() {
+        let mut t = tray();
+        let now = now_ms();
+        t.telemetry
+            .update("pair-A", "case", "case", 128 + 76, now - 1000);
+        t.telemetry.update("pair-A", "aacp", "case", 255, now);
+        assert_eq!(t.tool_tip().description, "L: 91% R: 81% C: 76% (charging)");
+        t.active_airpods = Some("pair-B".into());
+        assert_eq!(t.tool_tip().description, "L: 91% R: 81% C: -");
+    }
+
+    #[test]
+    fn newer_aacp_case_replaces_independent_charging_state() {
+        let mut t = tray();
+        let now = now_ms();
+        t.telemetry
+            .update("pair-A", "case", "case", 128 + 76, now - 1000);
+        t.telemetry.update("pair-A", "aacp", "case", 77, now);
+        assert_eq!(t.tool_tip().description, "L: 91% R: 81% C: 77%");
+    }
+
+    #[test]
+    fn expired_case_does_not_fall_back_to_stale_legacy_fields() {
+        let mut t = tray();
+        t.battery_c = Some(76);
+        t.battery_c_status = Some(BatteryStatus::Charging);
+        t.telemetry
+            .update("pair-A", "case", "case", 128 + 76, now_ms() - FRESH_MS);
+        assert_eq!(t.tool_tip().description, "L: 91% R: 81% C: -");
+    }
+
+    #[test]
+    fn charging_icon_has_a_bolt_inside_the_unchanged_ring() {
+        let normal = generate_icon("81", false, false);
+        let charging = generate_icon("81", false, true);
+        let pixel = |icon: &Icon, x: usize, y: usize| {
+            icon.data[(y * 64 + x) * 4..(y * 64 + x + 1) * 4].to_vec()
+        };
+        assert_eq!(pixel(&normal, 32, 30), vec![0, 0, 0, 0]);
+        assert_eq!(pixel(&charging, 32, 30), vec![255, 0, 255, 0]);
+        assert_eq!(pixel(&normal, 32, 5), pixel(&charging, 32, 5));
     }
 }
