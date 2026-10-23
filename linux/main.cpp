@@ -80,6 +80,14 @@ public:
         monitor = new BluetoothMonitor(this);
         connect(monitor, &BluetoothMonitor::deviceConnected, this, &AirPodsTrayApp::bluezDeviceConnected);
         connect(monitor, &BluetoothMonitor::deviceDisconnected, this, &AirPodsTrayApp::bluezDeviceDisconnected);
+        connect(trayManager, &TrayIconManager::connectRequested, this, &AirPodsTrayApp::connectPairedAirPods);
+        connect(trayManager, &TrayIconManager::disconnectRequested, this, &AirPodsTrayApp::disconnectAirPods);
+        connect(monitor, &BluetoothMonitor::disconnectFailed, this, [this](const QString &name, const QString &error)
+                { trayManager->showNotification(tr("Could not disconnect %1").arg(name), error); });
+        connect(monitor, &BluetoothMonitor::connectFailed, this, [this](const QString &name, const QString &error)
+                { trayManager->showNotification(tr("Could not connect %1").arg(name), error); });
+        connect(this, &AirPodsTrayApp::airPodsStatusChanged, this, [this]()
+                { trayManager->setAirPodsConnected(areAirpodsConnected()); });
 
         connect(m_bleManager, &BleManager::deviceFound, this, &AirPodsTrayApp::bleDeviceFound);
         connect(m_deviceInfo->getBattery(), &Battery::primaryChanged, this, &AirPodsTrayApp::primaryChanged);
@@ -178,6 +186,25 @@ private:
     }
 
 public slots:
+    // Connect the paired AirPods through BlueZ, as the system's Bluetooth settings do.
+    void connectPairedAirPods() {
+        if (areAirpodsConnected()) {
+            LOG_INFO("AirPods are already connected");
+            return;
+        }
+        if (!monitor->connectPairedAirPods()) {
+            trayManager->showNotification(tr("No AirPods to connect"),
+                                          tr("Pair your AirPods in the system's Bluetooth settings first"));
+        }
+    }
+
+    // Disconnect the AirPods through BlueZ, as the system's Bluetooth settings do.
+    void disconnectAirPods() {
+        if (!monitor->disconnectAirPods()) {
+            LOG_INFO("AirPods are not connected");
+        }
+    }
+
     void connectToDevice(const QString &address) {
         LOG_INFO("Connecting to device with address: " << address);
         QBluetoothAddress btAddress(address);
@@ -1100,6 +1127,12 @@ int main(int argc, char *argv[]) {
             }
             else if (msg == "noise:adaptive") {
                 trayApp->setNoiseControlModeInt(3);
+            }
+            else if (msg == "connect") {
+                trayApp->connectPairedAirPods();
+            }
+            else if (msg == "disconnect") {
+                trayApp->disconnectAirPods();
             }
             else
             {

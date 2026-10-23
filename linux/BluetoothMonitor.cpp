@@ -117,6 +117,107 @@ bool BluetoothMonitor::checkAlreadyConnectedDevices()
     return deviceFound;
 }
 
+bool BluetoothMonitor::connectPairedAirPods()
+{
+    QDBusInterface objectManager("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", m_dbus);
+    QDBusMessage reply = objectManager.call("GetManagedObjects");
+
+    if (reply.type() == QDBusMessage::ErrorMessage)
+    {
+        LOG_WARN("Failed to get managed objects: " << reply.errorMessage());
+        return false;
+    }
+
+    QDBusArgument arg = reply.arguments().constFirst().value<QDBusArgument>();
+    ManagedObjectList managedObjects;
+    arg >> managedObjects;
+
+    for (auto it = managedObjects.constBegin(); it != managedObjects.constEnd(); ++it)
+    {
+        const QVariantMap deviceProps = it.value().value("org.bluez.Device1");
+        if (deviceProps.isEmpty() ||
+            !deviceProps.value("UUIDs").toStringList().contains("74ec2172-0bad-4d01-8f77-997b2be0722a") ||
+            !deviceProps.value("Paired").toBool() || deviceProps.value("Connected").toBool())
+        {
+            continue;
+        }
+
+        const QString path = it.key().path();
+        const QString deviceName = deviceProps.value("Name").toString();
+        LOG_INFO("Connecting paired AirPods: " << deviceName);
+
+        // Connect() returns once the profiles are up, which can take seconds:
+        // call it asynchronously and let PropertiesChanged report the connection.
+        QDBusInterface device("org.bluez", path, "org.bluez.Device1", m_dbus);
+        auto *watcher = new QDBusPendingCallWatcher(device.asyncCall("Connect"), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [this, deviceName](QDBusPendingCallWatcher *call)
+                {
+                    QDBusPendingReply<> result = *call;
+                    if (result.isError())
+                    {
+                        LOG_WARN("Failed to connect " << deviceName << ": " << result.error().message());
+                        emit connectFailed(deviceName, result.error().message());
+                    }
+                    call->deleteLater();
+                });
+        return true;
+    }
+
+    LOG_INFO("No paired AirPods waiting to be connected");
+    return false;
+}
+
+bool BluetoothMonitor::disconnectAirPods()
+{
+    QDBusInterface objectManager("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", m_dbus);
+    QDBusMessage reply = objectManager.call("GetManagedObjects");
+
+    if (reply.type() == QDBusMessage::ErrorMessage)
+    {
+        LOG_WARN("Failed to get managed objects: " << reply.errorMessage());
+        return false;
+    }
+
+    QDBusArgument arg = reply.arguments().constFirst().value<QDBusArgument>();
+    ManagedObjectList managedObjects;
+    arg >> managedObjects;
+
+    for (auto it = managedObjects.constBegin(); it != managedObjects.constEnd(); ++it)
+    {
+        const QVariantMap deviceProps = it.value().value("org.bluez.Device1");
+        if (deviceProps.isEmpty() ||
+            !deviceProps.value("UUIDs").toStringList().contains("74ec2172-0bad-4d01-8f77-997b2be0722a") ||
+            !deviceProps.value("Connected").toBool())
+        {
+            continue;
+        }
+
+        const QString path = it.key().path();
+        const QString deviceName = deviceProps.value("Name").toString();
+        LOG_INFO("Disconnecting AirPods: " << deviceName);
+
+        // As with Connect(): asynchronous, and PropertiesChanged reports the disconnection.
+        QDBusInterface device("org.bluez", path, "org.bluez.Device1", m_dbus);
+        auto *watcher = new QDBusPendingCallWatcher(device.asyncCall("Disconnect"), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this,
+                [this, deviceName](QDBusPendingCallWatcher *call)
+                {
+                    QDBusPendingReply<> result = *call;
+                    if (result.isError())
+                    {
+                        LOG_WARN("Failed to disconnect " << deviceName << ": " << result.error().message());
+                        emit disconnectFailed(deviceName, result.error().message());
+                    }
+                    call->deleteLater();
+                });
+        return true;
+    }
+
+    LOG_INFO("No connected AirPods to disconnect");
+    return false;
+}
+
 void BluetoothMonitor::onPropertiesChanged(const QString &interface, const QVariantMap &changedProps, const QStringList &invalidatedProps)
 {
     Q_UNUSED(invalidatedProps);
