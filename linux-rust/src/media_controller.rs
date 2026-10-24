@@ -573,7 +573,9 @@ impl MediaController {
             return cached_profile;
         }
 
-        for profile in ["a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp-sink"] {
+        // Prefer AAC ("a2dp-sink"): the AirPods' native codec, and lighter on the
+        // link than SBC-XQ while the hi-res mic stream shares it.
+        for profile in ["a2dp-sink", "a2dp-sink-sbc_xq", "a2dp-sink-sbc"] {
             if self.is_profile_available(index, profile).await {
                 info!("Selected best available A2DP profile: {}", profile);
                 self.state.lock().await.cached_a2dp_profile = profile.to_string();
