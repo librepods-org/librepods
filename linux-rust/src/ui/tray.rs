@@ -34,6 +34,12 @@ impl ksni::Tray for MyTray {
     fn title(&self) -> String {
         "AirPods".into()
     }
+    // Clicking the tray icon opens the window, same as the "Open Window" menu item.
+    fn activate(&mut self, _x: i32, _y: i32) {
+        if let Some(tx) = &self.ui_tx {
+            let _ = tx.send(BluetoothUIMessage::OpenWindow);
+        }
+    }
     fn icon_pixmap(&self) -> Vec<Icon> {
         let text = {
             let mut levels: Vec<u8> = Vec::new();

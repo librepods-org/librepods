@@ -27,6 +27,7 @@ use log::{debug, error};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
 
@@ -69,6 +70,8 @@ pub fn start_ui(
 
 pub struct App {
     window: Option<window::Id>,
+    // When `window` was last opened, so a tray double-click doesn't replace it twice.
+    window_opened_at: Option<Instant>,
     panes: pane_grid::State<Pane>,
     selected_tab: Tab,
     theme_state: combo_box::State<MyTheme>,
@@ -154,12 +157,10 @@ impl App {
         let (window, open_task) = if start_minimized {
             (None, Task::none())
         } else {
-            let mut settings = window::Settings::default();
-            settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
-            let (id, open) = window::open(settings);
+            let (id, open) = window::open(main_window_settings());
             (Some(id), open.map(Message::WindowOpened))
         };
+        let window_opened_at = window.map(|_| Instant::now());
 
         let app_settings = AppSettings::load();
         let selected_theme = app_settings.theme;
@@ -183,6 +184,7 @@ impl App {
         (
             Self {
                 window,
+                window_opened_at,
                 panes,
                 selected_tab: Tab::Device("none".to_string()),
                 theme_state: combo_box::State::new(vec![
@@ -284,15 +286,27 @@ impl App {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
                         debug!("Opening main window...");
-                        if let Some(window_id) = self.window {
-                            Task::batch(vec![window::gain_focus(window_id), wait_task])
-                        } else {
-                            let mut settings = window::Settings::default();
-                            settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
-                            let (new_window_task, open_task) = window::open(settings);
-                            self.window = Some(new_window_task);
-                            Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
+                        let just_opened = self
+                            .window_opened_at
+                            .is_some_and(|t| t.elapsed() < Duration::from_secs(1));
+                        match self.window {
+                            Some(window_id) if just_opened => {
+                                Task::batch(vec![window::gain_focus(window_id), wait_task])
+                            }
+                            // On Wayland an app can't un-minimize or raise its own window
+                            // (gain_focus is ignored without an activation token), so replace
+                            // an existing window with a new one, which the compositor shows.
+                            old_window => {
+                                let (new_window, open_task) = window::open(main_window_settings());
+                                self.window = Some(new_window);
+                                self.window_opened_at = Some(Instant::now());
+                                let close_task = old_window.map_or(Task::none(), window::close);
+                                Task::batch(vec![
+                                    close_task,
+                                    open_task.map(Message::WindowOpened),
+                                    wait_task,
+                                ])
+                            }
                         }
                     }
                     BluetoothUIMessage::DeviceConnected(mac) => {
@@ -1458,6 +1472,13 @@ impl App {
             close
         }
     }
+}
+
+fn main_window_settings() -> window::Settings {
+    let mut settings = window::Settings::default();
+    settings.min_size = Some(Size::new(400.0, 300.0));
+    settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+    settings
 }
 
 async fn wait_for_message(ui_rx: Arc<Mutex<UnboundedReceiver<BluetoothUIMessage>>>) -> Message {
