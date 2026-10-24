@@ -241,7 +241,7 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
                 let dy = y as f32 - center_y;
                 let dist = (dx * dx + dy * dy).sqrt();
                 if dist > inner_radius && dist <= outer_radius {
-                    img.put_pixel(x, y, Rgba([128u8, 128u8, 128u8, 255u8]));
+                    img.put_pixel(x, y, Rgba([85u8, 85u8, 85u8, 255u8]));
                 }
             }
         }
@@ -257,7 +257,7 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
                     let angle_from_top =
                         (angle + std::f32::consts::PI / 2.0).rem_euclid(2.0 * std::f32::consts::PI);
                     if angle_from_top <= percentage * 2.0 * std::f32::consts::PI {
-                        img.put_pixel(x, y, Rgba([0u8, 255u8, 0u8, 255u8]));
+                        img.put_pixel(x, y, Rgba([222u8, 222u8, 222u8, 255u8]));
                     }
                 }
             }
@@ -265,7 +265,7 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
         if charging {
             let emoji = "⚡";
             let scale = PxScale::from(48.0);
-            let color = Rgba([0u8, 255u8, 0u8, 255u8]);
+            let color = Rgba([222u8, 222u8, 222u8, 255u8]);
             let scaled_font = font.as_scaled(scale);
             let mut emoji_width = 0.0;
             for c in emoji.chars() {
@@ -280,7 +280,7 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
         // battery text
         let scale = PxScale::from(48.0);
         let color = if charging {
-            Rgba([0u8, 255u8, 0u8, 255u8])
+            Rgba([222u8, 222u8, 222u8, 255u8])
         } else {
             Rgba([255u8, 255u8, 255u8, 255u8])
         };
