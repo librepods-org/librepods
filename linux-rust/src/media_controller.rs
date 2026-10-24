@@ -318,7 +318,16 @@ impl MediaController {
 
         if current_device_index.is_none() {
             warn!("Device index not found, trying to get it.");
-            current_device_index = self.get_audio_device_index(&mac).await;
+            // Right after the AirPods connect, ear detection can arrive before PipeWire has
+            // created the bluez card, so give it a few seconds to show up.
+            for attempt in 0..10 {
+                current_device_index = self.get_audio_device_index(&mac).await;
+                if current_device_index.is_some() {
+                    break;
+                }
+                debug!("Bluetooth card not there yet (attempt {}), retrying", attempt + 1);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
             if let Some(idx) = current_device_index {
                 self.state.lock().await.device_index = Some(idx);
             } else {
