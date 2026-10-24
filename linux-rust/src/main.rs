@@ -78,6 +78,12 @@ fn main() -> iced::Result {
     }
     env_logger::init();
 
+    // Single instance: two copies fight over the AirPodsHiRes mic module (each unloads the
+    // other's as stale), so a second launch asks the running one to open its window and exits.
+    let Ok(_instance_lock) = acquire_instance_lock(args.start_minimized) else {
+        return Ok(());
+    };
+
     let (ui_tx, ui_rx) = unbounded_channel::<BluetoothUIMessage>();
 
     let device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>> =
@@ -129,6 +135,7 @@ async fn async_main(
 
     let (shutdown_tx, shutdown_rx) = unbounded_channel::<()>();
     spawn_shutdown_handler(device_managers.clone(), shutdown_rx);
+    spawn_open_window_handler(ui_tx.clone());
 
     let tray_handle = if args.no_tray {
         None
@@ -359,6 +366,67 @@ async fn async_main(
     loop {
         conn.process(std::time::Duration::from_millis(1000))?;
     }
+}
+
+/// Takes `$XDG_RUNTIME_DIR/librepods.lock` for the life of the process. `Ok(None)` means the
+/// lock file could not be opened, so we run without the check. `Err(())` means another
+/// instance holds it: unless we were started minimized (autostart), it is sent SIGUSR1 to
+/// open its window, and the caller should exit.
+fn acquire_instance_lock(start_minimized: bool) -> Result<Option<std::fs::File>, ()> {
+    use std::io::{Read, Write};
+
+    let dir = env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let path = std::path::Path::new(&dir).join("librepods.lock");
+    let mut file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("Could not open {}: {}; skipping single-instance check", path.display(), e);
+            return Ok(None);
+        }
+    };
+
+    match file.try_lock() {
+        Ok(()) => {
+            let _ = file.set_len(0);
+            let _ = write!(file, "{}", std::process::id());
+            Ok(Some(file))
+        }
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let mut pid = String::new();
+            let _ = file.read_to_string(&mut pid);
+            let pid = pid.trim();
+            if start_minimized {
+                info!("LibrePods is already running (pid {}); exiting", pid);
+            } else if !pid.is_empty() {
+                info!("LibrePods is already running (pid {}); asking it to open its window", pid);
+                let _ = std::process::Command::new("kill").args(["-USR1", pid]).status();
+            }
+            Err(())
+        }
+        Err(std::fs::TryLockError::Error(e)) => {
+            warn!("Could not lock {}: {}; skipping single-instance check", path.display(), e);
+            Ok(Some(file))
+        }
+    }
+}
+
+// SIGUSR1 (sent by a second launch, see acquire_instance_lock) opens the main window.
+fn spawn_open_window_handler(ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>) {
+    tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let Ok(mut sigusr1) = signal(SignalKind::user_defined1()) else {
+            return;
+        };
+        while sigusr1.recv().await.is_some() {
+            let _ = ui_tx.send(BluetoothUIMessage::OpenWindow);
+        }
+    });
 }
 
 fn spawn_shutdown_handler(
