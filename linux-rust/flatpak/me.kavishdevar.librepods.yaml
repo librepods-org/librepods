@@ -7,6 +7,14 @@ sdk-extensions:
 
 command: librepods
 
+# Hi-res microphone deps (verified present in org.freedesktop.Platform 25.08):
+#   - libavcodec.so.61 / libavutil.so.59 (FFmpeg 7.1) for AAC-ELD decode.
+#     ffmpeg-sys-next auto-detects this version at build time, so no pin needed.
+#   - libpulse-simple.so.0 for the PCM playback stream.
+# The virtual mic is created over the existing --socket=pulseaudio (module load
+# + playback are protocol calls; no extra finish-args, no pactl/pw-cat needed).
+# Build note: ffmpeg-sys-next runs bindgen, which needs libclang from the SDK.
+
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
