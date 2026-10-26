@@ -45,11 +45,58 @@ static tBTA_STATUS (*original_BTA_DmSetLocalDiRecord)(tSDP_DI_RECORD *, uint32_t
 
 static std::atomic<bool> enableSdpHook(false);
 
+// Offset of ertm_info.allowed_modes inside tL2C_CCB, derived at runtime from
+// the body of l2c_fcr_chk_chan_modes itself (see deriveAllowedModesOffset).
+// -1 means "not determined"; the hook then behaves exactly as before.
+static std::atomic<int> allowedModesOffset(-1);
+
+// L2CAP_FCR_CHAN_OPT_BASIC
+static constexpr uint8_t kL2capFcrChanOptBasic = 1;
+
+// l2c_fcr_chk_chan_modes() returns ccb->ertm_info.allowed_modes, so the LDRB
+// that produces its return value encodes that field's offset. Recovering it
+// this way keeps us correct across builds instead of hardcoding a constant.
+//
+// ARM64 LDRB (immediate, unsigned offset):
+//     0x39400000 | imm12 << 10 | Rn << 5 | Rt
+static int deriveAllowedModesOffset(const uint32_t *fn, size_t max_insns) {
+    int found = -1;
+    for (size_t i = 0; i < max_insns; ++i) {
+        uint32_t insn = fn[i];
+        if (insn == 0xD65F03C0u) break;             // RET
+        if ((insn & 0xFFC00000u) == 0x39400000u) {  // LDRB (immediate)
+            if ((insn & 0x1Fu) == 0u)               // Rt == w0, the return value
+                found = static_cast<int>((insn >> 10) & 0xFFFu);
+        }
+    }
+    return found;
+}
+
 uint8_t fake_l2c_fcr_chk_chan_modes(void *p_ccb) {
     LOGI("fake_l2c_fcr_chk_chan_modes called");
     uint8_t orig = 0;
     if (original_l2c_fcr_chk_chan_modes)
         orig = original_l2c_fcr_chk_chan_modes(p_ccb);
+
+    // Returning 1 is not sufficient on Qualcomm's libbluetooth_qti.so, which
+    // is a fork of an older Fluoride. There, the original has already masked
+    // ccb->ertm_info.allowed_modes down to 0 by the time it returns, and the
+    // caller (l2c_fcr_adj_our_req_options) reads that field directly rather
+    // than relying on our return value. It then calls l2cu_disconnect_chnl(),
+    // so the AACP channel is torn down before any config exchange and the
+    // socket fails with "read failed, socket might closed or timeout".
+    //
+    // AirPods speak AACP in Basic mode only, so re-permit Basic when the
+    // original rejected every mode. Channels that negotiate ERTM normally
+    // never reach this branch.
+    int off = allowedModesOffset.load(std::memory_order_relaxed);
+    if (orig == 0 && p_ccb && off >= 0) {
+        auto *allowed = reinterpret_cast<uint8_t *>(p_ccb) + off;
+        if (*allowed == 0) {
+            *allowed = kL2capFcrChanOptBasic;
+            LOGI("fake_l2c_fcr_chk_chan_modes: allowed_modes was 0, forced BASIC at +0x%x", off);
+        }
+    }
 
     LOGI("fake_l2c_fcr_chk_chan_modes: orig = %d, returning 1", orig);
     return 1;
@@ -386,6 +433,13 @@ static bool hookLibrary(const char *libname) {
 
     if (chk_offset) {
         void *target = reinterpret_cast<void *>(base + chk_offset);
+
+        // Derive the allowed_modes offset before hooking, while the prologue
+        // is still the original code.
+        int off = deriveAllowedModesOffset(reinterpret_cast<const uint32_t *>(target), 64);
+        allowedModesOffset.store(off, std::memory_order_relaxed);
+        LOGI("derived allowed_modes offset: 0x%x", off);
+
         hook_func(target, (void *) fake_l2c_fcr_chk_chan_modes,
                   (void **) &original_l2c_fcr_chk_chan_modes);
         LOGI("hooked chk");
