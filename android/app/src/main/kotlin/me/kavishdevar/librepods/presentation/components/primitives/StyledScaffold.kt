@@ -77,6 +77,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -86,6 +87,7 @@ import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.app.ColorStyle
 import me.kavishdevar.librepods.data.app.DesignSystem
 import me.kavishdevar.librepods.presentation.design.LocalDesign
@@ -343,7 +345,7 @@ fun StyledScaffold(
                                 ) {
                                     Icon(
                                         imageVector = LocalIcons.current.ArrowBack,
-                                        contentDescription = "Back",
+                                        contentDescription = stringResource(R.string.back),
                                         modifier = Modifier.size(16.dp),
                                         tint = MaterialTheme.colorScheme.onBackground,
                                     )

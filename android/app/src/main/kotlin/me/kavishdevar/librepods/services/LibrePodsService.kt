@@ -1058,7 +1058,7 @@ class LibrePodsService: Service() {
                         NotificationCompat.Builder(this, "device_${device.macAddress}")
                             .setSmallIcon(R.drawable.ic_airpods)
                             .setContentTitle(device.metadata.value.name)
-                            .setContentText(device.state.value.battery.joinToString(" ") { "${it.component.name[0]}: ${it.level}%" })
+                            .setContentText(device.state.value.battery.joinToString(" ") { "${batteryShortLabel(it.component)}: ${it.level}%" })
                             .setContentIntent(pendingIntent)
                             .setCategory(Notification.CATEGORY_STATUS)
                             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -1279,6 +1279,15 @@ class LibrePodsService: Service() {
         }
         appWidgetManager.updateAppWidget(widgetIds, remoteViews)
     }
+
+    private fun batteryShortLabel(component: BatteryComponent): String = getString(
+        when (component) {
+            BatteryComponent.LEFT -> R.string.battery_short_left
+            BatteryComponent.RIGHT -> R.string.battery_short_right
+            BatteryComponent.CASE -> R.string.battery_short_case
+            BatteryComponent.HEADSET -> R.string.battery_short_headset
+        }
+    )
 
     private fun processComponentStateChange(
         device: Device<*, *, *>,

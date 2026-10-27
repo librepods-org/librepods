@@ -358,9 +358,9 @@
     <string name="differentiate_without_color">Differentiate without color</string>
     <string name="fon">Font</string>
     <string name="font">Font</string>
-    <string name="inter">Inter</string>
-    <string name="roboto_flex_expressive">Roboto Flex (Expressive)</string>
-    <string name="roboto_flex">Roboto Flex</string>
+    <string name="inter" translatable="false">Inter</string>
+    <string name="roboto_flex_expressive" translatable="false">Roboto Flex (Expressive)</string>
+    <string name="roboto_flex" translatable="false">Roboto Flex</string>
     <string name="text_scale">Font scale</string>
     <string name="font_scale">Font scale</string>
     <string name="island_settings">Island settings</string>
@@ -418,7 +418,7 @@
     <string name="app_color">App color</string>
     <string name="wallpaper">Wallpaper</string>
     <string name="icons">Icons</string>
-    <string name="material_symbols">Material Symbols</string>
+    <string name="material_symbols" translatable="false">Material Symbols</string>
     <string name="blur_style">Blur style</string>
     <string name="blur_style_ultra_thin">Ultra thin</string>
     <string name="blur_style_thin">Thin</string>
@@ -460,4 +460,37 @@
     <string name="prox_music_label">Connected to another device playing media</string>
     <string name="prox_connect_settings">Configure automatic connections</string>
     <string name="require_both_buds_in_case">Require both AirPods in case to show</string>
+    <string name="done">Done</string>
+    <string name="enable">Enable</string>
+    <string name="close">Close</string>
+    <string name="send">Send</string>
+    <string name="clear_text">Clear text</string>
+    <string name="headset">Headset</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="unknown">Unknown</string>
+    <string name="velocity">Velocity</string>
+    <string name="test_head_gestures">Test Head Gestures</string>
+    <string name="horizontal">Horizontal</string>
+    <string name="vertical">Vertical</string>
+    <string name="enable_hearing_aid">Enable Hearing Aid</string>
+    <string name="enable_hearing_aid_description">Enabling Hearing Aid will disable Headphone Accommodation and Customized Transparency Mode.</string>
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="grant_all">Grant all</string>
+    <string name="widget_service_not_available">Service not available. Please ensure LibrePods is running and try again.</string>
+    <string name="widget_no_devices_found">No devices found. Please ensure a compatible device is paired with your phone and try again.</string>
+    <!-- one-letter component labels in the ongoing notification, e.g. "L: 80% R: 75%" -->
+    <string name="battery_short_left">L</string>
+    <string name="battery_short_right">R</string>
+    <string name="battery_short_case">C</string>
+    <string name="battery_short_headset">H</string>
+    <string name="head_gesture_yes_detected">\"Yes\" gesture detected.</string>
+    <string name="head_gesture_no_detected">\"No\" gesture detected.</string>
+    <string name="play_pause">Play/Pause</string>
+    <string name="start_stop">Start/Stop</string>
+    <string name="next">Next</string>
+    <string name="glass_effects">Glass effects</string>
+    <string name="reduce_transparency">Reduce transparency</string>
+    <string name="increase_contrast">Increase contrast</string>
+    <string name="show_borders">Show borders</string>
 </resources>

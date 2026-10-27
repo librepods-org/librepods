@@ -233,7 +233,7 @@ fun IslandSettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         StyledList(
-                            title = "Compact"
+                            title = stringResource(R.string.compact)
                         ) {
                             styledListItem(
                                 contentText = stringResource(R.string.size_and_position),

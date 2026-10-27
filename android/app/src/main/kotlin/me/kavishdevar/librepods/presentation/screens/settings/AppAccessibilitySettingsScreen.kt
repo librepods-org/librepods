@@ -90,20 +90,19 @@ fun AppAccessibilitySettingsScreen(
                 )
             }
 
-            // TODO: extract strings
-            StyledList(title = "Glass effects") {
+            StyledList(title = stringResource(R.string.glass_effects)) {
                 styledToggle(
-                    label = "Reduce transparency",
+                    label = stringResource(R.string.reduce_transparency),
                     checked = reduceTransparency,
                     onCheckedChange = onReduceTransparencyChanged
                 )
                 styledToggle(
-                    label = "Increase contrast",
+                    label = stringResource(R.string.increase_contrast),
                     checked = increaseContrast,
                     onCheckedChange = onIncreaseContrastChanged
                 )
                 styledToggle(
-                    label = "Show borders",
+                    label = stringResource(R.string.show_borders),
                     checked = showBorders,
                     onCheckedChange = onShowBordersChanged
                 )

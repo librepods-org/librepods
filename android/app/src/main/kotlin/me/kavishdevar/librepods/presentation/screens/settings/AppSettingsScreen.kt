@@ -483,7 +483,7 @@ fun AppSettingsScreen(
                ) {
                    Icon(
                        imageVector = LocalIcons.current.Close,
-                       contentDescription = "Close",
+                       contentDescription = stringResource(R.string.close),
                        tint = MaterialTheme.colorScheme.onBackground
                    )
                }
@@ -527,7 +527,7 @@ fun AppSettingsScreen(
                ) {
                    Icon(
                        imageVector = LocalIcons.current.Send,
-                       contentDescription = "Send",
+                       contentDescription = stringResource(R.string.send),
                        tint = if (subjectState.text.isNotEmpty() && descriptionState.text.isNotEmpty()) Color.White else Color.Gray
                    )
                }

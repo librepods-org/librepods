@@ -171,7 +171,7 @@ fun OnboardingScreen(
                                         ) {
                                             Icon(
                                                 Icons.AutoMirrored.Default.ArrowForward,
-                                                contentDescription = "forward",
+                                                contentDescription = stringResource(R.string.next),
                                                 modifier = Modifier.size(IconButtonDefaults.largeIconSize),
                                             )
                                         }

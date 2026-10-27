@@ -35,8 +35,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.app.DesignSystem
 import me.kavishdevar.librepods.presentation.design.LocalDesign
 import me.kavishdevar.librepods.presentation.icons.LocalIcons
@@ -148,7 +150,7 @@ fun StyledInputField(
                                     ) {
                                         Icon(
                                             imageVector = LocalIcons.current.CloseCircle,
-                                            contentDescription = "Clear text",
+                                            contentDescription = stringResource(R.string.clear_text),
                                             tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                                             modifier = Modifier.size(16.dp)
                                         )

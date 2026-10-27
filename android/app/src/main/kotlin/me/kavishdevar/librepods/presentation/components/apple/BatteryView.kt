@@ -81,7 +81,7 @@ fun BatteryView(
             ) {
                 Image(
                     bitmap = ImageBitmap.imageResource(primaryImageRes),
-                    contentDescription = "Headset",
+                    contentDescription = stringResource(R.string.headset),
                     modifier = Modifier.fillMaxWidth()
                 )
 

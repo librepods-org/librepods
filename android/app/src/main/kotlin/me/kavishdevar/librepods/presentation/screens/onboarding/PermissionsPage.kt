@@ -181,7 +181,7 @@ fun PermissionsPage(
                         ) {
                             Icon(
                                 imageVector = MaterialIcons.Bluetooth,
-                                contentDescription = "bluetooth",
+                                contentDescription = stringResource(R.string.bluetooth),
                                 modifier = Modifier.size(24.dp),
                                 tint = animatedBluetoothIconColor
                             )
@@ -228,7 +228,7 @@ fun PermissionsPage(
                         ) {
                             Icon(
                                 imageVector = MaterialIcons.Notifications,
-                                contentDescription = "notifications",
+                                contentDescription = stringResource(R.string.notifications),
                                 modifier = Modifier.size(24.dp),
                                 tint = animatedNotificationsIconColor
                             )
@@ -258,7 +258,7 @@ fun PermissionsPage(
                         ) {
                             Icon(
                                 imageVector = MaterialIcons.Call,
-                                contentDescription = "call",
+                                contentDescription = stringResource(R.string.phone),
                                 modifier = Modifier.size(24.dp),
                                 tint = animatedPhoneIconColor
                             )
@@ -292,7 +292,7 @@ fun PermissionsPage(
                     ) {
                         Icon(
                             imageVector = MaterialIcons.VitalSigns,
-                            contentDescription = "vital signs",
+                            contentDescription = stringResource(R.string.heart_rate),
                             modifier = Modifier.size(24.dp),
                             tint = animatedHealthConnectIconColor
                         )
@@ -330,7 +330,7 @@ fun PermissionsPage(
                     ) {
                         Icon(
                             imageVector = MaterialIcons.Overlay,
-                            contentDescription = "overlay",
+                            contentDescription = stringResource(R.string.permission_overlay),
                             modifier = Modifier.size(24.dp),
                             tint = animatedOverlayIconColor
                         )
@@ -353,7 +353,7 @@ fun PermissionsPage(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Default.ArrowBack,
-                        contentDescription = "backward",
+                        contentDescription = stringResource(R.string.back),
                         modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                     )
                 }
@@ -372,7 +372,7 @@ fun PermissionsPage(
                     enabled = !bluetoothPermissionsState.allPermissionsGranted || !notificationPermissionState.status.isGranted || !phonePermissionState.allPermissionsGranted || !canDrawOverlays.value
                 ) {
                     Text(
-                        text = "Grant all",
+                        text = stringResource(R.string.grant_all),
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -388,7 +388,7 @@ fun PermissionsPage(
                 ) {
                     Icon(
                         Icons.AutoMirrored.Default.ArrowForward,
-                        contentDescription = "forward",
+                        contentDescription = stringResource(R.string.next),
                         modifier = Modifier.size(IconButtonDefaults.mediumIconSize),
                     )
                 }
