@@ -47,7 +47,8 @@ build-appimage: build prepare bundle
     set -euo pipefail
     tmpdir="$(cat .appdir_path)"
     mkdir -p dist
-    appimagetool "$tmpdir" "dist/LibrePods-x86_64.AppImage"
+    # An absolute path: appimagetool's mksquashfs doesn't always run from this directory.
+    appimagetool "$tmpdir" "$PWD/dist/LibrePods-x86_64.AppImage"
     rm -rf "$tmpdir" .appdir_path
     echo "Done!"
 

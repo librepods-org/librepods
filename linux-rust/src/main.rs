@@ -1,14 +1,21 @@
+mod audio;
 mod bluetooth;
+mod control;
 mod devices;
 mod media_controller;
+mod prefs;
 mod ui;
 mod utils;
 
+use crate::bluetooth::battery_provider::BatteryReporter;
 use crate::bluetooth::discovery::{find_connected_airpods, find_other_managed_devices};
-use crate::bluetooth::le::start_le_monitor;
+use crate::bluetooth::le::{ConnectedAirPods, start_le_monitor};
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
+use crate::devices::registry::DeviceRegistry;
+use crate::prefs::{PrefsStore, load_app_settings, migrate_legacy_stem_control, save_app_settings};
 use crate::ui::messages::BluetoothUIMessage;
+use crate::ui::notifications::Notifier;
 use crate::ui::tray::MyTray;
 use crate::utils::{get_app_settings_path, get_devices_path};
 use bluer::{Address, InternalErrorKind};
@@ -17,7 +24,7 @@ use dbus::arg::{RefArg, Variant};
 use dbus::blocking::Connection;
 use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use dbus::message::MatchRule;
-use devices::airpods::AirPodsDevice;
+use devices::airpods::{AirPodsDevice, DeviceContext};
 use ksni::TrayMethods;
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -44,11 +51,19 @@ struct Args {
     )]
     le_debug: bool,
     #[arg(long, short = 'v', help = "Show application version and exit")]
-    version: bool
+    version: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Control the running LibrePods from a terminal.
+    Ctl(control::CtlArgs),
 }
 
 fn main() -> iced::Result {
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     if args.version {
         println!(
@@ -56,6 +71,11 @@ fn main() -> iced::Result {
             env!("CARGO_PKG_VERSION")
         );
         return Ok(());
+    }
+
+    // `librepods ctl …` only talks to the running app; it never starts one.
+    if let Some(Command::Ctl(ctl)) = args.command.take() {
+        std::process::exit(control::run_ctl(ctl));
     }
 
     let log_level = if args.debug { "debug" } else { "info" };
@@ -76,6 +96,13 @@ fn main() -> iced::Result {
         };
     }
     env_logger::init();
+
+    // A second launch (say, from the taskbar) shows the running LibrePods instead of starting
+    // another instance that would compete for the same AirPods.
+    if control::hand_over_to_running_instance(!args.start_minimized) {
+        return Ok(());
+    }
+    migrate_app_settings();
 
     let (ui_tx, ui_rx) = unbounded_channel::<BluetoothUIMessage>();
 
@@ -98,7 +125,12 @@ fn main() -> iced::Result {
                 .unwrap();
         });
 
-        ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+        ui::window::start_ui(
+            ui_rx,
+            args.start_minimized,
+            device_managers,
+            PrefsStore::at_default_path(),
+        )
     }
 }
 
@@ -142,6 +174,7 @@ async fn async_main(
             connected: false,
             listening_mode: None,
             allow_off_option: None,
+            model: None,
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
@@ -153,13 +186,27 @@ async fn async_main(
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
 
-    let le_tray_clone = tray_handle.clone();
-    tokio::spawn(async move {
-        info!("Starting LE monitor...");
-        if let Err(e) = start_le_monitor(le_tray_clone).await {
-            log::error!("LE monitor error: {}", e);
-        }
-    });
+    let airpods: DeviceRegistry<AirPodsDevice> = DeviceRegistry::new();
+    // Whether any AirPods are connected over Bluetooth (BlueZ Device1.Connected); the BLE
+    // scanner only scans actively when none are, so scanning never competes with their audio.
+    let (aacp_connected_tx, aacp_connected_rx) = tokio::sync::watch::channel(false);
+    let aacp_connected = Arc::new(aacp_connected_tx);
+    let connected_airpods = Arc::new(std::sync::Mutex::new(ConnectedAirPods::default()));
+    let battery_reporter = BatteryReporter::register().await;
+    let device_context = DeviceContext {
+        tray_handle: tray_handle.clone(),
+        ui_tx: ui_tx.clone(),
+        battery_reporter,
+        prefs: PrefsStore::at_default_path(),
+        notifier: Notifier::connect().await,
+    };
+    // Kept for the life of the app: `librepods ctl` and second launches talk to it.
+    let _control = control::serve(
+        device_managers.clone(),
+        device_context.prefs.clone(),
+        Some(ui_tx.clone()),
+    )
+    .await;
 
     info!("Listening for new connections.");
 
@@ -171,27 +218,33 @@ async fn async_main(
                 .await?
                 .unwrap_or_else(|| "Unknown".to_string());
             info!("Found connected AirPods: {}, initializing.", name);
-            let airpods_device =
-                AirPodsDevice::new(device.address(), tray_handle.clone(), ui_tx.clone()).await;
-
-            let mut managers = device_managers.write().await;
-            // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
-            let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
-            managers
-                .entry(device.address().to_string())
-                .or_insert(dev_managers)
-                .set_aacp(airpods_device.aacp_manager);
-            drop(managers);
-            if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceConnected(
-                device.address().to_string(),
-            )) {
-                warn!("Failed to send DeviceConnected UI message: {:?}", e);
-            }
+            set_airpods_connected(
+                &connected_airpods,
+                &aacp_connected,
+                &device.address().to_string(),
+                true,
+            );
+            connect_airpods(
+                airpods.clone(),
+                device.address(),
+                device_context.clone(),
+                device_managers.clone(),
+            )
+            .await;
         }
         Err(_) => {
             info!("No connected AirPods found.");
         }
     }
+
+    // Started after the initial check so it never scans while already-connected AirPods come up.
+    let le_tray_clone = tray_handle.clone();
+    tokio::spawn(async move {
+        info!("Starting LE monitor...");
+        if let Err(e) = start_le_monitor(le_tray_clone, aacp_connected_rx).await {
+            log::error!("LE monitor error: {}", e);
+        }
+    });
 
     match find_other_managed_devices(&adapter, managed_devices_mac.clone()).await {
         Ok(devices) => {
@@ -201,7 +254,11 @@ async fn async_main(
                     "Found connected managed device: {}, initializing.",
                     addr_str
                 );
-                let type_ = devices_list.get(&addr_str).unwrap().type_.clone();
+                let Some(device_data) = devices_list.get(&addr_str) else {
+                    warn!("No saved entry for managed device {}, skipping", addr_str);
+                    continue;
+                };
+                let type_ = device_data.type_.clone();
                 let ui_tx_clone = ui_tx.clone();
                 let device_managers = device_managers.clone();
                 tokio::spawn(async move {
@@ -273,15 +330,25 @@ async fn async_main(
         let Ok(addr) = addr_str.parse::<Address>() else {
             return true;
         };
-        if is_connected==0 {
+        if is_connected == 0 {
             if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceDisconnected(addr_str.clone())) {
-                warn!("Failed to send DeviceConnected UI message: {:?}", e);
+                warn!("Failed to send DeviceDisconnected UI message: {:?}", e);
             }
-            return true
+            set_airpods_connected(&connected_airpods, &aacp_connected, &addr_str, false);
+            tokio::spawn(disconnect_airpods(
+                airpods.clone(),
+                addr_str.clone(),
+                tray_handle.clone(),
+            ));
+            return true;
         }
         if managed_devices_mac.contains(&addr_str) {
             info!("Managed device connected: {}, initializing", addr_str);
-            let type_ = devices_list.get(&addr_str).unwrap().type_.clone();
+            let Some(device_data) = devices_list.get(&addr_str) else {
+                warn!("No saved entry for managed device {}, skipping", addr_str);
+                return true;
+            };
+            let type_ = device_data.type_.clone();
             if type_ == devices::enums::DeviceType::Nothing {
                 let ui_tx_clone = ui_tx.clone();
                 let device_managers = device_managers.clone();
@@ -309,28 +376,141 @@ async fn async_main(
             .get::<String>("org.bluez.Device1", "Name")
             .unwrap_or_else(|_| "Unknown".to_string());
         info!("AirPods connected: {}, initializing", name);
-        let handle_clone = tray_handle.clone();
-        let ui_tx_clone = ui_tx.clone();
-        let device_managers = device_managers.clone();
-        tokio::spawn(async move {
-            let airpods_device = AirPodsDevice::new(addr, handle_clone, ui_tx_clone.clone()).await;
-            let mut managers = device_managers.write().await;
-            // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
-            let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
-            managers
-                .entry(addr_str.clone())
-                .or_insert(dev_managers)
-                .set_aacp(airpods_device.aacp_manager);
-            drop(managers);
-            if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())) {
-                warn!("Failed to send DeviceConnected UI message: {:?}", e);
-            }
-        });
+        set_airpods_connected(&connected_airpods, &aacp_connected, &addr_str, true);
+        tokio::spawn(connect_airpods(
+            airpods.clone(),
+            addr,
+            device_context.clone(),
+            device_managers.clone(),
+        ));
         true
     })?;
 
     info!("Listening for Bluetooth connections via D-Bus...");
     loop {
         conn.process(std::time::Duration::from_millis(1000))?;
+    }
+}
+
+/// Brings up the single AirPods instance for `addr`, unless one is already live or connecting.
+async fn connect_airpods(
+    registry: DeviceRegistry<AirPodsDevice>,
+    addr: Address,
+    ctx: DeviceContext,
+    device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+) {
+    let mac = addr.to_string();
+    let addr_str = mac.clone();
+    registry
+        .connect_with(&mac, move || async move {
+            let ui_tx = ctx.ui_tx.clone();
+            let device = AirPodsDevice::new(addr, ctx).await?;
+            let mut managers = device_managers.write().await;
+            // let dev_managers = DeviceManagers::with_both(device.aacp_manager.clone(), device.att_manager.clone());
+            managers
+                .entry(addr_str.clone())
+                .or_insert_with(|| DeviceManagers::with_aacp(device.aacp_manager.clone()))
+                .set_aacp(device.aacp_manager.clone());
+            drop(managers);
+            if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceConnected(addr_str)) {
+                warn!("Failed to send DeviceConnected UI message: {:?}", e);
+            }
+            Some(device)
+        })
+        .await;
+}
+
+/// Tears down the AirPods instance for `mac` and clears its state from the tray.
+async fn disconnect_airpods(
+    registry: DeviceRegistry<AirPodsDevice>,
+    mac: String,
+    tray_handle: Option<ksni::Handle<MyTray>>,
+) {
+    if !registry.disconnect(&mac).await {
+        return;
+    }
+    if let Some(handle) = tray_handle {
+        handle
+            .update(|tray: &mut MyTray| {
+                tray.connected = false;
+                tray.battery_headphone = None;
+                tray.battery_headphone_status = None;
+                tray.battery_l = None;
+                tray.battery_l_status = None;
+                tray.battery_r = None;
+                tray.battery_r_status = None;
+                tray.battery_c = None;
+                tray.battery_c_status = None;
+                tray.listening_mode = None;
+                tray.allow_off_option = None;
+                tray.conversation_detect_enabled = None;
+                tray.command_tx = None;
+                tray.model = None;
+            })
+            .await;
+    }
+}
+
+/// Moves the old global stem-press setting into each known AirPods' own stem actions, once.
+fn migrate_app_settings() {
+    let path = get_app_settings_path();
+    let mut settings = load_app_settings(&path);
+    let airpods_macs: Vec<String> = std::fs::read_to_string(get_devices_path())
+        .ok()
+        .and_then(|json| serde_json::from_str::<HashMap<String, DeviceData>>(&json).ok())
+        .map(|devices| {
+            devices
+                .into_iter()
+                .filter(|(_, data)| data.type_ == devices::enums::DeviceType::AirPods)
+                .map(|(mac, _)| mac)
+                .collect()
+        })
+        .unwrap_or_default();
+    if migrate_legacy_stem_control(&mut settings, &PrefsStore::at_default_path(), &airpods_macs)
+        && let Err(e) = save_app_settings(&path, &settings)
+    {
+        warn!("Could not save migrated app settings: {}", e);
+    }
+}
+
+/// Records one AirPods pair's Bluetooth connection and tells the BLE scanner whether any are up.
+fn set_airpods_connected(
+    connected_airpods: &std::sync::Mutex<ConnectedAirPods>,
+    aacp_connected: &tokio::sync::watch::Sender<bool>,
+    mac: &str,
+    connected: bool,
+) {
+    let any = connected_airpods
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .set(mac, connected);
+    aacp_connected.send_replace(any);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ctl_subcommand_parses() {
+        let args = Args::try_parse_from([
+            "librepods",
+            "ctl",
+            "mode",
+            "anc",
+            "--mac",
+            "AA:BB:CC:DD:EE:01",
+        ])
+        .unwrap();
+        match args.command {
+            Some(Command::Ctl(ctl)) => {
+                assert_eq!(ctl.mac.as_deref(), Some("AA:BB:CC:DD:EE:01"));
+                assert!(matches!(ctl.command, control::CtlCommand::Mode { ref mode } if mode == "anc"));
+            }
+            _ => panic!("expected the ctl subcommand"),
+        }
+        let plain = Args::try_parse_from(["librepods", "--start-minimized"]).unwrap();
+        assert!(plain.command.is_none());
+        assert!(plain.start_minimized);
     }
 }

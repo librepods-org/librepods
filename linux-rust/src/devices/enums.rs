@@ -1,4 +1,10 @@
-use crate::bluetooth::aacp::BatteryInfo;
+use crate::bluetooth::aacp::{
+    AACPEvent, AACPManagerState, BatteryInfo, ControlCommandIdentifiers,
+};
+use crate::bluetooth::aacp_parse::{Accommodation, CustomEq};
+use crate::devices::models::AirPodsModel;
+use crate::prefs::DevicePrefs;
+use std::collections::HashMap;
 use crate::devices::airpods::AirPodsInformation;
 use crate::devices::nothing::NothingInformation;
 use iced::widget::combo_box;
@@ -49,53 +55,67 @@ impl Display for DeviceState {
     }
 }
 
+/// What the AirPods page shows: the AirPods' reported settings plus this app's own preferences.
 #[derive(Clone, Debug)]
 pub struct AirPodsState {
     pub device_name: String,
-    pub noise_control_mode: AirPodsNoiseControlMode,
-    pub noise_control_state: combo_box::State<AirPodsNoiseControlMode>,
-    pub conversation_awareness_enabled: bool,
-    pub personalized_volume_enabled: bool,
-    pub allow_off_mode: bool,
+    /// The name field's text, sent only on submit.
+    pub name_draft: String,
     pub battery: Vec<BatteryInfo>,
+    /// Every control value the AirPods reported (or the user just set), keyed by identifier.
+    pub controls: HashMap<ControlCommandIdentifiers, Vec<u8>>,
+    pub model: Option<AirPodsModel>,
+    pub firmware_major: Option<u32>,
+    pub custom_eq: Option<CustomEq>,
+    pub accommodation: Option<Accommodation>,
+    pub prefs: DevicePrefs,
+    pub show_advanced: bool,
 }
 
-#[derive(Clone, Debug)]
-pub enum AirPodsNoiseControlMode {
-    Off,
-    NoiseCancellation,
-    Transparency,
-    Adaptive,
-}
-
-impl Display for AirPodsNoiseControlMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AirPodsNoiseControlMode::Off => write!(f, "Off"),
-            AirPodsNoiseControlMode::NoiseCancellation => write!(f, "Noise Cancellation"),
-            AirPodsNoiseControlMode::Transparency => write!(f, "Transparency"),
-            AirPodsNoiseControlMode::Adaptive => write!(f, "Adaptive"),
+impl AirPodsState {
+    pub fn from_aacp(state: &AACPManagerState, name: String, prefs: DevicePrefs) -> Self {
+        AirPodsState {
+            device_name: name.clone(),
+            name_draft: name,
+            battery: state.battery_info.clone(),
+            controls: state
+                .control_command_status_list
+                .iter()
+                .map(|status| (status.identifier, status.value.clone()))
+                .collect(),
+            model: state.model,
+            firmware_major: state.firmware_major,
+            custom_eq: state.custom_eq,
+            accommodation: state.accommodation,
+            prefs,
+            show_advanced: false,
         }
     }
-}
 
-impl AirPodsNoiseControlMode {
-    pub fn from_byte(value: &u8) -> Self {
-        match value {
-            0x01 => AirPodsNoiseControlMode::Off,
-            0x02 => AirPodsNoiseControlMode::NoiseCancellation,
-            0x03 => AirPodsNoiseControlMode::Transparency,
-            0x04 => AirPodsNoiseControlMode::Adaptive,
-            _ => AirPodsNoiseControlMode::Off,
+    pub fn apply_event(&mut self, event: &AACPEvent) {
+        match event {
+            AACPEvent::ControlCommand(status) => {
+                self.controls.insert(status.identifier, status.value.clone());
+            }
+            AACPEvent::BatteryInfo(battery) => self.battery = battery.clone(),
+            AACPEvent::DeviceInfo {
+                model,
+                firmware_major,
+            } => {
+                self.model = Some(*model);
+                self.firmware_major = *firmware_major;
+            }
+            AACPEvent::CustomEq(eq) => self.custom_eq = Some(*eq),
+            AACPEvent::HeadphoneAccommodation(accommodation) => {
+                self.accommodation = Some(*accommodation)
+            }
+            _ => {}
         }
     }
-    pub fn to_byte(&self) -> u8 {
-        match self {
-            AirPodsNoiseControlMode::Off => 0x01,
-            AirPodsNoiseControlMode::NoiseCancellation => 0x02,
-            AirPodsNoiseControlMode::Transparency => 0x03,
-            AirPodsNoiseControlMode::Adaptive => 0x04,
-        }
+
+    /// The model, or the permissive `Unknown` until the Information packet arrives.
+    pub fn model_or_unknown(&self) -> AirPodsModel {
+        self.model.unwrap_or(AirPodsModel::Unknown)
     }
 }
 
@@ -148,5 +168,63 @@ impl NothingAncMode {
             NothingAncMode::Transparency => 0x07,
             NothingAncMode::Off => 0x05,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bluetooth::aacp::{
+        AACPEvent, AACPManagerState, BatteryComponent, BatteryStatus, ControlCommandIdentifiers as Id,
+        ControlCommandStatus,
+    };
+    use crate::bluetooth::aacp_parse::CustomEq;
+    use crate::devices::models::AirPodsModel;
+    use crate::prefs::DevicePrefs;
+
+    fn status(identifier: Id, value: &[u8]) -> ControlCommandStatus {
+        ControlCommandStatus {
+            identifier,
+            value: value.to_vec(),
+        }
+    }
+
+    #[test]
+    fn state_from_aacp_and_events() {
+        let mut aacp = AACPManagerState::new();
+        aacp.control_command_status_list = vec![
+            status(Id::ListeningMode, &[0x02]),
+            status(Id::ChimeVolume, &[0x50, 0x50]),
+        ];
+        let mut state =
+            AirPodsState::from_aacp(&aacp, "Test AirPods Pro".to_string(), DevicePrefs::default());
+        assert_eq!(state.controls.get(&Id::ListeningMode), Some(&vec![0x02]));
+        assert_eq!(state.controls.get(&Id::ChimeVolume), Some(&vec![0x50, 0x50]));
+        assert_eq!(state.device_name, "Test AirPods Pro");
+        assert_eq!(state.name_draft, "Test AirPods Pro");
+        assert_eq!(state.model, None);
+        assert_eq!(state.model_or_unknown(), AirPodsModel::Unknown);
+
+        state.apply_event(&AACPEvent::ControlCommand(status(Id::ListeningMode, &[0x03])));
+        assert_eq!(state.controls.get(&Id::ListeningMode), Some(&vec![0x03]));
+
+        state.apply_event(&AACPEvent::DeviceInfo {
+            model: AirPodsModel::AirPodsPro1,
+            firmware_major: Some(6),
+        });
+        assert_eq!(state.model, Some(AirPodsModel::AirPodsPro1));
+        assert_eq!(state.firmware_major, Some(6));
+
+        let eq = CustomEq { enabled: true, low: 40, mid: 50, high: 60 };
+        state.apply_event(&AACPEvent::CustomEq(eq));
+        assert_eq!(state.custom_eq, Some(eq));
+
+        let battery = vec![BatteryInfo {
+            component: BatteryComponent::Left,
+            level: 94,
+            status: BatteryStatus::NotCharging,
+        }];
+        state.apply_event(&AACPEvent::BatteryInfo(battery.clone()));
+        assert_eq!(state.battery, battery);
     }
 }

@@ -2421,7 +2421,7 @@ dependencies = [
 
 [[package]]
 name = "librepods"
-version = "0.1.0"
+version = "0.2.0-alpha.6"
 dependencies = [
  "ab_glyph",
  "aes",
@@ -2439,8 +2439,10 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "uuid",
+ "zbus",
 ]
 
 [[package]]

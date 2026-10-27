@@ -5,6 +5,9 @@ use ksni::{Icon, ToolTip};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::bluetooth::aacp::{BatteryStatus, ControlCommandIdentifiers};
+use crate::devices::models::{AirPodsModel, Capability};
+use crate::devices::settings::{ListeningMode, listening_modes};
+use crate::prefs::load_app_settings;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::utils::get_app_settings_path;
 
@@ -22,8 +25,56 @@ pub struct MyTray {
     pub connected: bool,
     pub listening_mode: Option<u8>,
     pub allow_off_option: Option<u8>,
+    /// Known once the AirPods send their Information packet.
+    pub model: Option<AirPodsModel>,
     pub command_tx: Option<UnboundedSender<(ControlCommandIdentifiers, Vec<u8>)>>,
     pub ui_tx: Option<UnboundedSender<BluetoothUIMessage>>,
+}
+
+/// The listening modes the tray offers for these AirPods (the permissive set until the model
+/// is known).
+pub fn tray_modes(model: Option<AirPodsModel>, allow_off: Option<u8>) -> Vec<ListeningMode> {
+    listening_modes(
+        model.unwrap_or(AirPodsModel::Unknown),
+        allow_off.map(|value| value == 0x01),
+    )
+}
+
+impl MyTray {
+    /// "L: 94% R: 95%⚡ C: -", as in the tooltip.
+    fn battery_line(&self) -> String {
+        let format_component =
+            |label: &str, level: Option<u8>, status: Option<BatteryStatus>| -> String {
+                match status {
+                    Some(BatteryStatus::Disconnected) => format!("{}: -", label),
+                    _ => {
+                        let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
+                        let suffix = if status == Some(BatteryStatus::Charging) {
+                            "⚡"
+                        } else {
+                            ""
+                        };
+                        format!("{}: {}{}", label, pct, suffix)
+                    }
+                }
+            };
+        if let Some(level) = self.battery_headphone {
+            return format_component("AirPods", Some(level), self.battery_headphone_status);
+        }
+        let l = format_component("L", self.battery_l, self.battery_l_status);
+        let r = format_component("R", self.battery_r, self.battery_r_status);
+        let c = format_component("C", self.battery_c, self.battery_c_status);
+        format!("{} {} {}", l, r, c)
+    }
+
+    /// Conversation Detection is offered when the model supports it, or (before the model is
+    /// known) once the AirPods have reported the setting.
+    fn shows_conversation_detection(&self) -> bool {
+        match self.model {
+            Some(model) => model.has(Capability::ConversationAwareness),
+            None => self.conversation_detect_enabled.is_some(),
+        }
+    }
 }
 
 impl ksni::Tray for MyTray {
@@ -66,69 +117,40 @@ impl ksni::Tray for MyTray {
         };
         let any_bud_charging = matches!(self.battery_l_status, Some(BatteryStatus::Charging))
             || matches!(self.battery_r_status, Some(BatteryStatus::Charging));
-        let app_settings_path = get_app_settings_path();
-        let settings = std::fs::read_to_string(&app_settings_path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
-        let text_mode = settings
-            .clone()
-            .and_then(|v| v.get("tray_text_mode").cloned())
-            .and_then(|ttm| serde_json::from_value(ttm).ok())
-            .unwrap_or(false);
+        let text_mode = load_app_settings(&get_app_settings_path()).tray_text_mode;
         let icon = generate_icon(&text, text_mode, any_bud_charging);
         vec![icon]
     }
     fn tool_tip(&self) -> ToolTip {
-        let format_component =
-            |label: &str, level: Option<u8>, status: Option<BatteryStatus>| -> String {
-                match status {
-                    Some(BatteryStatus::Disconnected) => format!("{}: -", label),
-                    _ => {
-                        let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
-                        let suffix = if status == Some(BatteryStatus::Charging) {
-                            "⚡"
-                        } else {
-                            ""
-                        };
-                        format!("{}: {}{}", label, pct, suffix)
-                    }
-                }
-            };
-
-        let l = format_component("L", self.battery_l, self.battery_l_status);
-        let r = format_component("R", self.battery_r, self.battery_r_status);
-        let c = format_component("C", self.battery_c, self.battery_c_status);
-
         ToolTip {
             icon_name: "".to_string(),
             icon_pixmap: vec![],
             title: "Battery Status".to_string(),
-            description: format!("{} {} {}", l, r, c),
+            description: self.battery_line(),
         }
     }
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::*;
-        let allow_off = self.allow_off_option == Some(0x01);
-        let options = if allow_off {
-            vec![
-                ("Off", 0x01),
-                ("Noise Cancellation", 0x02),
-                ("Transparency", 0x03),
-                ("Adaptive", 0x04),
-            ]
-        } else {
-            vec![
-                ("Noise Cancellation", 0x02),
-                ("Transparency", 0x03),
-                ("Adaptive", 0x04),
-            ]
-        };
+        let options: Vec<(&'static str, u8)> = tray_modes(self.model, self.allow_off_option)
+            .into_iter()
+            .map(|mode| (mode.label(), mode.byte()))
+            .collect();
         let selected = self
             .listening_mode
             .and_then(|mode| options.iter().position(|&(_, val)| val == mode))
             .unwrap_or(0);
-        let options_clone = options.clone();
-        vec![
+        let mut items: Vec<ksni::MenuItem<Self>> = Vec::new();
+        if self.connected {
+            items.push(
+                StandardItem {
+                    label: self.battery_line(),
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items.push(
             StandardItem {
                 label: "Open Window".into(),
                 icon_name: "window-new".into(),
@@ -140,48 +162,58 @@ impl ksni::Tray for MyTray {
                 ..Default::default()
             }
             .into(),
-            RadioGroup {
-                selected,
-                select: Box::new(move |this: &mut Self, current| {
-                    if let Some(tx) = &this.command_tx {
-                        let value = options_clone
-                            .get(current)
-                            .map(|&(_, val)| val)
-                            .unwrap_or(0x02);
-                        let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
-                    }
-                }),
-                options: options
-                    .into_iter()
-                    .map(|(label, _)| RadioItem {
-                        label: label.into(),
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            }
-            .into(),
-            MenuItem::Separator,
-            CheckmarkItem {
-                label: "Conversation Detection".into(),
-                checked: self.conversation_detect_enabled.unwrap_or(false),
-                enabled: self.conversation_detect_enabled.is_some(),
-                activate: Box::new(|this: &mut Self| {
-                    if let Some(tx) = &this.command_tx
-                        && let Some(is_enabled) = this.conversation_detect_enabled
-                    {
-                        let new_state = !is_enabled;
-                        let value = if !new_state { 0x02 } else { 0x01 };
-                        let _ = tx.send((
-                            ControlCommandIdentifiers::ConversationDetectConfig,
-                            vec![value],
-                        ));
-                        this.conversation_detect_enabled = Some(new_state);
-                    }
-                }),
-                ..Default::default()
-            }
-            .into(),
+        );
+        if !options.is_empty() {
+            let options_clone = options.clone();
+            items.push(
+                RadioGroup {
+                    selected,
+                    select: Box::new(move |this: &mut Self, current| {
+                        if let Some(tx) = &this.command_tx
+                            && let Some(&(_, value)) = options_clone.get(current)
+                        {
+                            let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+                        }
+                    }),
+                    options: options
+                        .into_iter()
+                        .map(|(label, _)| RadioItem {
+                            label: label.into(),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        if self.shows_conversation_detection() {
+            items.push(MenuItem::Separator);
+            items.push(
+                CheckmarkItem {
+                    label: "Conversation Detection".into(),
+                    checked: self.conversation_detect_enabled.unwrap_or(false),
+                    enabled: self.conversation_detect_enabled.is_some(),
+                    activate: Box::new(|this: &mut Self| {
+                        if let Some(tx) = &this.command_tx
+                            && let Some(is_enabled) = this.conversation_detect_enabled
+                        {
+                            let new_state = !is_enabled;
+                            let value = if !new_state { 0x02 } else { 0x01 };
+                            let _ = tx.send((
+                                ControlCommandIdentifiers::ConversationDetectConfig,
+                                vec![value],
+                            ));
+                            this.conversation_detect_enabled = Some(new_state);
+                        }
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items.push(MenuItem::Separator);
+        items.push(
             StandardItem {
                 label: "Exit".into(),
                 icon_name: "application-exit".into(),
@@ -189,7 +221,8 @@ impl ksni::Tray for MyTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        );
+        items
     }
 }
 
@@ -297,5 +330,30 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
         width: width as i32,
         height: height as i32,
         data,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::devices::models::AirPodsModel;
+    use crate::devices::settings::ListeningMode::*;
+
+    #[test]
+    fn tray_modes_follow_model() {
+        assert_eq!(tray_modes(None, None), vec![NoiseCancellation, Transparency, Adaptive]);
+        assert_eq!(
+            tray_modes(Some(AirPodsModel::AirPodsPro1), None),
+            vec![Off, NoiseCancellation, Transparency]
+        );
+        assert_eq!(
+            tray_modes(Some(AirPodsModel::AirPodsPro2UsbC), Some(0x01)),
+            vec![Off, NoiseCancellation, Transparency, Adaptive]
+        );
+        assert_eq!(
+            tray_modes(Some(AirPodsModel::AirPodsPro2UsbC), Some(0x02)),
+            vec![NoiseCancellation, Transparency, Adaptive]
+        );
+        assert!(tray_modes(Some(AirPodsModel::AirPods2), Some(0x01)).is_empty());
     }
 }
