@@ -817,19 +817,22 @@ class LibrePodsService: Service() {
                         when (state.conversationAwarenessState) {
                             1 -> {
                                 MediaController.startSpeaking()
-                                MediaController.setVolume(
+                                MediaController.duckVolume(
                                     deviceSettings.conversationAwarenessVolume.toInt()
                                 )
                             }
 
                             2 -> {
-                                MediaController.setVolume(
+                                // 1 and 2 both mean "started speaking"; only the first one records
+                                // the volume to come back to, so a sequence starting at 2 still restores
+                                MediaController.startSpeaking()
+                                MediaController.duckVolume(
                                     deviceSettings.conversationAwarenessReducedVolume.toInt()
                                 )
                             }
 
                             3 -> {
-                                MediaController.setVolume(
+                                MediaController.duckVolume(
                                     deviceSettings.conversationAwarenessVolume.toInt()
                                 )
                             }
