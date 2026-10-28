@@ -42,11 +42,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -94,14 +97,16 @@ fun IslandContent(
 ) {
     val density = LocalDensity.current
 
-    val animWidth = remember { Animatable(0f) }
+    // Starts as a dot below the camera and grows out of it.
+    val animWidth = remember { Animatable(islandSettings.compactHeight) }
     val animHeight = remember { Animatable(islandSettings.compactHeight) }
-    val animRadius = remember { Animatable(0f) }
+    val animRadius = remember { Animatable(islandSettings.compactBorderRadius) }
     val animBorderWidth = remember { Animatable(0f) }
 
+    // Opens with a slight overshoot like the iOS island, and closes without one.
     val springSpec = spring<Float>(
-        dampingRatio = if (islandState == IslandState.CLOSE) Spring.DampingRatioNoBouncy else Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessLow
+        dampingRatio = if (islandState == IslandState.CLOSE) Spring.DampingRatioNoBouncy else 0.78f,
+        stiffness = if (islandState == IslandState.CLOSE) Spring.StiffnessMedium else Spring.StiffnessMediumLow
     )
 
     LaunchedEffect(
@@ -118,7 +123,7 @@ fun IslandContent(
         val (targetW, targetH) = when (islandState) {
             IslandState.EXPANDED -> islandSettings.expandedWidth to islandSettings.expandedHeight
             IslandState.COMPACT -> islandSettings.compactWidth to islandSettings.compactHeight
-            IslandState.CLOSE -> 0f to islandSettings.compactHeight
+            IslandState.CLOSE -> islandSettings.compactHeight to islandSettings.compactHeight
         }
 
         val targetRadius = when (islandState) {
@@ -150,6 +155,13 @@ fun IslandContent(
 
     val scale = remember { Animatable(0f) }
 
+    // Content blurs in once the island has room for it, and blurs out before it shrinks.
+    val contentReveal = remember { Animatable(0f) }
+    LaunchedEffect(islandState) {
+        if (islandState == IslandState.CLOSE) contentReveal.animateTo(0f, tween(120))
+        else contentReveal.animateTo(1f, tween(250, delayMillis = 90))
+    }
+
     val widthDp = with(density) { animWidth.value.coerceAtLeast(1f).toDp() * (1f + scale.value * if (islandState == IslandState.EXPANDED) 0.01f else 0.1f) }
     val heightDp = with(density) { animHeight.value.coerceAtLeast(1f).toDp() * (1f + scale.value * if (islandState == IslandState.EXPANDED) 0.01f else 0.05f) }
     val borderWidthDp = with(density) { animBorderWidth.value.toDp() }
@@ -171,7 +183,8 @@ fun IslandContent(
             IslandState.COMPACT -> Color.Black
             IslandState.CLOSE -> backgroundColor.copy(alpha = 0f)
         },
-        animationSpec = tween(100)
+        // When closing, stay visible while shrinking and fade out at the end.
+        animationSpec = if (islandState == IslandState.CLOSE) tween(150, delayMillis = 200) else tween(100)
     )
 
     val textColor = if (islandSettings.expandedBackgroundColor is OverlayBackgroundColor.Default) Color.White else contentColorFor(backgroundColor)
@@ -195,7 +208,7 @@ fun IslandContent(
 
     val listeningModeControlHeight = with(density) { if (islandSettings.showListeningModeControl) 72.dp.toPx() else 0f }
 
-    val bottomAlign = islandSettings.expandedHeight - listeningModeControlHeight > 200f &&
+    val bottomAlign = islandSettings.expandedHeight - listeningModeControlHeight > 280f &&
         islandSettings.offsetY < 150f
 
     val animationCoroutineScope = rememberCoroutineScope()
@@ -240,6 +253,8 @@ fun IslandContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .graphicsLayer { alpha = contentReveal.value }
+                    .blur(10.dp * (1f - contentReveal.value), BlurredEdgeTreatment.Unbounded)
                     .pointerInput(islandState) {
                         detectTapGestures(
                             onPress = {
@@ -289,6 +304,8 @@ fun IslandContent(
                 verticalAlignment = if (bottomAlign && islandState == IslandState.EXPANDED) Alignment.Bottom else Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // In the expanded island the icon and battery ring fill its height, as on iOS.
+                val accessoryHeightFraction = if (islandState == IslandState.EXPANDED) 1f else 0.8f
                 val useMonochrome = when (islandState) {
                     IslandState.EXPANDED -> islandSettings.expandedUseMonochrome
                     IslandState.COMPACT -> islandSettings.compactUseMonochrome
@@ -302,7 +319,7 @@ fun IslandContent(
                             imageVector = LocalIcons.current.AirPodsPro3,
                             contentDescription = null,
                             tint = textColor,
-                            modifier = Modifier.fillMaxHeight(0.8f)
+                            modifier = Modifier.fillMaxHeight(accessoryHeightFraction)
                         )
                     } else {
                         Image(
@@ -311,7 +328,7 @@ fun IslandContent(
                             modifier = Modifier
                                 .heightIn(max = 64.dp)
                                 .aspectRatio(1f)
-                                .fillMaxHeight(0.8f)
+                                .fillMaxHeight(accessoryHeightFraction)
                         )
                     }
                 }
@@ -327,15 +344,15 @@ fun IslandContent(
                             Text(
                                 text = typeText,
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontSize = islandSettings.fontSize.sp * 0.65f,
-                                fontWeight = FontWeight.SemiBold,
+                                fontSize = islandSettings.fontSize.sp * 0.78f,
+                                fontWeight = FontWeight.Normal,
                                 color = textColor.copy(0.6f),
                             )
                         }
 
                         Text(
                             text = name,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.bodyLarge,
                             fontSize = islandSettings.fontSize.sp,
                             color = textColor,
                             maxLines = 1,
@@ -358,7 +375,7 @@ fun IslandContent(
                 BoxWithConstraints(
                     modifier = Modifier
                         .heightIn(max = 64.dp)
-                        .fillMaxHeight(0.8f)
+                        .fillMaxHeight(accessoryHeightFraction)
                         .aspectRatio(1f),
                     contentAlignment = Alignment.Center
                 ) {
@@ -372,7 +389,7 @@ fun IslandContent(
                         enter = fadeIn(animationSpec = tween(180, delayMillis = 80)),
                         exit = fadeOut(animationSpec = tween(100)),
                     ) {
-                        val strokeWidthPx = with(LocalDensity.current) { (maxHeight / 10f).toPx() }
+                        val strokeWidthPx = with(LocalDensity.current) { (maxHeight / 11f).toPx() }
 
                         val progress = batteryLevel / 100f
 
@@ -405,13 +422,13 @@ fun IslandContent(
                         exit = fadeOut(animationSpec = tween(100)),
                     ) {
                         val fontSize = with(LocalDensity.current) {
-                            (maxHeight / 2.5f).toSp()
+                            (maxHeight / 2.9f).toSp()
                         }
                         Text(
                             text = batteryLevel.toString(),
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontSize = fontSize,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Normal
                             ),
                             color = batteryColor,
                             maxLines = 1,
