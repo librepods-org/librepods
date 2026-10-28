@@ -16,56 +16,43 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-@file:OptIn(ExperimentalEncodingApi::class)
-
 package me.kavishdevar.librepods.presentation.overlays
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
-import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.res.Resources
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.os.Build
+import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
-import android.util.Log.e
+import android.util.Log
+import android.view.Display
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.WindowInsets
 import android.view.WindowManager
-import android.view.animation.AccelerateInterpolator
-import android.view.animation.AnticipateOvershootInterpolator
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.OvershootInterpolator
-import android.widget.FrameLayout
 import android.widget.ImageButton
-import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.VideoView
-import androidx.core.net.toUri
+import androidx.core.view.isVisible
 import androidx.dynamicanimation.animation.DynamicAnimation
+import androidx.dynamicanimation.animation.FloatValueHolder
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.data.AirPodsNotifications
 import me.kavishdevar.librepods.data.Battery
 import me.kavishdevar.librepods.data.BatteryComponent
-import me.kavishdevar.librepods.data.BatteryStatus
 import me.kavishdevar.librepods.services.ServiceManager
-import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 enum class IslandType {
     CONNECTED,
@@ -74,685 +61,303 @@ enum class IslandType {
     MOVED_TO_OTHER_DEVICE,
 }
 
-class IslandWindow(private val context: Context) {
-    private val windowManager: WindowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+/**
+ * Dynamic Island-style card modeled on the iOS AirPods connection activity: a black pill grows
+ * out from below the camera, shows the device and its battery for a few seconds, and shrinks
+ * back. Swipe up to dismiss it early; tap it or pull it down to open the app.
+ */
+class IslandWindow(context: Context) {
+    private val appContext = context.applicationContext
+    private val windowContext = appContext.createWindowContext(
+        appContext.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY),
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        null
+    )
+    private val windowManager = windowContext.getSystemService(WindowManager::class.java)
+    private val resources = windowContext.resources
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     @SuppressLint("InflateParams")
-    private val islandView: View = LayoutInflater.from(context).inflate(R.layout.island_window, null)
-    private var isClosing = false
-    private var params: WindowManager.LayoutParams? = null
+    private val islandView = LayoutInflater.from(windowContext).inflate(R.layout.island_window, null) as IslandView
+    private val statusText: TextView = islandView.findViewById(R.id.island_status_text)
+    private val deviceNameText: TextView = islandView.findViewById(R.id.island_device_name)
+    private val videoView: LoopingVideoView = islandView.findViewById(R.id.island_video_view)
+    private val batteryRing: BatteryRingView = islandView.findViewById(R.id.island_battery_ring)
+    private val actionButton: ImageButton = islandView.findViewById(R.id.island_action_button)
 
-    private var initialY = 0f
-    private var initialTouchY = 0f
-    private var lastTouchY = 0f
+    private val params = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT
+    ).apply {
+        gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        title = "LibrePods island"
+    }
+    private var restingY = 0
+
+    private val expansionSpring = SpringAnimation(islandView, IslandView.EXPANSION).apply {
+        spring = SpringForce()
+        setMinimumVisibleChange(DynamicAnimation.MIN_VISIBLE_CHANGE_SCALE)
+        addEndListener { _, canceled, _, _ -> if (isClosing && !canceled) removeWindow() }
+    }
+
+    // Vertical drag offset of the window, in pixels from its resting position.
+    private var dragOffset = 0f
+    private val dragSpring = SpringAnimation(FloatValueHolder()).apply {
+        spring = SpringForce(0f)
+            .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+            .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
+        addUpdateListener { _, value, _ -> applyDragOffset(value) }
+    }
     private var velocityTracker: VelocityTracker? = null
-    private var isBeingDragged = false
-    private var autoCloseHandler: Handler? = null
-    private var autoCloseRunnable: Runnable? = null
-    private var initialHeight = 0
-    private var screenHeight = 0
-    private var isDraggingDown = false
-    private var lastMoveTime = 0L
-    private var yMovement = 0f
-    private var dragDistance = 0f
+    private var touchDownY = 0f
+    private var isDragging = false
+    private val touchSlop = ViewConfiguration.get(windowContext).scaledTouchSlop
+    private val minFlingVelocity = 800 * resources.displayMetrics.density
+    private val dragLimit = 40 * resources.displayMetrics.density
 
-    private var initialConnectedTextY = 0f
-    private var initialDeviceTextY = 0f
-    private var initialBatteryViewY = 0f
-    private var initialVideoViewY = 0f
-    private var initialTextSeparation = 0f
-
-    private val containerView = FrameLayout(context)
-
-    private lateinit var springAnimation: SpringAnimation
-    private val flingAnimator = ValueAnimator()
+    private val autoClose = Runnable { close() }
+    private var isClosing = false
+    private var receiverRegistered = false
 
     private val batteryReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AirPodsNotifications.BATTERY_DATA) {
-                val batteryList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableArrayListExtra("data", Battery::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableArrayListExtra("data")
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                AirPodsNotifications.BATTERY_DATA -> {
+                    val batteries = intent.getParcelableArrayListExtra("data", Battery::class.java)
+                    budLevel(batteries)?.let { batteryRing.setLevel(it, animate = true) }
                 }
-                updateBatteryDisplay(batteryList)
-            } else if (intent?.action == AirPodsNotifications.DISCONNECT_RECEIVERS) {
-                try {
-                    context?.unregisterReceiver(this)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                AirPodsNotifications.DISCONNECT_RECEIVERS -> unregisterBatteryReceiver()
             }
         }
     }
 
     val isVisible: Boolean
-        get() = containerView.parent != null && containerView.visibility == View.VISIBLE
+        get() = islandView.parent != null && !isClosing
 
-    @SuppressLint("SetTextI18n")
-    private fun updateBatteryDisplay(batteryList: ArrayList<Battery>?) {
-        if (batteryList == null || batteryList.isEmpty()) return
+    fun show(
+        name: String,
+        batteryPercentage: Int,
+        type: IslandType = IslandType.CONNECTED,
+        reversed: Boolean = false,
+        otherDeviceName: String? = null
+    ) {
+        val service = ServiceManager.getService()
+        if (service?.islandOpen == true || islandView.parent != null) return
+        service?.islandOpen = true
 
-        val leftBattery = batteryList.find { it.component == BatteryComponent.LEFT }
-        val rightBattery = batteryList.find { it.component == BatteryComponent.RIGHT }
+        deviceNameText.text = name
+        statusText.text = statusText(type, reversed, otherDeviceName)
 
-        val leftLevel = leftBattery?.level ?: 0
-        val rightLevel = rightBattery?.level ?: 0
-        leftBattery?.status ?: BatteryStatus.DISCONNECTED
-        rightBattery?.status ?: BatteryStatus.DISCONNECTED
-
-        val batteryText = islandView.findViewById<TextView>(R.id.island_battery_text)
-        val batteryProgressBar = islandView.findViewById<ProgressBar>(R.id.island_battery_progress)
-
-        val displayBatteryLevel = when {
-            leftLevel > 0 && rightLevel > 0 -> minOf(leftLevel, rightLevel)
-            leftLevel > 0 -> leftLevel
-            rightLevel > 0 -> rightLevel
-            else -> null
+        val offersUndo = type == IslandType.MOVED_TO_OTHER_DEVICE && !reversed
+        actionButton.isVisible = offersUndo
+        batteryRing.isVisible = !offersUndo
+        actionButton.setOnClickListener {
+            ServiceManager.getService()?.takeOver("reverse")
+            close()
         }
-
-        if (displayBatteryLevel != null) {
-            batteryText.text = "$displayBatteryLevel%"
-            batteryProgressBar.progress = displayBatteryLevel
-            batteryProgressBar.isIndeterminate = false
-        } else {
-            batteryText.text = "?"
-            batteryProgressBar.progress = 0
-            batteryProgressBar.isIndeterminate = false
-        }
-    }
-
-    @SuppressLint("SetTextI18s", "ClickableViewAccessibility", "UnspecifiedRegisterReceiverFlag",
-        "SetTextI18n"
-    )
-    fun show(name: String, batteryPercentage: Int, context: Context, type: IslandType = IslandType.CONNECTED, reversed: Boolean = false, otherDeviceName: String? = null) {
-        if (ServiceManager.getService()?.islandOpen == true) return
-        else ServiceManager.getService()?.islandOpen = true
-
-        val displayMetrics = Resources.getSystem().displayMetrics
-        val width = (displayMetrics.widthPixels * 0.95).toInt()
-        screenHeight = displayMetrics.heightPixels
-
-        val batteryList = ServiceManager.getService()?.getBattery()
-        val batteryText = islandView.findViewById<TextView>(R.id.island_battery_text)
-        val batteryProgressBar = islandView.findViewById<ProgressBar>(R.id.island_battery_progress)
-
-        val displayBatteryLevel = if (batteryList != null) {
-            val leftBattery = batteryList.find { it.component == BatteryComponent.LEFT }
-            val rightBattery = batteryList.find { it.component == BatteryComponent.RIGHT }
-
-            when {
-                (leftBattery?.level ?: 0) > 0 && (rightBattery?.level ?: 0) > 0 ->
-                    minOf(leftBattery!!.level, rightBattery!!.level)
-                (leftBattery?.level ?: 0) > 0 -> leftBattery!!.level
-                (rightBattery?.level ?: 0) > 0 -> rightBattery!!.level
-                batteryPercentage > 0 -> batteryPercentage
-                else -> null
-            }
-        } else if (batteryPercentage > 0) {
-            batteryPercentage
-        } else {
-            null
-        }
-
-        if (displayBatteryLevel != null) {
-            batteryText.text = "$displayBatteryLevel%"
-            batteryProgressBar.progress = displayBatteryLevel
-        } else {
-            batteryText.text = "?"
-            batteryProgressBar.progress = 0
-        }
-
-        batteryProgressBar.isIndeterminate = false
-        islandView.findViewById<TextView>(R.id.island_device_name).text = name
-
-        val actionButton = islandView.findViewById<ImageButton>(R.id.island_action_button)
-        val batteryBg = islandView.findViewById<ProgressBar>(R.id.island_battery_bg)
-        if (type == IslandType.MOVED_TO_OTHER_DEVICE && !reversed) {
-            actionButton.visibility = View.VISIBLE
-            actionButton.setOnClickListener {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    ServiceManager.getService()?.takeOver("reverse")
-                }
-                close()
-            }
-            batteryText.visibility = View.GONE
-            batteryProgressBar.visibility = View.GONE
-            batteryBg.visibility = View.GONE
-        } else {
-            actionButton.visibility = View.GONE
-            batteryText.visibility = View.VISIBLE
-            batteryProgressBar.visibility = View.VISIBLE
-            batteryBg.visibility = View.VISIBLE
-        }
-
-        val batteryIntentFilter = IntentFilter(AirPodsNotifications.BATTERY_DATA)
-        batteryIntentFilter.addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(batteryReceiver, batteryIntentFilter, Context.RECEIVER_EXPORTED)
-        } else {
-            context.registerReceiver(batteryReceiver, batteryIntentFilter)
-        }
-
-        ServiceManager.getService()?.sendBatteryBroadcast()
-
-        containerView.removeAllViews()
-        val containerParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
+        batteryRing.setLevel(
+            budLevel(service?.getBattery()) ?: batteryPercentage.takeIf { it > 0 },
+            animate = true
         )
 
-        containerView.addView(islandView, containerParams)
-
-        params = WindowManager.LayoutParams(
-            width,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        }
-
-        islandView.visibility = View.VISIBLE
-        containerView.visibility = View.VISIBLE
-
-        containerView.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return@setOnTouchListener false)
-                    flingAnimator.cancel()
-
-                    velocityTracker?.recycle()
-                    velocityTracker = VelocityTracker.obtain()
-                    velocityTracker?.addMovement(event)
-
-                    initialY = containerView.translationY
-                    initialTouchY = event.rawY
-                    lastTouchY = event.rawY
-                    initialHeight = islandView.height
-                    isBeingDragged = false
-                    isDraggingDown = false
-                    lastMoveTime = System.currentTimeMillis()
-                    dragDistance = 0f
-
-                    captureInitialPositions()
-
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    velocityTracker?.addMovement(event)
-                    val deltaY = event.rawY - initialTouchY
-                    val moveDelta = event.rawY - lastTouchY
-                    dragDistance += abs(moveDelta)
-
-                    isDraggingDown = moveDelta > 0
-
-                    val currentTime = System.currentTimeMillis()
-                    val timeDelta = currentTime - lastMoveTime
-                    if (timeDelta > 0) {
-                        yMovement = moveDelta / timeDelta * 10
-                    }
-                    lastMoveTime = currentTime
-
-                    if (abs(deltaY) > 5 || isBeingDragged) {
-                        isBeingDragged = true
-
-                        // Cancel auto close timer when dragging starts
-                        autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return@setOnTouchListener false)
-
-                        val dampedDeltaY = if (deltaY > 0) {
-                            initialY + (deltaY * 0.6f)
-                        } else {
-                            initialY + (deltaY * 0.9f)
-                        }
-                        containerView.translationY = dampedDeltaY
-
-                        if (isDraggingDown && deltaY > 0) {
-                            val stretchAmount = (deltaY * 0.5f).coerceAtMost(200f)
-                            applyCustomStretchEffect(stretchAmount)
-                        }
-                    }
-
-                    lastTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    velocityTracker?.addMovement(event)
-                    velocityTracker?.computeCurrentVelocity(1000)
-                    val yVelocity = velocityTracker?.yVelocity ?: 0f
-
-                    if (isBeingDragged) {
-                        val currentTranslationY = containerView.translationY
-                        abs(yVelocity) > 800
-                        val significantDrag = abs(dragDistance) > 80
-
-                        when {
-                            yVelocity < -1200 || (currentTranslationY < -80 && !isDraggingDown) -> {
-                                animateDismissWithInertia(yVelocity)
-                            }
-                            yVelocity > 1200 || (isDraggingDown && significantDrag) -> {
-                                animateExpandWithStretch(yVelocity)
-                            }
-                            else -> {
-                                springBackWithInertia(yVelocity)
-                            }
-                        }
-                    } else if (dragDistance < 10) {
-                        resetAutoCloseTimer()
-                    }
-
-                    velocityTracker?.recycle()
-                    velocityTracker = null
-                    isBeingDragged = false
-                    true
-                }
-                else -> false
-            }
-        }
-
-        when (type) {
-            IslandType.CONNECTED -> {
-                islandView.findViewById<TextView>(R.id.island_connected_text).text = context.getString(R.string.island_connected_text)
-            }
-            IslandType.TAKING_OVER -> {
-                islandView.findViewById<TextView>(R.id.island_connected_text).text = context.getString(R.string.island_taking_over_text)
-            }
-            IslandType.MOVED_TO_REMOTE -> {
-                islandView.findViewById<TextView>(R.id.island_connected_text).text = context.getString(R.string.island_moved_to_remote_text)
-            }
-            IslandType.MOVED_TO_OTHER_DEVICE -> {
-                if (otherDeviceName == null || otherDeviceName.isEmpty()) {
-                    e("IslandWindow", "Other device name is null or empty for MOVED_TO_OTHER_DEVICE type")
-                }
-                if (reversed) {
-                    islandView.findViewById<TextView>(R.id.island_connected_text).text = context.getString(R.string.island_moved_to_other_device_reversed_text)
-                } else {
-                    islandView.findViewById<TextView>(R.id.island_connected_text).text = context.getString(R.string.island_moved_to_other_device_text, otherDeviceName)
-                }
-            }
-        }
-
-        val videoView = islandView.findViewById<VideoView>(R.id.island_video_view)
-        val videoUri = "android.resource://me.kavishdevar.librepods/${R.raw.island}".toUri()
-        videoView.setAudioFocusRequest(AudioManager.AUDIOFOCUS_NONE)
-        videoView.setVideoURI(videoUri)
-        videoView.setOnPreparedListener { mediaPlayer ->
-            mediaPlayer.isLooping = true
-            videoView.start()
-        }
-
+        updateWindowMetrics()
+        islandView.setOnTouchListener { _, event -> onTouch(event) }
         try {
-            windowManager.addView(containerView, params)
+            windowManager.addView(islandView, params)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Could not add island window", e)
+            service?.islandOpen = false
+            return
         }
 
-        islandView.post {
-            initialHeight = islandView.height
-            captureInitialPositions()
-        }
+        registerBatteryReceiver()
+        service?.sendBatteryBroadcast()
+        videoView.play(R.raw.island)
 
-        springAnimation = SpringAnimation(containerView, DynamicAnimation.TRANSLATION_Y, 0f).apply {
-            spring = SpringForce(0f)
-                .setDampingRatio(SpringForce.DAMPING_RATIO_MEDIUM_BOUNCY)
-                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
-        }
-
-        val scaleX = PropertyValuesHolder.ofFloat(View.SCALE_X, 0.5f, 1f)
-        val scaleY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.5f, 1f)
-        val translationY = PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, -200f, 0f)
-        ObjectAnimator.ofPropertyValuesHolder(containerView, scaleX, scaleY, translationY).apply {
-            duration = 700
-            interpolator = AnticipateOvershootInterpolator()
-            start()
-        }
-
-        resetAutoCloseTimer()
-    }
-
-    private fun captureInitialPositions() {
-        val connectedText = islandView.findViewById<TextView>(R.id.island_connected_text)
-        val deviceText = islandView.findViewById<TextView>(R.id.island_device_name)
-        val batteryView = islandView.findViewById<FrameLayout>(R.id.island_battery_container)
-        val videoView = islandView.findViewById<VideoView>(R.id.island_video_view)
-
-        connectedText.post {
-            initialConnectedTextY = connectedText.y
-            initialDeviceTextY = deviceText.y
-            initialTextSeparation = deviceText.y - (connectedText.y + connectedText.height)
-
-            if (batteryView != null) initialBatteryViewY = batteryView.y
-            initialVideoViewY = videoView.y
-        }
-    }
-
-    private fun applyCustomStretchEffect(stretchAmount: Float) {
-        try {
-            val mainLayout = islandView.findViewById<LinearLayout>(R.id.island_window_layout)
-            islandView.findViewById<TextView>(R.id.island_connected_text)
-            val deviceText = islandView.findViewById<TextView>(R.id.island_device_name)
-            islandView.findViewById<FrameLayout>(R.id.island_battery_container)
-            islandView.findViewById<VideoView>(R.id.island_video_view)
-
-            val stretchFactor = 1f + (stretchAmount / 300f).coerceAtMost(4.0f)
-            val newMinHeight = (initialHeight * stretchFactor).toInt()
-            mainLayout.minimumHeight = newMinHeight
-
-            val textMarginIncrease = (stretchAmount * 0.8f).toInt()
-
-            val deviceTextParams = deviceText.layoutParams as LinearLayout.LayoutParams
-            deviceTextParams.topMargin = textMarginIncrease
-            deviceText.layoutParams = deviceTextParams
-
-            val background = mainLayout.background
-            if (background is GradientDrawable) {
-                val cornerRadius = 56f
-                background.cornerRadius = cornerRadius
-            }
-
-            if (params != null) {
-                params!!.height = screenHeight
-
-                val containerParams = containerView.layoutParams
-                containerParams.height = screenHeight
-                containerView.layoutParams = containerParams
-
-                try {
-                    windowManager.updateViewLayout(containerView, params)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun resetAutoCloseTimer() {
-        autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return)
-        autoCloseHandler = Handler(Looper.getMainLooper())
-        autoCloseRunnable = Runnable { close() }
-        autoCloseHandler?.postDelayed(autoCloseRunnable!!, 4500)
-    }
-
-    private fun springBackWithInertia(velocity: Float) {
-        springAnimation.cancel()
-        flingAnimator.cancel()
-
-        springAnimation.setStartVelocity(velocity)
-
-        val baseStiffness = SpringForce.STIFFNESS_MEDIUM
-        val dynamicStiffness = baseStiffness * (1f + (abs(velocity) / 3000f))
-        springAnimation.spring = SpringForce(0f)
-            .setDampingRatio(SpringForce.DAMPING_RATIO_MEDIUM_BOUNCY)
-            .setStiffness(dynamicStiffness)
-
-        resetStretchEffects()
-
-        if (params != null) {
-            params!!.height = WindowManager.LayoutParams.WRAP_CONTENT
-            try {
-                windowManager.updateViewLayout(containerView, params)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        springAnimation.start()
-    }
-
-    private fun resetStretchEffects() {
-        try {
-            val mainLayout = islandView.findViewById<LinearLayout>(R.id.island_window_layout)
-            val deviceText = islandView.findViewById<TextView>(R.id.island_device_name)
-
-            val heightAnimator = ValueAnimator.ofInt(mainLayout.minimumHeight, initialHeight)
-            heightAnimator.duration = 300
-            heightAnimator.interpolator = OvershootInterpolator(1.5f)
-            heightAnimator.addUpdateListener { animation ->
-                mainLayout.minimumHeight = animation.animatedValue as Int
-            }
-
-            val deviceTextParams = deviceText.layoutParams as LinearLayout.LayoutParams
-            val textMarginAnimator = ValueAnimator.ofInt(deviceTextParams.topMargin, 0)
-            textMarginAnimator.duration = 300
-            textMarginAnimator.interpolator = OvershootInterpolator(1.5f)
-            textMarginAnimator.addUpdateListener { animation ->
-                deviceTextParams.topMargin = animation.animatedValue as Int
-                deviceText.layoutParams = deviceTextParams
-            }
-
-            heightAnimator.start()
-            textMarginAnimator.start()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun animateDismissWithInertia(velocity: Float) {
-        springAnimation.cancel()
-        flingAnimator.cancel()
-
-        val baseDistance = -screenHeight
-        val velocityFactor = (abs(velocity) / 2000f).coerceIn(0.5f, 2.0f)
-        val targetDistance = baseDistance * velocityFactor
-
-        val baseDuration = 400L
-        val velocityDurationFactor = (1500f / (abs(velocity) + 1500f))
-        val duration = (baseDuration * velocityDurationFactor).toLong().coerceIn(200L, 500L)
-
-        flingAnimator.setFloatValues(containerView.translationY, targetDistance)
-        flingAnimator.duration = duration
-        flingAnimator.addUpdateListener { animation ->
-            containerView.translationY = animation.animatedValue as Float
-
-            val progress = animation.animatedFraction
-            containerView.scaleX = 1f - (progress * 0.5f)
-            containerView.scaleY = 1f - (progress * 0.5f)
-
-            containerView.alpha = 1f - progress
-        }
-        flingAnimator.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: Animator) {
-                forceClose()
-            }
-        })
-
-        flingAnimator.interpolator = DecelerateInterpolator(1.2f)
-        flingAnimator.start()
-    }
-
-    private fun animateExpandWithStretch(velocity: Float) {
-        springAnimation.cancel()
-        flingAnimator.cancel()
-
-        val baseDuration = 600L
-        val velocityFactor = (1800f / (abs(velocity) + 1800f)).coerceIn(0.5f, 1.5f)
-        val expandDuration = (baseDuration * velocityFactor).toLong().coerceIn(300L, 700L)
-
-        if (params != null) {
-            params!!.height = screenHeight
-            try {
-                windowManager.updateViewLayout(containerView, params)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        val containerAnimator = ValueAnimator.ofFloat(containerView.translationY, screenHeight * 0.6f)
-        containerAnimator.duration = expandDuration
-        containerAnimator.interpolator = DecelerateInterpolator(0.8f)
-        containerAnimator.addUpdateListener { animation ->
-            containerView.translationY = animation.animatedValue as Float
-        }
-
-        val stretchAnimator = ValueAnimator.ofFloat(0f, 1f)
-        stretchAnimator.duration = expandDuration
-        stretchAnimator.interpolator = OvershootInterpolator(0.5f)
-        stretchAnimator.addUpdateListener { animation ->
-            val progress = animation.animatedValue as Float
-            animateCustomStretch(progress)
-        }
-
-        val normalizeAnimator = ValueAnimator.ofFloat(1.0f, 0.0f)
-        normalizeAnimator.duration = 300
-        normalizeAnimator.startDelay = expandDuration - 150
-        normalizeAnimator.interpolator = AccelerateInterpolator(1.2f)
-        normalizeAnimator.addUpdateListener { animation ->
-            val progress = animation.animatedValue as Float
-            containerView.alpha = progress
-
-            if (progress < 0.7f) {
-                islandView.findViewById<VideoView>(R.id.island_video_view).visibility = View.GONE
-            }
-        }
-        normalizeAnimator.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: Animator) {
-                ServiceManager.getService()?.startMainActivity()
-                forceClose()
-            }
-        })
-
-        containerAnimator.start()
-        stretchAnimator.start()
-        normalizeAnimator.start()
-    }
-
-    private fun animateCustomStretch(progress: Float) {
-        try {
-            val mainLayout = islandView.findViewById<LinearLayout>(R.id.island_window_layout)
-            val connectedText = islandView.findViewById<TextView>(R.id.island_connected_text)
-            val deviceText = islandView.findViewById<TextView>(R.id.island_device_name)
-
-            val targetHeight = (screenHeight * 0.7f).toInt()
-            val currentHeight = initialHeight + ((targetHeight - initialHeight) * progress)
-            mainLayout.minimumHeight = currentHeight.toInt()
-
-            val mainLayoutParams = mainLayout.layoutParams
-            mainLayoutParams.height = LinearLayout.LayoutParams.MATCH_PARENT
-            mainLayout.layoutParams = mainLayoutParams
-
-            val targetMargin = (400 * progress).toInt()
-            val deviceTextParams = deviceText.layoutParams as LinearLayout.LayoutParams
-            deviceTextParams.topMargin = targetMargin
-            deviceText.layoutParams = deviceTextParams
-
-            val baseTextSize = 24f
-            deviceText.textSize = baseTextSize + (progress * 8f)
-
-            val baseSubTextSize = 16f
-            connectedText.textSize = baseSubTextSize + (progress * 4f)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        islandView.expansion = 0f
+        expansionSpring.spring.setStiffness(OPEN_STIFFNESS).setDampingRatio(OPEN_DAMPING)
+        expansionSpring.animateToFinalPosition(1f)
+        scheduleAutoClose()
     }
 
     fun close() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            Handler(Looper.getMainLooper()).post { close() }
+            mainHandler.post { close() }
             return
         }
-        try {
-            if (isClosing) return
-            isClosing = true
+        if (isClosing || islandView.parent == null) return
+        isClosing = true
 
-            try {
-                context.unregisterReceiver(batteryReceiver)
-            } catch (e: Exception) {
-//                e.printStackTrace()
-            }
+        ServiceManager.getService()?.islandOpen = false
+        mainHandler.removeCallbacks(autoClose)
+        unregisterBatteryReceiver()
+        islandView.setOnTouchListener(null)
 
-            ServiceManager.getService()?.islandOpen = false
-            autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return)
-
-            resetStretchEffects()
-
-            val videoView = islandView.findViewById<VideoView>(R.id.island_video_view)
-            try {
-                videoView.stopPlayback()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            val scaleX = PropertyValuesHolder.ofFloat(View.SCALE_X, containerView.scaleX, 0.5f)
-            val scaleY = PropertyValuesHolder.ofFloat(View.SCALE_Y, containerView.scaleY, 0.5f)
-            val translationY = PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, containerView.translationY, -200f)
-            ObjectAnimator.ofPropertyValuesHolder(containerView, scaleX, scaleY, translationY).apply {
-                duration = 700
-                interpolator = AnticipateOvershootInterpolator()
-                addListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        cleanupAndRemoveView()
-                    }
-                })
-                start()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            // Even if animation fails, ensure we cleanup
-            cleanupAndRemoveView()
-        }
+        // Collapse wherever the island is, so a swipe up shrinks it away instead of pulling it back.
+        dragSpring.cancel()
+        expansionSpring.spring.setStiffness(CLOSE_STIFFNESS).setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY)
+        expansionSpring.animateToFinalPosition(0f)
     }
 
-    private fun cleanupAndRemoveView() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            Handler(Looper.getMainLooper()).post { cleanupAndRemoveView() }
-            return
-        }
-        try {
-            containerView.visibility = View.GONE
-        } catch (e: Exception) {
-            e("IslandWindow", "Error setting visibility: $e")
-        }
-        try {
-            if (containerView.parent != null) {
-                windowManager.removeView(containerView)
+    private fun updateWindowMetrics() {
+        val metrics = windowManager.currentWindowMetrics
+        val insets = metrics.windowInsets
+        val bleed = resources.getDimensionPixelSize(R.dimen.island_bleed)
+        val margin = resources.getDimensionPixelSize(R.dimen.island_horizontal_margin)
+        val islandWidth = min(metrics.bounds.width() - 2 * margin, resources.getDimensionPixelSize(R.dimen.island_max_width))
+
+        params.width = islandWidth + 2 * bleed
+        restingY = insets.getInsets(WindowInsets.Type.statusBars()).top +
+            resources.getDimensionPixelSize(R.dimen.island_top_gap) - bleed
+        params.y = restingY
+        dragOffset = 0f
+
+        // Start from a pill as wide as the camera cutout, so the island appears to come out of it.
+        val cutoutWidth = insets.displayCutout?.boundingRectTop?.width() ?: 0
+        islandView.collapsedWidth = cutoutWidth.toFloat().coerceIn(
+            resources.getDimension(R.dimen.island_collapsed_min_width),
+            resources.getDimension(R.dimen.island_collapsed_max_width)
+        )
+        islandView.collapsedHeight = resources.getDimension(R.dimen.island_collapsed_height)
+    }
+
+    private fun onTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                mainHandler.removeCallbacks(autoClose)
+                dragSpring.cancel()
+                velocityTracker?.recycle()
+                velocityTracker = VelocityTracker.obtain().apply { addMovement(event) }
+                touchDownY = event.rawY - rubberBandInverse(dragOffset)
+                isDragging = false
             }
+            MotionEvent.ACTION_MOVE -> {
+                velocityTracker?.addMovement(event)
+                val distance = event.rawY - touchDownY
+                if (!isDragging && abs(distance) > touchSlop) isDragging = true
+                if (isDragging) applyDragOffset(rubberBand(distance))
+            }
+            MotionEvent.ACTION_UP -> {
+                velocityTracker?.apply {
+                    addMovement(event)
+                    computeCurrentVelocity(1000)
+                }
+                val velocity = velocityTracker?.yVelocity ?: 0f
+                when {
+                    !isDragging -> openApp()
+                    dragOffset < -dragLimit / 2 || velocity < -minFlingVelocity -> close()
+                    dragOffset > dragLimit / 2 || velocity > minFlingVelocity -> openApp()
+                    else -> settleDrag(velocity)
+                }
+                recycleVelocityTracker()
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                settleDrag(0f)
+                recycleVelocityTracker()
+            }
+        }
+        return true
+    }
+
+    // Upward drags follow the finger; downward drags resist like iOS rubber-banding.
+    private fun rubberBand(distance: Float): Float =
+        if (distance <= 0f) distance else dragLimit * (1f - 1f / (distance * RUBBER_BAND / dragLimit + 1f))
+
+    private fun rubberBandInverse(offset: Float): Float =
+        if (offset <= 0f) offset else offset * dragLimit / (RUBBER_BAND * (dragLimit - offset))
+
+    private fun applyDragOffset(offset: Float) {
+        dragOffset = offset
+        val stretch = 1f + max(offset, 0f) / dragLimit * 0.04f
+        islandView.scaleX = stretch
+        islandView.scaleY = stretch
+        if (islandView.parent == null) return
+        params.y = restingY + offset.roundToInt()
+        windowManager.updateViewLayout(islandView, params)
+    }
+
+    private fun settleDrag(velocity: Float) {
+        dragSpring.setStartValue(dragOffset)
+        dragSpring.setStartVelocity(velocity)
+        dragSpring.animateToFinalPosition(0f)
+        scheduleAutoClose()
+    }
+
+    private fun recycleVelocityTracker() {
+        velocityTracker?.recycle()
+        velocityTracker = null
+    }
+
+    private fun openApp() {
+        ServiceManager.getService()?.startMainActivity()
+        close()
+    }
+
+    private fun scheduleAutoClose() {
+        mainHandler.removeCallbacks(autoClose)
+        mainHandler.postDelayed(autoClose, AUTO_CLOSE_DELAY_MS)
+    }
+
+    private fun removeWindow() {
+        videoView.release()
+        dragSpring.cancel()
+        try {
+            windowManager.removeView(islandView)
         } catch (e: Exception) {
-            e("IslandWindow", "Error removing view: $e")
+            Log.e(TAG, "Could not remove island window", e)
         }
         isClosing = false
-        // Make sure all animations are canceled
-        try {
-            springAnimation.cancel()
-        } catch (e: Exception) {
-            e("IslandWindow", "Error cancelling spring animation $e")
-        }
-        try {
-            flingAnimator.cancel()
-        } catch (e: Exception) {
-            e("IslandWindow", "Error cancelling fling animation $e")
-        }
     }
 
-    fun forceClose() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            Handler(Looper.getMainLooper()).post { forceClose() }
-            return
+    private fun registerBatteryReceiver() {
+        val filter = IntentFilter(AirPodsNotifications.BATTERY_DATA).apply {
+            addAction(AirPodsNotifications.DISCONNECT_RECEIVERS)
         }
-        try {
-            if (isClosing) return
-            isClosing = true
+        appContext.registerReceiver(batteryReceiver, filter, Context.RECEIVER_EXPORTED)
+        receiverRegistered = true
+    }
 
-            try {
-                context.unregisterReceiver(batteryReceiver)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+    private fun unregisterBatteryReceiver() {
+        if (!receiverRegistered) return
+        appContext.unregisterReceiver(batteryReceiver)
+        receiverRegistered = false
+    }
 
-            ServiceManager.getService()?.islandOpen = false
-            autoCloseHandler?.removeCallbacks(autoCloseRunnable ?: return)
-
-            // Cancel all ongoing animations
-            springAnimation.cancel()
-            flingAnimator.cancel()
-
-            // Immediately remove the view without animations
-            cleanupAndRemoveView()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            isClosing = false
+    private fun statusText(type: IslandType, reversed: Boolean, otherDeviceName: String?): String =
+        when (type) {
+            IslandType.CONNECTED -> windowContext.getString(R.string.island_connected_text)
+            IslandType.TAKING_OVER -> windowContext.getString(R.string.island_taking_over_text)
+            IslandType.MOVED_TO_REMOTE -> windowContext.getString(R.string.island_moved_to_remote_text)
+            IslandType.MOVED_TO_OTHER_DEVICE ->
+                if (reversed) {
+                    windowContext.getString(R.string.island_moved_to_other_device_reversed_text)
+                } else {
+                    if (otherDeviceName.isNullOrEmpty()) Log.w(TAG, "No device name for MOVED_TO_OTHER_DEVICE")
+                    windowContext.getString(R.string.island_moved_to_other_device_text, otherDeviceName.orEmpty())
+                }
         }
+
+    // The lower of the two buds, ignoring any that report no charge.
+    private fun budLevel(batteries: List<Battery>?): Int? =
+        batteries.orEmpty()
+            .filter { it.component == BatteryComponent.LEFT || it.component == BatteryComponent.RIGHT }
+            .map { it.level }
+            .filter { it > 0 }
+            .minOrNull()
+
+    private companion object {
+        const val TAG = "IslandWindow"
+        const val AUTO_CLOSE_DELAY_MS = 4500L
+        const val OPEN_STIFFNESS = 280f
+        const val OPEN_DAMPING = 0.72f
+        const val CLOSE_STIFFNESS = 420f
+        const val RUBBER_BAND = 0.55f
     }
 }

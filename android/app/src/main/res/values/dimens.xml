@@ -7,4 +7,16 @@ http://developer.android.com/guide/topics/appwidgets/index.html#CreatingLayout
     -->
   <dimen name="widget_margin">0dp</dimen>
 
+  <!-- Dynamic Island connection card, sized after the iOS AirPods activity -->
+  <dimen name="island_height">76dp</dimen>
+  <dimen name="island_max_width">420dp</dimen>
+  <dimen name="island_horizontal_margin">16dp</dimen>
+  <dimen name="island_top_gap">4dp</dimen>
+  <dimen name="island_bleed">8dp</dimen>
+  <dimen name="island_collapsed_height">32dp</dimen>
+  <dimen name="island_collapsed_min_width">32dp</dimen>
+  <dimen name="island_collapsed_max_width">126dp</dimen>
+  <dimen name="island_battery_ring_size">44dp</dimen>
+  <dimen name="island_battery_ring_stroke">4dp</dimen>
+
 </resources>

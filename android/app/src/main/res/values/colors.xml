@@ -11,4 +11,8 @@
     <color name="light_blue_600">#FF039BE5</color>
     <color name="light_blue_900">#FF01579B</color>
     <color name="colorBackground">#FFFFFF</color>
+    <color name="island_secondary_text">#98989F</color>
+    <color name="island_battery_normal">#30D158</color>
+    <color name="island_battery_low">#FF453A</color>
+    <color name="island_action_background">#3A3A3C</color>
 </resources>

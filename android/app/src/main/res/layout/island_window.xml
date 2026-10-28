@@ -1,124 +1,80 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<me.kavishdevar.librepods.presentation.overlays.IslandView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/island_window_layout"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:layout_margin="16dp"
-    android:background="@drawable/island_background"
-    android:elevation="4dp"
-    android:gravity="center"
-    android:minHeight="115dp"
-    android:orientation="horizontal"
-    android:outlineAmbientShadowColor="#4EFFFFFF"
-    android:outlineSpotShadowColor="#4EFFFFFF"
-    android:padding="8dp"
-    android:clipToPadding="false"
-    android:clipChildren="false">
-
-    <VideoView
-        android:id="@+id/island_video_view"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
-        android:layout_marginStart="8dp"
-        android:importantForAccessibility="no" />
+    android:layout_height="wrap_content">
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_margin="0dp"
-        android:layout_weight="1"
-        android:gravity="bottom"
-        android:orientation="vertical"
-        android:padding="12dp">
+        android:id="@+id/island_content"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/island_height"
+        android:layout_margin="@dimen/island_bleed"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingEnd="16dp">
 
-        <TextView
-            android:id="@+id/island_connected_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_margin="0dp"
-            android:fontFamily="@font/sf_pro"
-            android:gravity="bottom"
-            android:includeFontPadding="false"
-            android:lineSpacingExtra="0dp"
-            android:lineSpacingMultiplier="1"
-            android:padding="0dp"
-            android:text="@string/island_connected_text"
-            android:textColor="#707072"
-            android:textSize="16sp" />
+        <me.kavishdevar.librepods.presentation.overlays.LoopingVideoView
+            android:id="@+id/island_video_view"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:importantForAccessibility="no" />
 
-        <TextView
-            android:id="@+id/island_device_name"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_margin="0dp"
-            android:fontFamily="@font/sf_pro"
-            android:gravity="bottom"
-            android:includeFontPadding="false"
-            android:lineSpacingExtra="0dp"
-            android:lineSpacingMultiplier="1"
-            android:padding="0dp"
-            android:text="AirPods Pro"
-            android:textColor="@color/white"
-            android:textSize="24sp"
-            tools:ignore="HardcodedText" />
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/island_status_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="@font/sf_pro"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/island_connected_text"
+                android:textColor="@color/island_secondary_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/island_device_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:ellipsize="end"
+                android:fontFamily="@font/sf_pro"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:textColor="@color/white"
+                android:textSize="16sp"
+                tools:text="AirPods Pro" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="@dimen/island_battery_ring_size"
+            android:layout_height="@dimen/island_battery_ring_size">
+
+            <me.kavishdevar.librepods.presentation.overlays.BatteryRingView
+                android:id="@+id/island_battery_ring"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <ImageButton
+                android:id="@+id/island_action_button"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ic_undo_button_bg"
+                android:contentDescription="@string/undo"
+                android:padding="11dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_undo"
+                android:tint="@color/white"
+                android:visibility="gone"
+                tools:ignore="UseAppTint" />
+        </FrameLayout>
     </LinearLayout>
-
-    <FrameLayout
-        android:id="@+id/island_battery_container"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:clipChildren="false">
-
-        <ProgressBar
-            android:id="@+id/island_battery_bg"
-            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-            android:layout_width="84dp"
-            android:layout_height="84dp"
-            android:layout_gravity="center"
-            android:indeterminate="false"
-            android:max="100"
-            android:progress="100"
-            android:progressDrawable="@drawable/island_battery_background" />
-
-        <ProgressBar
-            android:id="@+id/island_battery_progress"
-            style="@style/Widget.AppCompat.ProgressBar.Horizontal"
-            android:layout_width="84dp"
-            android:layout_height="84dp"
-            android:layout_gravity="center"
-            android:indeterminate="false"
-            android:max="100"
-            android:progress="50"
-            android:progressDrawable="@drawable/island_battery_progress" />
-
-        <TextView
-            android:id="@+id/island_battery_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:fontFamily="@font/sf_pro"
-            android:gravity="center"
-            android:text="50%"
-            android:textColor="#1ceb72"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            tools:ignore="HardcodedText" />
-
-        <ImageButton
-            android:id="@+id/island_action_button"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:layout_gravity="center"
-            android:translationX="-12dp"
-            android:background="@drawable/ic_undo_button_bg"
-            android:contentDescription="@string/undo"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_undo"
-            android:tint="@android:color/white"
-            android:elevation="8dp"
-            android:translationZ="8dp"
-            android:visibility="gone" />
-    </FrameLayout>
-</LinearLayout>
+</me.kavishdevar.librepods.presentation.overlays.IslandView>

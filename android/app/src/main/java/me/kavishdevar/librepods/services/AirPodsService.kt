@@ -1692,15 +1692,16 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             return
         }
         CoroutineScope(Dispatchers.Main).launch {
-            islandWindow = IslandWindow(service.applicationContext)
-            islandWindow!!.show(
-                sharedPreferences.getString("name", "AirPods Pro").toString(),
-                batteryPercentage,
-                this@AirPodsService,
-                type,
-                reversed,
-                otherDeviceName
-            )
+            if (islandWindow?.isVisible == true) return@launch
+            islandWindow = IslandWindow(service.applicationContext).apply {
+                show(
+                    sharedPreferences.getString("name", "AirPods Pro").toString(),
+                    batteryPercentage,
+                    type,
+                    reversed,
+                    otherDeviceName
+                )
+            }
         }
     }
 
