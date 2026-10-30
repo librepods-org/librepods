@@ -29,10 +29,14 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
 import androidx.annotation.RequiresApi
+import androidx.compose.material3.ExperimentalMaterial3Api
+import me.kavishdevar.librepods.MainActivity
 import me.kavishdevar.librepods.QuickSettingsDialogActivity
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.bluetooth.AACPManager
@@ -47,6 +51,13 @@ class AirPodsQSService : TileService() {
     private lateinit var sharedPreferences: SharedPreferences
     private var currentAncMode: Int = NoiseControlMode.OFF.ordinal + 1
     private var isAirPodsConnected: Boolean = false
+    private var reconnecting: Boolean = false
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val clearReconnecting = Runnable {
+        reconnecting = false
+        updateTile()
+    }
 
     private val ancStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -65,6 +76,8 @@ class AirPodsQSService : TileService() {
                 AirPodsNotifications.AIRPODS_CONNECTED -> {
                     Log.d("AirPodsQSService", "Received AIRPODS_CONNECTED")
                     isAirPodsConnected = true
+                    reconnecting = false
+                    handler.removeCallbacks(clearReconnecting)
                     currentAncMode =
                         ServiceManager.getService()?.getANC() ?: (NoiseControlMode.OFF.ordinal + 1)
                     updateTile()
@@ -148,7 +161,7 @@ class AirPodsQSService : TileService() {
         super.onClick()
         Log.d("AirPodsQSService", "onClick - Current state: $isAirPodsConnected, Current mode: $currentAncMode")
         if (!isAirPodsConnected) {
-            Log.d("AirPodsQSService", "Tile clicked but AirPods not connected.")
+            reconnect()
             return
         }
 
@@ -158,6 +171,49 @@ class AirPodsQSService : TileService() {
             launchDialogActivity()
         } else {
             cycleAncMode()
+        }
+    }
+
+    private fun reconnect() {
+        if (reconnecting) {
+            Log.d("AirPodsQSService", "Tile clicked while already reconnecting.")
+            return
+        }
+        val service = ServiceManager.getService()
+        if (service == null) {
+            Log.d("AirPodsQSService", "Tile clicked while disconnected but service is null, opening app.")
+            launchMainActivity()
+            return
+        }
+        Log.d("AirPodsQSService", "Tile clicked while disconnected, reconnecting to saved AirPods.")
+        reconnecting = true
+        updateTile()
+        service.reconnectFromSavedMac()
+        handler.removeCallbacks(clearReconnecting)
+        handler.postDelayed(clearReconnecting, RECONNECT_TIMEOUT_MS)
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    private fun launchMainActivity() {
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val pendingIntent = PendingIntent.getActivity(
+                    this,
+                    0,
+                    intent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                startActivityAndCollapse(pendingIntent)
+            } else {
+                @Suppress("DEPRECATION")
+                @SuppressLint("StartActivityAndCollapseDeprecated")
+                startActivityAndCollapse(intent)
+            }
+        } catch (e: Exception) {
+            Log.e("AirPodsQSService", "Error launching MainActivity: $e")
         }
     }
 
@@ -213,9 +269,11 @@ class AirPodsQSService : TileService() {
             tile.subtitle = deviceName
             tile.icon = Icon.createWithResource(this, getModeIcon(currentAncMode))
         } else {
-            tile.state = Tile.STATE_UNAVAILABLE
-            tile.label = "AirPods"
-            tile.subtitle = "Disconnected"
+            // Keep the tile clickable while disconnected so a tap can reconnect, like the
+            // "Tap to reconnect" button in the app.
+            tile.state = Tile.STATE_INACTIVE
+            tile.label = deviceName
+            tile.subtitle = getString(if (reconnecting) R.string.reconnecting else R.string.tap_to_reconnect)
             tile.icon = Icon.createWithResource(this, R.drawable.airpods)
         }
 
@@ -275,5 +333,9 @@ class AirPodsQSService : TileService() {
     override fun onTileAdded() {
         super.onTileAdded()
         Log.d("AirPodsQSService", "Tile added")
+    }
+
+    companion object {
+        private const val RECONNECT_TIMEOUT_MS = 6_000L
     }
 }
