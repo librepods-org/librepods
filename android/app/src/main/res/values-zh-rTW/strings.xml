@@ -240,4 +240,43 @@
     <string name="bypass_compatiblity_check_confirmation">你確定你的裝置原生支援或已啟用 Xposed 模組嗎？</string>
     <string name="not_supported">不支援</string>
     <string name="play_foss_premium_banner">您的應用程式已更新為 Google Play 版本，進階功能將在 %1$d 天後停用。請從您的原始安裝來源更新以繼續使用 FOSS 版本，或等待此期限結束後直接購買升級；如果您已是支持者，請點按此處申請促銷代碼。</string>
+    <string name="popup_animations">彈出視窗動畫</string>
+    <string name="show_bottom_sheet_popup">底部彈出視窗</string>
+    <string name="show_bottom_sheet_popup_description">連線 AirPods 時在底部顯示 iOS 風格的彈出視窗。</string>
+    <string name="show_island_popup">靈動島彈出視窗</string>
+    <string name="show_island_popup_description">在頂部以靈動島樣式顯示連線和接管事件的彈出視窗。</string>
+    <string name="name_your_own_price">（價格由你決定）</string>
+    <string name="compatibility_play_dialog_confirmation">
+    由於平臺限制，此裝置可能不受支援，需要使用 Xposed 框架。請勾選下方的核取方塊並輸入 OK 以繼續。
+    </string>
+    <string name="type_ok_to_continue">輸入“%s”以繼續</string>
+    <string name="proceed">繼續</string>
+    <string name="read_compatibility_requirements">我已閱讀相容性要求。</string>
+    <string name="device_info">裝置資訊</string>
+    <string name="build_id">構建 ID</string>
+    <string name="manufacturer">製造商</string>
+    <string name="free_features">免費功能</string>
+    <string name="advanced_features">進階功能</string>
+    <string name="digital_assistant_on_long_press">長按喚起數字助理</string>
+    <string name="digital_assistant_on_long_press_description">按住 AirPods Pro 耳機柄時喚起數字助理。</string>
+    <string name="customizations_unavailable">個性化設定不可用。請至少連線一次 AirPods 後再使用。</string>
+    <string name="xposed_available">Xposed 可用</string>
+    <string name="app_enabled_in_xposed">應用已在 Xposed 中啟用</string>
+    <string name="subject">主題</string>
+    <string name="describe_your_issue">描述你遇到的問題</string>
+    <string name="optimized_charging">最佳化充電上限</string>
+    <string name="optimized_charging_description">AirPods 可學習你的每日用量，並決定何時充電至最佳化上限以及何時允許完全充電。此上限根據你的每日用量調整，並可在長期內延長電池壽命。\n此設定可能對不受支援的 AirPods 或韌體版本較舊的 AirPods 無效。</string>
+    <string name="enable_app_in_xposed_or_update_device">請更新你的裝置，或在 Xposed 中啟用 LibrePods 並重新開啟應用以繼續。</string>
+    <string name="custom">自訂</string>
+    <string name="recommended">推薦</string>
+    <string name="appearance">外觀</string>
+    <string name="material3e">Material 3 Expressive</string>
+    <string name="update_m3e_description">LibrePods 現已支援基於 Material 3 Expressive 的全新外觀，包括更新的字型排版和自適應配色方案。\n你可以在應用設定中切換回 Apple 外觀。</string>
+    <string name="update_equalizer_description">僅在最新的 AirPods Beta 韌體上可用。安裝 Beta 韌體需要一臺執行 OS 27 版本的 Apple 裝置。</string>
+    <string name="what_s_new">新功能</string>
+    <string name="reconnecting">正在重新連線</string>
+    <string name="tap_to_reconnect">點按以重新連線</string>
+    <string name="permissions">權限</string>
+    <string name="privacy_policy">隱私政策</string>
+    <string name="i_agree">我同意</string>
 </resources>
