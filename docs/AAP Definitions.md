@@ -377,6 +377,8 @@ The packets sent (based on the previous states) are as follows:
 
 # Head Tracking
 
+The values below were measured on AirPods Pro 3, connected to Linux over BR/EDR.
+
 ## Start Tracking
 
 This packet initiates head tracking. When sent, the AirPods begin streaming head tracking data (e.g. orientation and acceleration) for live plotting and analysis.
@@ -392,14 +394,64 @@ This packet stops the head tracking data stream.
 ```plaintext
 04 00 04 00 17 00 00 00 10 00 11 00 08 7E 10 02 42 0B 08 4E 10 02 1A 05 01 00 00 00 00
 ```
+
+## Request format
+
+Both packets above are the same request: after `04 00 04 00 17 00 00 00 10 00`, a little-endian u16 gives the length of a protobuf message, then the message itself:
+
+```plaintext
+04 00 04 00 17 00 00 00 10 00 LL 00   08 SS..   42 0B   08 ST 10 02 1A 05 01 II II II II
+```
+
+| Bytes                   | Meaning                                                              |
+|-------------------------|----------------------------------------------------------------------|
+| `LL 00`                 | length of the protobuf message that follows                          |
+| `08 SS..`               | field 1: a sequence number, as a varint (`A1 02` = 289)              |
+| `42 0B`                 | field 8: an 11-byte message                                          |
+| `08 ST`                 | field 1 of it: the stream, `0E` or `10`                              |
+| `10 02`                 | field 2 of it: always 2                                              |
+| `1A 05 01 II II II II`  | field 3 of it: `01`, then the sample interval in µs, u32 little-endian |
+
+An interval of 0 stops the stream. The extra `10 02` in the stop packet is not needed.
+
+So the start packet above asks for stream 14 every 40 000 µs (25 Hz), and the alternate start packet the Android app can send, `04 00 04 00 17 00 00 00 10 00 0F 00 08 73 42 0B 08 10 10 02 1A 05 01 40 9C 00 00`, asks for stream 16 every 40 000 µs.
+
+## Streams
+
+- **Stream 16 (`10`)** carries the motion samples described below.
+- **Stream 14 (`0E`)** answers with short status messages (45 bytes) only. Stream 16 sends nothing until stream 14 has been requested at least once; after that, stream 16 works on its own for a while, even over a new connection, and stopping stream 14 does not stop it. A client that wants motion data can request stream 14, then stream 16, then stop stream 14.
+- The stream is shared by every AAP connection: stopping it from one client stops it for the others too.
+
+## Sample rate
+
+The interval is honoured: 40 000 µs gives 25 samples a second, 20 000 µs gives 50 and 10 000 µs about 100. Below that, Bluetooth delivers no more (about 90 a second at 5 000 µs).
+
+## Connecting from Linux with a raw socket
+
+Set the L2CAP security level to medium (`setsockopt(fd, SOL_BLUETOOTH, BT_SECURITY, {BT_SECURITY_MEDIUM, 0})`) before `connect()`. With the default level, the AirPods accept the connection and never answer, not even the handshake.
+
 ## Received Head Tracking Sensor Data
 
-Once tracking is active, the AirPods stream sensor packets with the following common structure:
-  
-| Field                    | Offset | Length (bytes) |
-|--------------------------|--------|----------------|
-| orientation 1            | 43     | 2              |
-| orientation 2            | 45     | 2              |
-| orientation 3            | 47     | 2              |
-| Horizontal Acceleration  | 51     | 2              |
-| Vertical Acceleration    | 53     | 2              |
+Each sample arrives as an opcode `17` packet whose protobuf message ends with the sensor data as a 58-byte field:
+
+```plaintext
+04 00 04 00 17 00 00 00 10 00 LL 00   08 SS..   10 03   3A 3E   08 10   1A 3A   <58 bytes>
+```
+
+The sequence number `SS..` is a varint: it takes one byte up to 127, then two, so every offset counted from the start of the packet moves by one byte (packets of 80, then 81 bytes). Reading the 58 bytes from the end of the packet avoids that.
+
+| Offset in the 58 bytes | Type               | Content                                                               |
+|------------------------|--------------------|-----------------------------------------------------------------------|
+| 0                      | u8                 | `01` for a sensor sample                                              |
+| 1                      | u64 little-endian  | timestamp, nanoseconds                                                |
+| 20                     | 3 × i16 LE         | attitude: steady at rest, length about 28 000                         |
+| 26                     | 3 × i16 LE         | rotation rate: around 0 at rest, large on nods and head turns          |
+| 38                     | 3 × i16 LE         | user acceleration, gravity removed: around 0 at rest                  |
+| 44                     | 3 × i16 LE         | gravity: about 1 024 per g, follows head tilt                         |
+| 54                     | u32 LE             | counter, +8 per sample                                                |
+
+The meaning of each group was inferred by nodding, shaking and tilting the head. The first samples after a start have a zero attitude.
+
+In the 81-byte packets, the fields in the table this section had before sit at offsets 43-48 (attitude) and 51-54 (the second and third rotation-rate values, previously labelled horizontal and vertical acceleration).
+
+These findings come from [mutix](https://github.com/Gheop/mutix), which reads this stream on Linux.
