@@ -22,391 +22,199 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Collections
-import java.util.concurrent.CopyOnWriteArrayList
+import me.kavishdevar.librepods.core.data.apple.AppleMotionReport
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
-import kotlin.time.Duration.Companion.milliseconds
 
-// TODO: rewrite
 class GestureDetector {
     companion object {
         private const val TAG = "GestureDetector"
 
-        private const val IMMEDIATE_FEEDBACK_THRESHOLD = 600
-        private const val DIRECTION_CHANGE_SENSITIVITY = 150
+        private const val PEAK_VELOCITY_THRESHOLD = 0.85f
+        private const val FEEDBACK_VELOCITY_THRESHOLD = 1.2f
+        private const val DOMINANCE_RATIO = 1.35f
 
-        private const val FAST_MOVEMENT_THRESHOLD = 300.0
-        private const val MIN_REQUIRED_EXTREMES = 3
-        private const val MAX_REQUIRED_EXTREMES = 4
+        private const val MIN_HALF_CYCLE_MS = 80L
+        private const val MAX_HALF_CYCLE_MS = 600L
+        private const val GESTURE_TIMEOUT_MS = 800L
 
-        private const val MAX_VALID_ORIENTATION_VALUE = 6000
+        private const val REQUIRED_ALTERNATIONS = 4
     }
 
-    private val horizontalBuffer = Collections.synchronizedList(ArrayList<Double>())
-    private val verticalBuffer = Collections.synchronizedList(ArrayList<Double>())
+    private data class Extreme(
+        val isVertical: Boolean,
+        val sign: Int,
+        val peakValue: Float,
+        val timestampMs: Long
+    )
 
-    private val horizontalAvgBuffer = Collections.synchronizedList(ArrayList<Double>())
-    private val verticalAvgBuffer = Collections.synchronizedList(ArrayList<Double>())
-
-    private var prevHorizontal: Double = 0.0
-    private var prevVertical: Double = 0.0
-
-    private val horizontalPeaks = CopyOnWriteArrayList<Triple<Int, Double, Long>>()
-    private val horizontalTroughs = CopyOnWriteArrayList<Triple<Int, Double, Long>>()
-    private val verticalPeaks = CopyOnWriteArrayList<Triple<Int, Double, Long>>()
-    private val verticalTroughs = CopyOnWriteArrayList<Triple<Int, Double, Long>>()
-
-    private var lastPeakTime: Long = 0
-    private val peakIntervals = Collections.synchronizedList(ArrayList<Double>())
-
-    private val movementSpeedIntervals = Collections.synchronizedList(ArrayList<Long>())
-
-    private val peakThreshold = 400
-    private val directionChangeThreshold = DIRECTION_CHANGE_SENSITIVITY
-    private val rhythmConsistencyThreshold = 0.5
-
-    private var horizontalIncreasing: Boolean? = null
-    private var verticalIncreasing: Boolean? = null
-
-    private val minConfidenceThreshold = 0.7
+    private val extremes = ArrayList<Extreme>()
+    private var currentVertPeak = 0f
+    private var currentHorizPeak = 0f
+    private var lastFeedbackTimeMs = 0L
 
     private var isRunning = false
-    private var detectionJob: Job? = null
     private var processingJob: Job? = null
 
-    private var significantMotion = false
-    private var lastSignificantMotionTime = 0L
+    private var wasVertAboveThreshold = false
+    private var wasHorizAboveThreshold = false
 
-    init {
-        while (horizontalAvgBuffer.size < 3) horizontalAvgBuffer.add(0.0)
-        while (verticalAvgBuffer.size < 3) verticalAvgBuffer.add(0.0)
-    }
-
-    fun startDetection(acceleration: StateFlow<Acceleration>, callback: (Boolean) -> Unit): Boolean {
+    fun startDetection(
+        motionReports: StateFlow<AppleMotionReport?>,
+        callback: (Boolean) -> Unit
+    ): Boolean {
         if (isRunning) return false
 
         Log.d(TAG, "Starting gesture detection...")
         isRunning = true
-
-        clearData()
-
-        prevHorizontal = 0.0
-        prevVertical = 0.0
+        resetState()
 
         processingJob = CoroutineScope(Dispatchers.Default).launch {
-            acceleration.collect {
-                processHeadOrientation(it.horizontal.toInt(), it.vertical.toInt())
-            }
-        }
-
-        detectionJob = CoroutineScope(Dispatchers.Default).launch {
-            while (isRunning) {
-                delay(50.milliseconds)
-
-                val gesture = detectGestures()
-                if (gesture != null) {
+            motionReports.filterNotNull().collect { report ->
+                val result = processReport(report)
+                if (result != null) {
                     withContext(Dispatchers.Main) {
-                        GestureFeedback.playConfirmation(gesture)
-
-                        callback.invoke(gesture)
+                        GestureFeedback.playConfirmation(result)
+                        callback(result)
                         stopDetection()
                     }
-                    break
                 }
             }
         }
-
         return true
     }
+
     fun stopDetection() {
         if (!isRunning) return
-
         Log.d(TAG, "Stopping gesture detection")
         isRunning = false
-
-        detectionJob?.cancel()
-        detectionJob = null
-
         processingJob?.cancel()
         processingJob = null
-   }
-
-    fun processHeadOrientation(horizontal: Int, vertical: Int) {
-        if (!isRunning) return
-
-        if (abs(horizontal) > MAX_VALID_ORIENTATION_VALUE || abs(vertical) > MAX_VALID_ORIENTATION_VALUE) {
-            Log.d(TAG, "Ignoring likely calibration data: h=$horizontal, v=$vertical")
-            return
-        }
-
-        val horizontalDelta = horizontal - prevHorizontal
-        val verticalDelta = vertical - prevVertical
-
-        val significantHorizontal = abs(horizontalDelta) > IMMEDIATE_FEEDBACK_THRESHOLD
-        val significantVertical = abs(verticalDelta) > IMMEDIATE_FEEDBACK_THRESHOLD
-
-        if (significantHorizontal && (!significantVertical || abs(horizontalDelta) > abs(verticalDelta))) {
-            CoroutineScope(Dispatchers.Main).launch {
-                GestureFeedback.playDirectional(isVertical = false, value = horizontalDelta)
-            }
-            significantMotion = true
-            lastSignificantMotionTime = System.currentTimeMillis()
-            Log.d(TAG, "Significant HORIZONTAL movement: $horizontalDelta")
-        }
-        else if (significantVertical) {
-            CoroutineScope(Dispatchers.Main).launch {
-                GestureFeedback.playDirectional(isVertical = true, value = verticalDelta)
-            }
-            significantMotion = true
-            lastSignificantMotionTime = System.currentTimeMillis()
-            Log.d(TAG, "Significant VERTICAL movement: $verticalDelta")
-        }
-        else if (significantMotion &&
-                 (System.currentTimeMillis() - lastSignificantMotionTime) > 300) {
-            significantMotion = false
-        }
-
-        prevHorizontal = horizontal.toDouble()
-        prevVertical = vertical.toDouble()
-
-        val smoothHorizontal = applySmoothing(horizontal.toDouble(), horizontalAvgBuffer)
-        val smoothVertical = applySmoothing(vertical.toDouble(), verticalAvgBuffer)
-
-        synchronized(horizontalBuffer) {
-            horizontalBuffer.add(smoothHorizontal)
-            if (horizontalBuffer.size > 100) horizontalBuffer.removeAt(0)
-        }
-
-        synchronized(verticalBuffer) {
-            verticalBuffer.add(smoothVertical)
-            if (verticalBuffer.size > 100) verticalBuffer.removeAt(0)
-        }
-
-        detectPeaksAndTroughs()
     }
 
-    private fun applySmoothing(newValue: Double, buffer: MutableList<Double>): Double {
-        synchronized(buffer) {
-            buffer.add(newValue)
-            if (buffer.size > 3) buffer.removeAt(0)
-            return buffer.average()
+    private fun processReport(report: AppleMotionReport): Boolean? {
+        if (!isRunning || report.dropped) return null
+
+        val q = report.quaternion
+        if (q[0] == 0f && q[1] == 0f && q[2] == 0f && q[3] == 1f) return null
+
+        val now = report.sensorTimestampUs.toLong() / 1000L
+        val (rx, ry, rz) = report.rotationRate
+
+        val vertVel = rz
+        val horizVel = (rx * 0.78f) + (ry * 0.62f)
+
+        if (extremes.isNotEmpty() && (now - extremes.last().timestampMs) > GESTURE_TIMEOUT_MS) {
+            extremes.clear()
+            currentVertPeak = 0f
+            currentHorizPeak = 0f
         }
+
+        triggerImmediateFeedback(vertVel, horizVel, now)
+
+        if (abs(vertVel) > abs(currentVertPeak)) currentVertPeak = vertVel
+        if (abs(horizVel) > abs(currentHorizPeak)) currentHorizPeak = horizVel
+
+        val vertLobeEnded = abs(currentVertPeak) >= PEAK_VELOCITY_THRESHOLD &&
+            (vertVel * currentVertPeak <= 0f || abs(vertVel) < abs(currentVertPeak) * 0.4f)
+
+        val horizLobeEnded = abs(currentHorizPeak) >= PEAK_VELOCITY_THRESHOLD &&
+            (horizVel * currentHorizPeak <= 0f || abs(horizVel) < abs(currentHorizPeak) * 0.4f)
+
+        if (vertLobeEnded && abs(currentVertPeak) > abs(currentHorizPeak) * DOMINANCE_RATIO) {
+            recordExtreme(
+                isVertical = true,
+                sign = if (currentVertPeak > 0) 1 else -1,
+                peak = abs(currentVertPeak),
+                now = now
+            )
+            currentVertPeak = 0f
+            currentHorizPeak = 0f
+        } else if (horizLobeEnded && abs(currentHorizPeak) > abs(currentVertPeak) * DOMINANCE_RATIO) {
+            recordExtreme(
+                isVertical = false,
+                sign = if (currentHorizPeak > 0) 1 else -1,
+                peak = abs(currentHorizPeak),
+                now = now
+            )
+            currentHorizPeak = 0f
+            currentVertPeak = 0f
+        }
+
+        return evaluateExtremes()
     }
 
+    private fun recordExtreme(isVertical: Boolean, sign: Int, peak: Float, now: Long) {
+        val last = extremes.lastOrNull()
 
-    private fun detectPeaksAndTroughs() {
-        if (horizontalBuffer.size < 4 || verticalBuffer.size < 4) return
-
-        val hValues = horizontalBuffer.takeLast(4)
-        val vValues = verticalBuffer.takeLast(4)
-        val hVariance = calculateVariance(hValues)
-        val vVariance = calculateVariance(vValues)
-
-        processDirectionChanges(
-            horizontalBuffer,
-            horizontalIncreasing,
-            hVariance,
-            horizontalPeaks,
-            horizontalTroughs
-        )?.let { horizontalIncreasing = it }
-
-        processDirectionChanges(
-            verticalBuffer,
-            verticalIncreasing,
-            vVariance,
-            verticalPeaks,
-            verticalTroughs
-        )?.let { verticalIncreasing = it }
-    }
-
-    private fun processDirectionChanges(
-        buffer: List<Double>,
-        isIncreasing: Boolean?,
-        variance: Double,
-        peaks: MutableList<Triple<Int, Double, Long>>,
-        troughs: MutableList<Triple<Int, Double, Long>>
-    ): Boolean? {
-        if (buffer.size < 2) return isIncreasing
-
-        val current = buffer.last()
-        val prev = buffer[buffer.size - 2]
-        var increasing = isIncreasing ?: (current > prev)
-
-        val dynamicThreshold = max(50.0, min(directionChangeThreshold.toDouble(), variance / 3))
-
-        val now = System.currentTimeMillis()
-
-        if (increasing && current < prev - dynamicThreshold) {
-            if (abs(prev) > peakThreshold) {
-                peaks.add(Triple(buffer.size - 1, prev, now))
-                if (lastPeakTime > 0) {
-                    val interval = (now - lastPeakTime) / 1000.0
-                    val timeDiff = now - lastPeakTime
-
-                    synchronized(peakIntervals) {
-                        peakIntervals.add(interval)
-                        if (peakIntervals.size > 5) peakIntervals.removeAt(0)
-                    }
-
-                    synchronized(movementSpeedIntervals) {
-                        movementSpeedIntervals.add(timeDiff)
-                        if (movementSpeedIntervals.size > 5) movementSpeedIntervals.removeAt(0)
-                    }
+        if (last != null) {
+            val dt = now - last.timestampMs
+            if (last.isVertical != isVertical || dt > MAX_HALF_CYCLE_MS) {
+                extremes.clear()
+            } else if (last.sign == sign) {
+                if (peak > last.peakValue) {
+                    extremes[extremes.lastIndex] = Extreme(isVertical, sign, peak, now)
                 }
-                lastPeakTime = now
+                return
+            } else if (dt < MIN_HALF_CYCLE_MS) {
+                return
             }
-            increasing = false
-        } else if (!increasing && current > prev + dynamicThreshold) {
-            if (abs(prev) > peakThreshold) {
-                troughs.add(Triple(buffer.size - 1, prev, now))
+        }
 
-                if (lastPeakTime > 0) {
-                    val interval = (now - lastPeakTime) / 1000.0
-                    val timeDiff = now - lastPeakTime
+        extremes.add(Extreme(isVertical, sign, peak, now))
+        Log.d(TAG, "Recorded extreme: vertical=$isVertical, sign=$sign, peak=$peak, count=${extremes.size}")
+    }
 
-                    synchronized(peakIntervals) {
-                        peakIntervals.add(interval)
-                        if (peakIntervals.size > 5) peakIntervals.removeAt(0)
-                    }
+    private fun evaluateExtremes(): Boolean? {
+        if (extremes.size < REQUIRED_ALTERNATIONS) return null
 
-                    synchronized(movementSpeedIntervals) {
-                        movementSpeedIntervals.add(timeDiff)
-                        if (movementSpeedIntervals.size > 5) movementSpeedIntervals.removeAt(0)
-                    }
+        val isVertical = extremes.last().isVertical
+        Log.d(TAG, if (isVertical) "\"Yes\" Gesture Detected" else "\"No\" Gesture Detected")
+        return isVertical
+    }
+
+    private fun triggerImmediateFeedback(vertVel: Float, horizVel: Float, now: Long) {
+        val vertAboveThreshold =
+            abs(vertVel) > FEEDBACK_VELOCITY_THRESHOLD &&
+                abs(vertVel) > abs(horizVel) * DOMINANCE_RATIO
+
+        val horizAboveThreshold =
+            abs(horizVel) > FEEDBACK_VELOCITY_THRESHOLD &&
+                abs(horizVel) > abs(vertVel) * DOMINANCE_RATIO
+
+        if (now - lastFeedbackTimeMs >= 200L) {
+            if (vertAboveThreshold && !wasVertAboveThreshold) {
+                lastFeedbackTimeMs = now
+                CoroutineScope(Dispatchers.Main).launch {
+                    GestureFeedback.playDirectional(
+                        isVertical = true,
+                        value = vertVel * 512.0
+                    )
                 }
-                lastPeakTime = now
-            }
-            increasing = true
-        }
-
-        return increasing
-    }
-
-    private fun calculateVariance(values: List<Double>): Double {
-        if (values.size <= 1) return 0.0
-
-        val mean = values.average()
-        val squaredDiffs = values.map { (it - mean) * (it - mean) }
-        return squaredDiffs.average()
-    }
-
-
-    private fun calculateRhythmConsistency(): Double {
-        if (peakIntervals.size < 2) return 0.0
-
-        val meanInterval = peakIntervals.average()
-        if (meanInterval == 0.0) return 0.0
-
-        val variances = peakIntervals.map { (it / meanInterval - 1.0).pow(2) }
-        val consistency = 1.0 - min(1.0, variances.average() / rhythmConsistencyThreshold)
-        return max(0.0, consistency)
-    }
-
-
-    private fun calculateConfidenceScore(extremes: List<Triple<Int, Double, Long>>, isVertical: Boolean): Double {
-        if (extremes.size < getRequiredExtremes()) return 0.0
-
-        val sortedExtremes = extremes.sortedBy { it.first }
-
-        val recent = sortedExtremes.takeLast(getRequiredExtremes())
-
-        val avgAmplitude = recent.map { abs(it.second) }.average()
-        val amplitudeFactor = min(1.0, avgAmplitude / 600)
-
-        val rhythmFactor = calculateRhythmConsistency()
-
-        val signs = recent.map { if (it.second > 0) 1 else -1 }
-        val alternating = (1 until signs.size).all { signs[it] != signs[it - 1] }
-        val alternationFactor = if (alternating) 1.0 else 0.5
-
-        val isolationFactor = if (isVertical) {
-            val vertAmplitude = recent.map { abs(it.second) }.average()
-            val horizVals = horizontalBuffer.takeLast(recent.size * 2)
-            val horizAmplitude = horizVals.map { abs(it) }.average()
-            min(1.0, vertAmplitude / (horizAmplitude + 0.1) * 1.2)
-        } else {
-            val horizAmplitude = recent.map { abs(it.second) }.average()
-            val vertVals = verticalBuffer.takeLast(recent.size * 2)
-            val vertAmplitude = vertVals.map { abs(it) }.average()
-            min(1.0, horizAmplitude / (vertAmplitude + 0.1) * 1.2)
-        }
-
-        return (
-            amplitudeFactor * 0.4 +
-            rhythmFactor * 0.2 +
-            alternationFactor * 0.2 +
-            isolationFactor * 0.2
-        )
-    }
-
-    private fun getRequiredExtremes(): Int {
-        if (movementSpeedIntervals.isEmpty()) return MIN_REQUIRED_EXTREMES
-
-        val avgInterval = movementSpeedIntervals.average()
-        Log.d(TAG, "Average movement interval: $avgInterval ms")
-
-        return if (avgInterval < FAST_MOVEMENT_THRESHOLD) {
-            MAX_REQUIRED_EXTREMES
-        } else {
-            MIN_REQUIRED_EXTREMES
-        }
-    }
-
-    private fun detectGestures(): Boolean? {
-        val requiredExtremes = getRequiredExtremes()
-//        Log.d(TAG, "Current required extremes: $requiredExtremes")
-
-        if (verticalPeaks.size + verticalTroughs.size >= requiredExtremes) {
-            val allExtremes = (verticalPeaks + verticalTroughs).sortedBy { it.first }
-
-            val confidence = calculateConfidenceScore(allExtremes, isVertical = true)
-
-            Log.d(TAG, "Vertical motion confidence: $confidence (need $minConfidenceThreshold)")
-
-            if (confidence >= minConfidenceThreshold) {
-                Log.d(TAG, "\"Yes\" Gesture Detected (confidence: $confidence, extremes: ${allExtremes.size}/$requiredExtremes)")
-                return true
+            } else if (horizAboveThreshold && !wasHorizAboveThreshold) {
+                lastFeedbackTimeMs = now
+                CoroutineScope(Dispatchers.Main).launch {
+                    GestureFeedback.playDirectional(
+                        isVertical = false,
+                        value = horizVel * 512.0
+                    )
+                }
             }
         }
 
-        if (horizontalPeaks.size + horizontalTroughs.size >= requiredExtremes) {
-            val allExtremes = (horizontalPeaks + horizontalTroughs).sortedBy { it.first }
-
-            val confidence = calculateConfidenceScore(allExtremes, isVertical = false)
-
-            Log.d(TAG, "Horizontal motion confidence: $confidence (need $minConfidenceThreshold)")
-
-            if (confidence >= minConfidenceThreshold) {
-                Log.d(TAG, "\"No\" Gesture Detected (confidence: $confidence, extremes: ${allExtremes.size}/$requiredExtremes)")
-                return false
-            }
-        }
-
-        return null
+        wasVertAboveThreshold = vertAboveThreshold
+        wasHorizAboveThreshold = horizAboveThreshold
     }
 
-    private fun clearData() {
-        horizontalBuffer.clear()
-        verticalBuffer.clear()
-        horizontalPeaks.clear()
-        horizontalTroughs.clear()
-        verticalPeaks.clear()
-        verticalTroughs.clear()
-        peakIntervals.clear()
-        movementSpeedIntervals.clear()
-        horizontalIncreasing = null
-        verticalIncreasing = null
-        lastPeakTime = 0
-        significantMotion = false
-        lastSignificantMotionTime = 0L
+    private fun resetState() {
+        extremes.clear()
+        currentVertPeak = 0f
+        currentHorizPeak = 0f
+        lastFeedbackTimeMs = 0L
+        wasVertAboveThreshold = false
+        wasHorizAboveThreshold = false
     }
-
-    private fun Double.pow(exponent: Int): Double = this.pow(exponent.toDouble())
 }

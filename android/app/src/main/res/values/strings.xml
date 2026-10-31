@@ -461,4 +461,6 @@
     <string name="prox_connect_settings">Configure automatic connections</string>
     <string name="require_both_buds_in_case">Require both AirPods in case to show</string>
     <string name="show_close_button">Show close button</string>
+    <string name="angular_velocity">Angular velocity</string>
+    <string name="test_head_gestures">Test Head Gestures</string>
 </resources>

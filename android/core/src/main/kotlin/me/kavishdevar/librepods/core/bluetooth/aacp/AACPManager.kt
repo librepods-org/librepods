@@ -1154,31 +1154,16 @@ class AACPManager(private val device: AppleDevice) {
                 SensorServiceType.CMA,
                 SensorServiceType.DEVMOTION6 -> {
                     val payload = data.command.payload.toByteArray()
-
-                    if (payload.size != 58) {
-                        Log.w(
-                            TAG,
-                            "Unexpected payload size for ACTIVITY/DEVMOTION6: ${payload.size}, payload: ${payload.toHexString()}"
-                        )
+                    if (!HeadTracking.updateFromPayload(payload)) {
+                        Log.d(TAG, "Ignoring invalid motion report: ${payload.toHexString()}")
                         return
                     }
 
-                    fun i16(offset: Int): Int =
-                        (payload[offset].toInt() and 0xFF) or
-                            ((payload[offset + 1].toInt() and 0xFF) shl 8)
-                                .let { value ->
-                                    if (value and 0x8000 != 0) value - 0x10000 else value
-                                }
-
                     if (device.state.value.headTrackingState != BuddyState.ACTIVE) {
                         device.updateState {
-                            it.copy(
-                                headTrackingState = BuddyState.ACTIVE
-                            )
+                            it.copy(headTrackingState = BuddyState.ACTIVE)
                         }
                     }
-
-                    HeadTracking.addAccel(i16(device.settings.value.headGesturesVerticalOffset).toFloat(), i16(device.settings.value.headGesturesHorizontalOffset).toFloat())
                 }
 
                 SensorServiceType.HEARTRATE,

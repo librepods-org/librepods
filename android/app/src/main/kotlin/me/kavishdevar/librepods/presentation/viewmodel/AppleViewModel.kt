@@ -187,10 +187,10 @@ class AppleViewModel(
     fun setCustomEq(low: Int, mid: Int, high: Int) = device.setCustomEq(low, mid, high)
 
     fun detectHeadGestures(callback: (Boolean) -> Unit) = device.detectHeadGestures(callback)
-
-    fun setHeadGesturesVerticalOffset(offset: Int) = device.setHeadGesturesVerticalOffset(offset)
-    fun setHeadGesturesHorizontalOffset(offset: Int) = device.setHeadGesturesHorizontalOffset(offset)
     fun setHeadTrackingInterval(interval: Duration) = device.setHeadTrackingInterval(interval)
+
+    fun setPostureAlertEnabled(enabled: Boolean) = device.setPostureAlertEnabled(enabled)
+    fun setPostureAlertThreshold(threshold: Int) = device.setPostureAlertThreshold(threshold)
 
     fun startHr() = device.startHr()
     fun stopHr() = device.stopHr()

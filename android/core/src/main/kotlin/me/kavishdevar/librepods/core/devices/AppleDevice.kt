@@ -326,7 +326,7 @@ class AppleDevice(
     // TODO: multiple callbacks
     fun detectHeadGestures(callback: (Boolean) -> Unit) {
         if (state.value.headTrackingState != BuddyState.ACTIVE) startHeadTracking()
-        val started = gestureDetector.startDetection(HeadTracking.acceleration, callback)
+        val started = gestureDetector.startDetection(HeadTracking.motionReport, callback)
         if (!started) {
             Log.w(TAG, "Failed to start gesture detection, probably because already running.")
         }
@@ -338,22 +338,22 @@ class AppleDevice(
         }
     }
 
-    fun setHeadGesturesVerticalOffset(offset: Int) {
-        _settings.update {
-            it.copy(headGesturesVerticalOffset = offset)
-        }
-    }
-
-    fun setHeadGesturesHorizontalOffset(offset: Int) {
-        _settings.update {
-            it.copy(headGesturesHorizontalOffset = offset)
-        }
-    }
-
     fun setHeadTrackingInterval(interval: Duration) {
-        startHeadTracking()
         _settings.update {
             it.copy(headTrackingInterval = interval)
+        }
+        startHeadTracking()
+    }
+
+    fun setPostureAlertEnabled(enabled: Boolean) {
+        _settings.update {
+            it.copy(postureAlertEnabled = enabled)
+        }
+    }
+
+    fun setPostureAlertThreshold(threshold: Int) {
+        _settings.update {
+            it.copy(postureAlertThreshold = threshold)
         }
     }
 

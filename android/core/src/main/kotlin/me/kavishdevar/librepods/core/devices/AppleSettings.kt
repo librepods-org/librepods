@@ -14,9 +14,10 @@ data class AppleSettings(
 
     val cacheDisconnectedComponentBattery: Boolean = true,
 
+    val postureAlertEnabled: Boolean = true,
+    val postureAlertThreshold: Int = 20,
+
     val headGesturesEnabled: Boolean = true, // head_gestures_enabled
-    val headGesturesVerticalOffset: Int = 30,
-    val headGesturesHorizontalOffset: Int = 28,
     val headTrackingInterval: Duration = 40.milliseconds,
 
     val leftLongPressAction: StemAction = StemAction.CYCLE_listening_mode_MODES, // left_long_press_action
