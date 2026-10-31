@@ -90,6 +90,8 @@ pub struct App {
     hires_mic_agc: bool,
     hires_mic_pause_convo: bool,
     a2dp_reset: bool,
+    audio_off_when_not_wearing: bool,
+    pause_when_one_removed: bool,
 }
 
 pub struct BluetoothState {
@@ -123,6 +125,8 @@ pub enum Message {
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
     A2dpResetChanged(bool),
+    AudioOffWhenNotWearingChanged(bool),
+    PauseWhenOneRemovedChanged(bool),
     HiResMicAgcChanged(bool),
     HiResMicPauseConvoChanged(bool),
     MicLevelTick,
@@ -170,6 +174,8 @@ impl App {
         let hires_mic_agc = app_settings.hires_mic_agc;
         let hires_mic_pause_convo = app_settings.hires_mic_pause_convo;
         let a2dp_reset = app_settings.a2dp_reset;
+        let audio_off_when_not_wearing = app_settings.audio_off_when_not_wearing;
+        let pause_when_one_removed = app_settings.pause_when_one_removed;
 
         let bluetooth_state = BluetoothState::new();
 
@@ -226,6 +232,8 @@ impl App {
                 hires_mic_agc,
                 hires_mic_pause_convo,
                 a2dp_reset,
+                audio_off_when_not_wearing,
+                pause_when_one_removed,
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -240,6 +248,10 @@ impl App {
             hires_mic_agc: self.hires_mic_agc,
             hires_mic_pause_convo: self.hires_mic_pause_convo,
             a2dp_reset: self.a2dp_reset,
+            audio_off_when_not_wearing: self.audio_off_when_not_wearing,
+            pause_when_one_removed: self.pause_when_one_removed,
+            // Keep settings the window doesn't edit (written by the backend).
+            ..AppSettings::load()
         }
         .save();
     }
@@ -605,7 +617,7 @@ impl App {
                         error!("Serialization failed: {}", e);
                         "{}".to_string()
                     });
-                    if let Err(e) = std::fs::write(&devices_path, updated_json) {
+                    if let Err(e) = crate::utils::write_atomic(&devices_path, updated_json.as_bytes()) {
                         error!("Failed to write devices file: {}", e);
                     }
                     self.selected_tab = Tab::Device(addr.to_string());
@@ -668,6 +680,16 @@ impl App {
             }
             Message::A2dpResetChanged(is_enabled) => {
                 self.a2dp_reset = is_enabled;
+                self.save_settings();
+                Task::none()
+            }
+            Message::AudioOffWhenNotWearingChanged(is_enabled) => {
+                self.audio_off_when_not_wearing = is_enabled;
+                self.save_settings();
+                Task::none()
+            }
+            Message::PauseWhenOneRemovedChanged(is_enabled) => {
+                self.pause_when_one_removed = is_enabled;
                 self.save_settings();
                 Task::none()
             }
@@ -1122,12 +1144,97 @@ impl App {
                                         )
                                     .align_y(Center);
 
+                            let audio_off_not_wearing_value = self.audio_off_when_not_wearing;
+                            let audio_off_not_wearing_toggle = container(
+                                row![
+                                    column![
+                                        text("Switch audio away when both buds are out").size(16),
+                                        text("After both buds have been out for 4 seconds, apps move to another output and microphone (speakers, headset, webcam). They move back to the AirPods when a bud goes in again. Media pauses right away either way.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(audio_off_not_wearing_value)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::AudioOffWhenNotWearingChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
+
+                            let pause_one_removed_value = self.pause_when_one_removed;
+                            let pause_one_removed_toggle = container(
+                                row![
+                                    column![
+                                        text("Pause when one bud is removed").size(16),
+                                        text("Pause media when you take one bud out, like an iPhone, and resume when it goes back in. When off, playback continues in the other bud.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(pause_one_removed_value)
+                                        .on_toggle(move |is_enabled| {
+                                            Message::PauseWhenOneRemovedChanged(is_enabled)
+                                        })
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
+
+
                             let a2dp_reset_value = self.a2dp_reset;
                             let a2dp_reset_toggle = container(
                                 row![
                                     column![
                                         text("Reset A2DP transport").size(16),
-                                        text("Briefly suspends and resumes A2DP after the hi-res mic starts or stops. Disabling removes the short pause/stutter when the mic turns on or off, but on some setups it causes playback on one AirPod to drop once capture ends.").size(12).style(
+                                        text("Briefly pauses and resumes the AirPods audio after the hi-res mic turns off. Without it, playback continues in only one earbud until the mic is used again or the AirPods reconnect.").size(12).style(
                                             |theme: &Theme| {
                                                 let mut style = text::Style::default();
                                                 style.color = Some(theme.palette().text.scale_alpha(0.7));
@@ -1272,6 +1379,10 @@ impl App {
                                     tray_text_mode_toggle,
                                     Space::new().height(Length::from(20)),
                                     controls_settings_col,
+                                    Space::new().height(Length::from(20)),
+                                    audio_off_not_wearing_toggle,
+                                    Space::new().height(Length::from(20)),
+                                    pause_one_removed_toggle,
                                     Space::new().height(Length::from(20)),
                                     a2dp_reset_toggle,
                                     Space::new().height(Length::from(20)),

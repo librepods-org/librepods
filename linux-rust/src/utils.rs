@@ -13,6 +13,22 @@ pub fn get_devices_path() -> PathBuf {
         .join("devices.json")
 }
 
+/// Write a file atomically: write a temp file next to it, then rename over it.
+/// A plain fs::write truncates first, so a concurrent reader (settings and the
+/// devices file are read all the time) could see an empty or partial file, fall
+/// back to defaults, and the next save would overwrite the user's data with them.
+pub fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension(format!(
+        "tmp.{}",
+        std::process::id()
+    ));
+    std::fs::write(&tmp, contents)?;
+    std::fs::rename(&tmp, path)
+}
+
 pub fn ensure_device_registered(mac: &str, name: &str, type_: crate::devices::enums::DeviceType) {
     use crate::devices::enums::DeviceData;
     use std::collections::HashMap;
@@ -37,7 +53,7 @@ pub fn ensure_device_registered(mac: &str, name: &str, type_: crate::devices::en
     }
     match serde_json::to_string(&devices) {
         Ok(updated) => {
-            if let Err(e) = std::fs::write(&path, updated) {
+            if let Err(e) = write_atomic(&path, updated.as_bytes()) {
                 log::error!("Failed to write devices file: {}", e);
             }
         }
@@ -169,6 +185,19 @@ pub struct AppSettings {
     pub hires_mic_agc: bool,
     pub hires_mic_pause_convo: bool,
     pub a2dp_reset: bool,
+    /// No bud worn for NOT_WORN_GRACE: switch the AirPods' audio off and hide the
+    /// hi-res mic, so apps move to another output and microphone. Both come back
+    /// when a bud goes in again.
+    pub audio_off_when_not_wearing: bool,
+    /// One bud out: pause media like an iPhone (otherwise keep playing).
+    pub pause_when_one_removed: bool,
+    /// Conversation awareness was switched off for a mic capture and couldn't
+    /// be switched back on before the AirPods disconnected.
+    pub convo_restore_pending: bool,
+    /// AirPods volume (%) from before conversation awareness lowered it, while
+    /// that is in effect; restored on the next activation if a disconnect
+    /// interrupted the normal restore.
+    pub conv_volume_restore: Option<u32>,
 }
 
 impl Default for AppSettings {
@@ -181,6 +210,10 @@ impl Default for AppSettings {
             hires_mic_agc: true,
             hires_mic_pause_convo: true,
             a2dp_reset: true,
+            audio_off_when_not_wearing: true,
+            pause_when_one_removed: false,
+            convo_restore_pending: false,
+            conv_volume_restore: None,
         }
     }
 }
@@ -200,7 +233,7 @@ impl AppSettings {
         }
         match serde_json::to_string_pretty(self) {
             Ok(json) => {
-                if let Err(e) = std::fs::write(&path, json) {
+                if let Err(e) = write_atomic(&path, json.as_bytes()) {
                     log::error!("Failed to write app settings: {}", e);
                 }
             }

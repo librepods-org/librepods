@@ -32,7 +32,10 @@ pub struct VirtualMic {
 unsafe impl Send for VirtualMic {}
 
 impl VirtualMic {
-    pub fn open(sample_rate: u32, channels: u8) -> Option<VirtualMic> {
+    /// `description` is the name shown in sound settings (e.g. "AirPods Pro
+    /// Microphone"); the node name stays SOURCE_NAME so saved defaults and app
+    /// selections keep working.
+    pub fn open(sample_rate: u32, channels: u8, description: &str) -> Option<VirtualMic> {
         unload_stale_modules();
 
         let chan_map = if channels == 1 {
@@ -46,10 +49,16 @@ impl VirtualMic {
 
         // node.virtual=false: pipe-sources are virtual by default, so they lack the HARDWARE
         // flag and Plasma's volume applet hides them unless "Show virtual devices" is on.
+        // Quoting: the property list in single quotes, the description (which
+        // may contain spaces) in double quotes inside it.
+        let description: String = description
+            .chars()
+            .filter(|c| !matches!(c, '"' | '\'' | '\\'))
+            .collect();
         let args = format!(
             "source_name={SOURCE_NAME} file={fifo} format=s16le rate={sample_rate} \
              channels={channels} channel_map={chan_map} \
-             source_properties=\"device.description=AirPods_HiRes_Mic node.driver=false priority.driver=0 node.virtual=false\""
+             source_properties='device.description=\"{description}\" node.driver=false priority.driver=0 node.virtual=false'"
         );
         let module = match load_module("module-pipe-source", &args) {
             Some(i) => i,
@@ -60,8 +69,8 @@ impl VirtualMic {
         };
 
         info!(
-            "[pw] hi-res mic ready: select '{}' as your microphone",
-            SOURCE_NAME
+            "[pw] hi-res mic ready: select '{}' ({}) as your microphone",
+            description, SOURCE_NAME
         );
         Some(VirtualMic { module })
     }
@@ -78,7 +87,15 @@ impl Drop for VirtualMic {
 pub struct Output {
     fifo: File,
     agc: Option<Agc>,
+    /// Bytes dropped because the FIFO was full (reader suspended).
+    dropped: u64,
 }
+
+/// O_NONBLOCK (Linux generic value; libc isn't a direct dependency).
+const O_NONBLOCK: i32 = 0o4000;
+/// Writes up to PIPE_BUF are atomic on a pipe, so a full FIFO never leaves a
+/// partial (misaligned) sample behind.
+const PIPE_BUF: usize = 4096;
 
 unsafe impl Send for Output {}
 
@@ -87,7 +104,18 @@ impl Output {
         // O_RDWR never blocks on a FIFO and keeps the pipe from ever seeing
         // "all writers closed"; we only ever write to it.
         let path = fifo_path();
-        let fifo = match OpenOptions::new().read(true).write(true).open(&path) {
+        // Non-blocking: when no app is actively reading (e.g. a recorder paused
+        // its stream), PipeWire suspends the pipe-source and stops draining the
+        // FIFO. A blocking write would then hang the decode thread once the
+        // 64 KB pipe fills (~0.5 s at 64 kHz), and stopping the capture would
+        // wait on that thread forever. It's live audio, so drop it instead.
+        use std::os::unix::fs::OpenOptionsExt;
+        let fifo = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(O_NONBLOCK)
+            .open(&path)
+        {
             Ok(f) => f,
             Err(e) => {
                 error!("could not open hi-res fifo {}: {}", path, e);
@@ -101,7 +129,11 @@ impl Output {
         if agc.is_none() {
             info!("[pw] AGC disabled; passing through raw hi-res capture");
         }
-        Some(Output { fifo, agc })
+        Some(Output {
+            fifo,
+            agc,
+            dropped: 0,
+        })
     }
 
     // Write s16 PCM into the FIFO, returning the (post-AGC) peak
@@ -125,16 +157,45 @@ impl Output {
             std::slice::from_raw_parts(pcm.as_ptr() as *const u8, std::mem::size_of_val(pcm))
         };
 
-        self.fifo
-            .write_all(bytes)
-            .map(|_| peak)
-            .map_err(|e| error!("hi-res fifo write broke: {}", e))
+        for chunk in bytes.chunks(PIPE_BUF) {
+            match self.fifo.write(chunk) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // Reader not consuming (source suspended): drop this audio.
+                    if self.dropped == 0 {
+                        warn!("[pw] hi-res FIFO full (source not being read); dropping audio");
+                    }
+                    self.dropped += chunk.len() as u64;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => {
+                    error!("hi-res fifo write broke: {}", e);
+                    return Err(());
+                }
+            }
+        }
+        Ok(peak)
     }
 }
 
+/// Streams below this rate are level meters (pavucontrol and KDE's volume
+/// applet open 25 Hz peak-detect streams to draw mic levels), not recorders.
+const MIN_RECORDER_RATE: u32 = 1000;
+
+/// Who records from the virtual source.
+pub enum SourceUse {
+    /// The source doesn't exist (e.g. pipewire-pulse restarted and dropped it).
+    Missing,
+    /// It exists; Some(app) if a real recorder is attached.
+    Present(Option<String>),
+}
+
 // Name of the application recording from the virtual source, or None if idle.
-pub fn source_consumer(name: &str) -> Option<String> {
-    let (mut mainloop, context) = connect()?;
+pub fn source_consumer(name: &str) -> SourceUse {
+    let Some((mut mainloop, context)) = connect() else {
+        // Can't tell; don't report it missing (that would recreate it).
+        return SourceUse::Present(None);
+    };
     let introspect = context.introspect();
 
     let index = Rc::new(Cell::new(u32::MAX));
@@ -157,7 +218,10 @@ pub fn source_consumer(name: &str) -> Option<String> {
             let app = app.clone();
             move |result| {
                 if let ListResult::Item(item) = result {
-                    if item.source == idx && app.borrow().is_none() {
+                    if item.source == idx
+                        && item.sample_spec.rate >= MIN_RECORDER_RATE
+                        && app.borrow().is_none()
+                    {
                         let label = item
                             .proplist
                             .get_str("application.name")
@@ -173,68 +237,44 @@ pub fn source_consumer(name: &str) -> Option<String> {
     }
     mainloop.quit(Retval(0));
 
+    if idx == u32::MAX {
+        return SourceUse::Missing;
+    }
     let result = app.borrow().clone();
-    result
+    SourceUse::Present(result)
 }
 
 // A2DP transport reset:
-// We found that in some cases A2DP has to be suspended and resumed after a 0x58 mic start/stop
-// to avoid a corrupted transport state of the airpods.
+// After a 0x58 mic STOP the AirPods keep playing A2DP audio from one earbud only
+// until the transport is re-established. A sink suspend/resume does that without
+// removing the sink; cycling the card profile is the fallback.
 pub fn reset_a2dp(bdaddr: &str) {
     if !crate::utils::AppSettings::load().a2dp_reset {
         return;
     }
     let card = format!("bluez_card.{}", bdaddr.replace(':', "_"));
-    let Some((mut mainloop, mut context)) = connect() else {
-        return;
-    };
-    let mut introspect = context.introspect();
 
-    let current_profile = Rc::new(RefCell::new(None::<String>));
-    let op = introspect.get_card_info_by_name(&card, {
-        let current_profile = current_profile.clone();
-        move |result| {
-            if let ListResult::Item(item) = result {
-                *current_profile.borrow_mut() = item
-                    .active_profile
-                    .as_ref()
-                    .and_then(|p| p.name.as_ref())
-                    .map(|n| n.to_string());
-            }
-        }
-    });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
+    // Wait for an A2DP profile if the card is still being (re)activated (e.g. a
+    // bud just went back in); resetting a card that is off does nothing.
+    if !crate::audio::card::wait_for_a2dp(&card, A2DP_RESET_WAIT) {
+        return;
     }
-
-    let Some(current_profile) = current_profile.borrow().clone() else {
-        warn!("[pw] no active profile on {}; skipping A2DP reset", card);
-        mainloop.quit(Retval(0));
+    // Suspend/resume first: the sink stays, so the default output doesn't change
+    // and players aren't interrupted.
+    if crate::audio::card::suspend_resume(&card) {
         return;
-    };
-
-    // Resetting the a2dp transport can pause media players do to setting the crad profile to off
-    // Get all active media players
+    }
+    warn!("[pw] falling back to a card profile cycle for {}", card);
+    // Cycling the card profile pauses MPRIS players; remember who was playing
+    // (after the wait, so media resumed meanwhile is included).
     let players = playing_media_players();
-
-    info!(
-        "[pw] reset A2DP transport: {} off -> {}",
-        card, current_profile
-    );
-    let op = introspect.set_card_profile_by_name(&card, "off", None);
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
+    if crate::audio::card::cycle_a2dp(&card) {
+        resume_media_players(&players);
     }
-
-    let op = introspect.set_card_profile_by_name(&card, &current_profile, None);
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
-    mainloop.quit(Retval(0));
-
-    // resume all media players after the reset
-    resume_media_players(&players);
 }
+
+/// How long a reset waits for the card to reach an A2DP profile.
+const A2DP_RESET_WAIT: Duration = Duration::from_secs(5);
 
 // MPRIS players currently reporting "Playing" (kdeconnect proxies excluded).
 fn playing_media_players() -> Vec<String> {
@@ -285,7 +325,7 @@ fn resume_media_players(services: &[String]) {
     }
 }
 
-fn connect() -> Option<(Mainloop, Context)> {
+pub(crate) fn connect() -> Option<(Mainloop, Context)> {
     let mut mainloop = Mainloop::new()?;
     let mut context = Context::new(&mainloop, "LibrePods-HiResMic")?;
     context

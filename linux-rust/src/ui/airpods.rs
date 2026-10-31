@@ -279,7 +279,7 @@ pub fn airpods_view<'a>(
                                     let aacp_manager = aacp_manager_conv_detect.clone();
                                     run_async_in_thread(
                                         async move {
-                                            aacp_manager.set_conversation_detection(is_enabled).await;
+                                            aacp_manager.set_conversation_detection_by_user(is_enabled).await;
                                         }
                                     );
                                     let mut state = state.clone();

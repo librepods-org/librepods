@@ -113,7 +113,9 @@ impl NothingDevice {
                         },
                     );
                     let json = serde_json::to_string(&new_devices).unwrap();
-                    std::fs::write(get_devices_path(), json).expect("Failed to write devices file");
+                    if let Err(e) = crate::utils::write_atomic(&get_devices_path(), json.as_bytes()) {
+                        log::error!("Failed to write devices file: {}", e);
+                    }
                 } else if data.starts_with(&[0x55, 0x20, 0x01, 0x06, 0x40]) {
                     let serial_number_start_position = data
                         .iter()
@@ -154,8 +156,11 @@ impl NothingDevice {
                             },
                         );
                         let json = serde_json::to_string(&new_devices).unwrap();
-                        std::fs::write(get_devices_path(), json)
-                            .expect("Failed to write devices file");
+                        if let Err(e) =
+                            crate::utils::write_atomic(&get_devices_path(), json.as_bytes())
+                        {
+                            log::error!("Failed to write devices file: {}", e);
+                        }
                     } else {
                         debug!(
                             "Serial number format unexpected from Nothing device {}: {:?}",
