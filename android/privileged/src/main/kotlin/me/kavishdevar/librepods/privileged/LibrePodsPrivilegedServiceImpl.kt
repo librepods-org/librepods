@@ -1,6 +1,7 @@
 package me.kavishdevar.librepods.privileged
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
@@ -19,21 +20,26 @@ class LibrePodsPrivilegedServiceImpl(
         context.getSystemService(BluetoothManager::class.java)?.adapter
 
     private var headsetProfile: BluetoothHeadset? = null
+    private var a2dpProfile: BluetoothA2dp? = null
 
     init {
-        adapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+        val listener = object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.HEADSET) {
-                    headsetProfile = proxy as BluetoothHeadset
+                when (profile) {
+                    BluetoothProfile.HEADSET -> headsetProfile = proxy as? BluetoothHeadset
+                    BluetoothProfile.A2DP -> a2dpProfile = proxy as? BluetoothA2dp
                 }
             }
 
             override fun onServiceDisconnected(profile: Int) {
-                if (profile == BluetoothProfile.HEADSET) {
-                    headsetProfile = null
+                when (profile) {
+                    BluetoothProfile.HEADSET -> headsetProfile = null
+                    BluetoothProfile.A2DP -> a2dpProfile = null
                 }
             }
-        }, BluetoothProfile.HEADSET)
+        }
+        adapter?.getProfileProxy(context, listener, BluetoothProfile.HEADSET)
+        adapter?.getProfileProxy(context, listener, BluetoothProfile.A2DP)
     }
 
     override fun setMetadata(address: String, key: Int, value: ByteArray): Boolean {
@@ -58,14 +64,19 @@ class LibrePodsPrivilegedServiceImpl(
         val bAdapter = adapter ?: return false
         return try {
             val device = bAdapter.getRemoteDevice(address)
-            if (profile == BluetoothProfile.HEADSET && headsetProfile != null) {
-                val method = headsetProfile!!.javaClass.getMethod(
+            val proxy: Any? = when (profile) {
+                BluetoothProfile.HEADSET -> headsetProfile
+                BluetoothProfile.A2DP -> a2dpProfile
+                else -> null
+            }
+            if (proxy != null) {
+                val method = proxy.javaClass.getMethod(
                     "setConnectionPolicy",
                     BluetoothDevice::class.java,
                     Int::class.javaPrimitiveType
                 )
-                val result = method.invoke(headsetProfile, device, policy) as? Boolean ?: false
-                Log.d("LibrePodsPrivileged", "setConnectionPolicy on $address: $result")
+                val result = method.invoke(proxy, device, policy) as? Boolean ?: false
+                Log.d("LibrePodsPrivileged", "setConnectionPolicy profile=$profile on $address: $result")
                 result
             } else {
                 false
@@ -79,9 +90,8 @@ class LibrePodsPrivilegedServiceImpl(
     override fun isAlive(): Boolean = true
 
     override fun destroy() {
-        headsetProfile?.let { proxy ->
-            adapter?.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-        }
+        headsetProfile?.let { proxy -> adapter?.closeProfileProxy(BluetoothProfile.HEADSET, proxy) }
+        a2dpProfile?.let { proxy -> adapter?.closeProfileProxy(BluetoothProfile.A2DP, proxy) }
         exitProcess(0)
     }
 }

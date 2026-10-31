@@ -31,6 +31,9 @@ kotlin {
 
 android {
     namespace = "me.kavishdevar.librepods.core"
+    buildFeatures {
+        aidl = true
+    }
     compileSdk {
         version = release(37)
     }
