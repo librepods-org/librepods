@@ -58,6 +58,8 @@ struct MediaControllerState {
     mic_was_active: bool,
     /// Last seen "another device is playing / in a call on the AirPods".
     other_was_active: bool,
+    /// Desktop default-device refresh done for this connection.
+    default_refreshed: bool,
 }
 
 impl MediaControllerState {
@@ -74,6 +76,7 @@ impl MediaControllerState {
             saved_streams: Vec::new(),
             mic_was_active: false,
             other_was_active: false,
+            default_refreshed: false,
             conv_original_volume: None,
             conv_conversation_started: false,
             playback_listener_running: false,
@@ -423,6 +426,8 @@ impl MediaController {
                 debug!("A2DP profile {} already active", preferred_profile);
                 self.restore_saved_streams(idx).await;
                 self.restore_pending_conv_volume().await;
+                // First activation after (re)connecting: the sink just appeared.
+                self.refresh_desktop_default(false).await;
                 return;
             }
             info!("Activating A2DP profile for AirPods: {}", preferred_profile);
@@ -442,6 +447,7 @@ impl MediaController {
                 }
                 self.restore_saved_streams(idx).await;
                 self.restore_pending_conv_volume().await;
+                self.refresh_desktop_default(true).await;
             } else {
                 warn!("Failed to activate A2DP profile: {}", preferred_profile);
             }
@@ -982,6 +988,30 @@ impl MediaController {
         clear_pending_conv_volume();
     }
 
+    /// After the AirPods' sink (re)appears, make desktop volume controls pick
+    /// up the default again (see card::refresh_default). `force`: the sink was
+    /// just recreated; otherwise only once per connection.
+    async fn refresh_desktop_default(&self, force: bool) {
+        let mac = {
+            let mut state = self.state.lock().await;
+            if state.default_refreshed && !force {
+                return;
+            }
+            state.default_refreshed = true;
+            state.connected_device_mac.clone()
+        };
+        tokio::spawn(async move {
+            // Give desktop clients time to learn about the new sink first.
+            tokio::time::sleep(DEFAULT_REFRESH_DELAY).await;
+            if let Some(sink) = get_sink_name_by_mac(&mac).await {
+                let _ = tokio::task::spawn_blocking(move || {
+                    card::refresh_default(card::DefaultKind::Sink, &sink)
+                })
+                .await;
+            }
+        });
+    }
+
     /// Restore the volume if conversation awareness ducked it.
     async fn end_conversation_ducking(&self) {
         let (started, mac) = {
@@ -1065,6 +1095,9 @@ fn clear_pending_conv_volume() {
         settings.save();
     }
 }
+
+/// Delay before refreshing the desktop's default device after the sink appears.
+const DEFAULT_REFRESH_DELAY: Duration = Duration::from_millis(1500);
 
 /// How long "both buds out" must last before audio switches to another output
 /// (the same moment the hi-res monitor hides the AirPods mic).

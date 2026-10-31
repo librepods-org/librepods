@@ -160,6 +160,7 @@ impl HiResMic {
             None => "AirPods Microphone".to_string(),
         };
         let vmic = open_virtual_mic(&mic_name).await?;
+        refresh_desktop_default_source(aacp.runtime());
         let stop = Arc::new(Notify::new());
         let wake = aacp.hires_wake();
         // Spawn on the backend runtime, not the caller's (the UI toggle uses a
@@ -253,6 +254,9 @@ async fn monitor_loop(
         if worn_now && vmic.is_none() {
             info!("[hires] bud back in; restoring '{}'", output::SOURCE_NAME);
             vmic = open_virtual_mic(&mic_name).await;
+            if vmic.is_some() {
+                refresh_desktop_default_source(&tokio::runtime::Handle::current());
+            }
             source_missing_polls = 0;
         }
 
@@ -290,6 +294,7 @@ async fn monitor_loop(
                         if let Some(old) = vmic.replace(fresh) {
                             std::mem::forget(old);
                         }
+                        refresh_desktop_default_source(&tokio::runtime::Handle::current());
                         source_missing_polls = 0;
                     }
                 }
@@ -452,6 +457,17 @@ async fn monitor_loop(
         }
     }
     status.reset();
+}
+
+/// The virtual mic was just (re)created: make desktop volume controls pick up
+/// the default source again (see card::refresh_default).
+fn refresh_desktop_default_source(runtime: &tokio::runtime::Handle) {
+    crate::audio::card::schedule_default_refresh(
+        runtime,
+        crate::audio::card::DefaultKind::Source,
+        output::SOURCE_NAME.to_string(),
+        Duration::from_millis(1500),
+    );
 }
 
 async fn open_virtual_mic(name: &str) -> Option<VirtualMic> {

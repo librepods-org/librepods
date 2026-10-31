@@ -335,3 +335,115 @@ pub fn move_streams_to_card(streams: &[SavedStream], card_index: u32, wait: Dura
     }
     info!("[pw] moved {} of {} saved stream(s) back to the AirPods", moved, streams.len());
 }
+
+#[derive(Clone, Copy, Debug)]
+pub enum DefaultKind {
+    Sink,
+    Source,
+}
+
+/// Make desktop volume controls pick up the current default again.
+///
+/// When the default device reappears and becomes default in the same moment
+/// (Bluetooth reconnect, card switched back on, virtual mic recreated), the
+/// volume applet and volume-key handler of KDE Plasma (plasma-pa) can miss the
+/// change: they keep showing the previous device as default (two devices look
+/// selected) and volume keys act on the wrong device. Setting the same default
+/// again emits no event, so briefly switch to another device and back. Only
+/// done if `name` is the current default, so a different choice is never
+/// overridden.
+pub fn refresh_default(kind: DefaultKind, name: &str) {
+    let Some((mut mainloop, mut context)) = connect() else {
+        return;
+    };
+    let current: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let op = context.introspect().get_server_info({
+        let current = current.clone();
+        move |info| {
+            let n = match kind {
+                DefaultKind::Sink => info.default_sink_name.as_ref(),
+                DefaultKind::Source => info.default_source_name.as_ref(),
+            };
+            *current.borrow_mut() = n.map(|n| n.to_string());
+        }
+    });
+    while op.get_state() == OperationState::Running {
+        mainloop.iterate(true);
+    }
+    drop(op);
+    if current.borrow().as_deref() != Some(name) {
+        return;
+    }
+
+    // Any other real device of the same kind (not a monitor source).
+    let other: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let wanted = name.to_string();
+    match kind {
+        DefaultKind::Sink => {
+            let op = context.introspect().get_sink_info_list({
+                let other = other.clone();
+                move |result| {
+                    if let ListResult::Item(item) = result
+                        && let Some(n) = item.name.as_ref()
+                        && *n != *wanted
+                        && other.borrow().is_none()
+                    {
+                        *other.borrow_mut() = Some(n.to_string());
+                    }
+                }
+            });
+            while op.get_state() == OperationState::Running {
+                mainloop.iterate(true);
+            }
+        }
+        DefaultKind::Source => {
+            let op = context.introspect().get_source_info_list({
+                let other = other.clone();
+                move |result| {
+                    if let ListResult::Item(item) = result
+                        && item.monitor_of_sink.is_none()
+                        && let Some(n) = item.name.as_ref()
+                        && *n != *wanted
+                        && other.borrow().is_none()
+                    {
+                        *other.borrow_mut() = Some(n.to_string());
+                    }
+                }
+            });
+            while op.get_state() == OperationState::Running {
+                mainloop.iterate(true);
+            }
+        }
+    }
+    let Some(other) = other.borrow().clone() else {
+        return;
+    };
+
+    let mut set = |target: &str| {
+        let op = match kind {
+            DefaultKind::Sink => context.set_default_sink(target, |_| {}),
+            DefaultKind::Source => context.set_default_source(target, |_| {}),
+        };
+        while op.get_state() == OperationState::Running {
+            mainloop.iterate(true);
+        }
+    };
+    debug!("[pw] refreshing default {:?} {} (via {})", kind, name, other);
+    set(&other);
+    std::thread::sleep(Duration::from_millis(150));
+    set(name);
+}
+
+/// Run refresh_default after `delay` (giving desktop clients time to learn about
+/// a device that just appeared), off the async runtime.
+pub fn schedule_default_refresh(
+    runtime: &tokio::runtime::Handle,
+    kind: DefaultKind,
+    name: String,
+    delay: Duration,
+) {
+    runtime.spawn(async move {
+        tokio::time::sleep(delay).await;
+        let _ = tokio::task::spawn_blocking(move || refresh_default(kind, &name)).await;
+    });
+}
