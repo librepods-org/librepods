@@ -36,6 +36,7 @@ import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothSocket
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.ContentResolver
@@ -1208,17 +1209,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             StemAction.PREVIOUS_TRACK -> MediaController.sendPreviousTrack()
             StemAction.NEXT_TRACK -> MediaController.sendNextTrack()
             StemAction.DIGITAL_ASSISTANT -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val intent = Intent(Intent.ACTION_VOICE_COMMAND).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    startActivity(intent)
-                } else {
-                    Log.w(
-                        "AirPodsParser",
-                        "Digital Assistant action is not supported on this Android version."
-                    )
-                }
+                launchDigitalAssistant()
             }
 
             StemAction.CYCLE_NOISE_CONTROL_MODES -> {
@@ -1228,6 +1219,49 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                 })
             }
         }
+    }
+
+    private fun launchDigitalAssistant() {
+        val defaultAssistantPackage = runCatching {
+            Settings.Secure.getString(contentResolver, "assistant")
+                ?.takeIf { it.isNotBlank() }
+                ?: Settings.Secure.getString(contentResolver, "voice_interaction_service")
+                    ?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+            ?.let(ComponentName::unflattenFromString)
+            ?.packageName
+            ?.takeIf { it.isNotBlank() }
+
+        val candidates = buildList {
+            if (defaultAssistantPackage != null) {
+                add(Intent(Intent.ACTION_VOICE_COMMAND).apply {
+                    setPackage(defaultAssistantPackage)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+                add(Intent(Intent.ACTION_ASSIST).apply {
+                    setPackage(defaultAssistantPackage)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            }
+            add(Intent(Intent.ACTION_ASSIST).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            add(Intent(Intent.ACTION_VOICE_COMMAND).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        }
+
+        for (intent in candidates) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: ActivityNotFoundException) {
+                // Try next fallback intent
+            } catch (e: SecurityException) {
+                Log.w("AirPodsParser", "Unable to launch assistant intent ${intent.action}", e)
+            }
+        }
+        Log.w("AirPodsParser", "No digital assistant app found to handle assist action")
     }
 
     private fun processEarDetectionChange(earDetection: ByteArray) {
