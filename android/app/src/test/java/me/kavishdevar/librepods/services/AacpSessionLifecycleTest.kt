@@ -254,13 +254,16 @@ class AacpSessionLifecycleTest {
 
             val cleanup = disconnected.get()
             assertNotNull(cleanup.cleanupToken)
+            val operationDrain = lifecycle.operationDrainSignal(cleanup.cleanupToken)
+            assertNotNull(operationDrain)
+            assertFalse(operationDrain!!.isCompleted)
             assertNull(lifecycle.acquireOperation(session))
-            assertTrue(lifecycle.completeCleanup(cleanup.cleanupToken))
-            assertFalse(cleanup.awaitExistingCleanup(25))
             assertNull(lifecycle.beginAttempt())
 
             releaseAction.countDown()
             assertTrue(actionFinished.await(1, TimeUnit.SECONDS))
+            assertTrue(operationDrain.isCompleted)
+            assertTrue(lifecycle.completeCleanup(cleanup.cleanupToken))
             assertTrue(cleanup.awaitExistingCleanup(1_000))
             assertNotNull(lifecycle.beginAttempt())
         } finally {

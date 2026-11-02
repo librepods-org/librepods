@@ -18,6 +18,8 @@
 
 package me.kavishdevar.librepods.services
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -83,6 +85,7 @@ internal class AacpSessionLifecycle<Socket : Any> {
     private var cleanupLatch: CountDownLatch? = null
     private var cleanupCompletionRequested = false
     private var inFlightOperations = 0
+    private var operationDrain = completedDrain()
     private var pending: Pending<Socket>? = null
     private var active: Active<Socket>? = null
 
@@ -91,7 +94,13 @@ internal class AacpSessionLifecycle<Socket : Any> {
         cleanupGeneration = generation
         cleanupLatch = CountDownLatch(1)
         cleanupCompletionRequested = false
+        operationDrain = CompletableDeferred<Unit>().also { drain ->
+            if (inFlightOperations == 0) drain.complete(Unit)
+        }
     }
+
+    private fun completedDrain(): CompletableDeferred<Unit> =
+        CompletableDeferred<Unit>().apply { complete(Unit) }
 
     private fun finishCleanupIfDrained() {
         if (!cleanupCompletionRequested || inFlightOperations != 0) return
@@ -176,6 +185,12 @@ internal class AacpSessionLifecycle<Socket : Any> {
     }
 
     @Synchronized
+    fun operationDrainSignal(cleanupToken: Long?): Deferred<Unit>? {
+        if (cleanupToken == null || cleanupGeneration != cleanupToken) return null
+        return operationDrain
+    }
+
+    @Synchronized
     fun completeCleanup(cleanupToken: Long?): Boolean {
         if (cleanupToken == null || cleanupGeneration != cleanupToken) return false
 
@@ -197,6 +212,9 @@ internal class AacpSessionLifecycle<Socket : Any> {
     private fun releaseOperation() {
         check(inFlightOperations > 0)
         inFlightOperations--
+        if (cleanupGeneration != null && inFlightOperations == 0) {
+            operationDrain.complete(Unit)
+        }
         finishCleanupIfDrained()
     }
 

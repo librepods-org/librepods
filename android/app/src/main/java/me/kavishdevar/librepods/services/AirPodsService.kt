@@ -135,7 +135,6 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -282,6 +281,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private data class AacpSessionCleanup(
         val disconnected: DisconnectedAacpLifecycle<BluetoothSocket>,
         val detachUi: Boolean = false,
+        val effectDrains: List<Job> = emptyList(),
     )
 
     private val aacpLifecycle = AacpSessionLifecycle<BluetoothSocket>()
@@ -291,7 +291,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private var connectingAacpJob: ConnectingAacpJob? = null
     private var connectingAttManager: ConnectingAttManager? = null
     private var activeAttAacpSocket: BluetoothSocket? = null
-    private val profileOperations = SessionOperationEpoch<Unit>()
+    private val profileOperations = SessionOperationEpoch<AacpSession<BluetoothSocket>>()
     private val ownershipResetOperations = SessionOperationEpoch<AacpSession<BluetoothSocket>>()
 
     private fun resetBatterySession() {
@@ -379,19 +379,20 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         return job.takeUnless { stopped || it.isCompleted }
     }
 
-    private fun completeCleanupWhenJobsFinish(cleanupToken: Long, unfinishedJobs: List<Job>) {
-        val pendingJobs = unfinishedJobs.distinct().filterNot { it.isCompleted }
-        if (pendingJobs.isEmpty()) {
-            aacpLifecycle.completeCleanup(cleanupToken)
-            return
-        }
-
-        val remainingJobs = AtomicInteger(pendingJobs.size)
-        pendingJobs.forEach { job ->
-            job.invokeOnCompletion {
-                if (remainingJobs.decrementAndGet() == 0) {
-                    aacpLifecycle.completeCleanup(cleanupToken)
-                }
+    private fun finalizeCleanupWhenDrained(
+        cleanupToken: Long,
+        unfinishedJobs: List<Job>,
+        finalizeState: () -> Unit = {},
+    ) {
+        cleanupScope.launch {
+            unfinishedJobs.distinct().forEach { it.join() }
+            val operationDrain = requireNotNull(
+                aacpLifecycle.operationDrainSignal(cleanupToken),
+            ) { "AACP cleanup token changed before operation drain" }
+            operationDrain.await()
+            finalizeState()
+            check(aacpLifecycle.completeCleanup(cleanupToken)) {
+                "AACP cleanup token changed before finalization"
             }
         }
     }
@@ -462,7 +463,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         try {
             onFailure()
         } finally {
-            completeCleanupWhenJobsFinish(attempt.generation, unfinishedJobs)
+            finalizeCleanupWhenDrained(attempt.generation, unfinishedJobs)
         }
     }
 
@@ -473,30 +474,24 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         onEnded: () -> Unit = {},
     ): Boolean {
         if (!aacpLifecycle.endSession(attempt, connectedSocket)) return false
-        invalidateSessionEffects()
+        val unfinishedJobs = invalidateSessionEffects().toMutableList()
 
-        var endedAttManagers = emptyList<DetachedAttManager>()
-        val unfinishedJobs = mutableListOf<Job>()
-        return try {
-            synchronized(this) {
-                endedAttManagers = detachAttManagers(connectedSocket)
-                endedAttManagers.forEach { it.manager.invalidate() }
-                BluetoothConnectionManager.clearCurrentConnection(connectedSocket)
+        val endedAttManagers = synchronized(this) {
+            detachAttManagers(connectedSocket).also { managers ->
+                managers.forEach { it.manager.invalidate() }
             }
-            unfinishedJobs += disconnectAttManagers(endedAttManagers)
+        }
+        unfinishedJobs += disconnectAttManagers(endedAttManagers)
+        closeOwnedResources()
+        finalizeCleanupWhenDrained(attempt.generation, unfinishedJobs) {
             synchronized(this) {
+                BluetoothConnectionManager.clearCurrentConnection(connectedSocket)
                 aacpManager.disconnected()
                 resetBatterySession()
                 onEnded()
             }
-            true
-        } finally {
-            try {
-                closeOwnedResources()
-            } finally {
-                completeCleanupWhenJobsFinish(attempt.generation, unfinishedJobs)
-            }
         }
+        return true
     }
 
     private fun runIfCurrentAacpSession(
@@ -515,23 +510,32 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         action: () -> Unit,
     ): Boolean = runIfCurrentAacpSession(session, action)
 
-    private fun invalidateSessionEffects() {
-        profileOperations.invalidate()
-        ownershipResetOperations.invalidate()
+    private fun invalidateSessionEffects(): List<Job> {
+        val drains = listOf(
+            profileOperations.invalidate(),
+            ownershipResetOperations.invalidate(),
+        )
         MediaController.recentlyLostOwnership = false
+        return drains
     }
 
     private fun runIfCurrentProfileOperation(
-        operation: SessionOperation<Unit>,
+        operation: SessionOperation<AacpSession<BluetoothSocket>>,
         action: () -> Unit,
-    ): Boolean = profileOperations.runIfCurrent(operation, action)
+    ): Boolean {
+        var performed = false
+        profileOperations.runIfCurrent(operation) {
+            performed = runIfCurrentAacpSession(operation.session, action)
+        }
+        return performed
+    }
 
     private fun launchProfileOperation(
         bluetoothAdapter: android.bluetooth.BluetoothAdapter,
         expectedProfile: Int,
         profile: Int,
         proxy: BluetoothProfile,
-        operation: SessionOperation<Unit>,
+        operation: SessionOperation<AacpSession<BluetoothSocket>>,
         action: () -> Unit,
     ) {
         val proxyClosed = AtomicBoolean(false)
@@ -559,7 +563,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     private fun scheduleProfileResume(
-        operation: SessionOperation<Unit>,
+        operation: SessionOperation<AacpSession<BluetoothSocket>>,
     ) {
         serviceScope.launch {
             delay(150)
@@ -597,8 +601,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     private fun beginAacpSessionCleanup(detachUi: Boolean = false): AacpSessionCleanup {
         val disconnected = aacpLifecycle.disconnect()
-        invalidateSessionEffects()
-        return AacpSessionCleanup(disconnected, detachUi)
+        val effectDrains = invalidateSessionEffects()
+        return AacpSessionCleanup(disconnected, detachUi, effectDrains)
     }
 
     private suspend fun finishAacpSessionCleanup(cleanup: AacpSessionCleanup) {
@@ -609,7 +613,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             return
         }
 
-        val unfinishedJobs = mutableListOf<Job>()
+        val unfinishedJobs = cleanup.effectDrains.toMutableList()
         disconnected.pendingSocket?.let(::closeSocket)
         disconnected.activeSocket
             ?.takeIf { it !== disconnected.pendingSocket }
@@ -618,26 +622,30 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         val endedConnectJob = detachConnectingAacpJob(
             disconnected.pendingSocket ?: disconnected.activeSocket
         )
-        var endedAttManagers = emptyList<DetachedAttManager>()
-        if (disconnected.endedActiveSession) {
+        val endedAttManagers = if (disconnected.endedActiveSession) {
             synchronized(this) {
                 val activeSocket = requireNotNull(disconnected.activeSocket)
-                endedAttManagers = detachAttManagers(activeSocket)
-                endedAttManagers.forEach { it.manager.invalidate() }
-                BluetoothConnectionManager.clearCurrentConnection(activeSocket)
-                if (cleanup.detachUi) detachAacpSessionUi()
+                detachAttManagers(activeSocket).also { managers ->
+                    managers.forEach { it.manager.invalidate() }
+                }
             }
+        } else {
+            emptyList()
         }
 
         cancelAndAwaitConnectJob(endedConnectJob)?.let(unfinishedJobs::add)
         unfinishedJobs += disconnectAttManagers(endedAttManagers)
-        if (disconnected.endedActiveSession) {
-            synchronized(this) {
-                aacpManager.disconnected()
-                resetBatterySession()
+        finalizeCleanupWhenDrained(cleanupToken, unfinishedJobs) {
+            if (disconnected.endedActiveSession) {
+                synchronized(this) {
+                    val activeSocket = requireNotNull(disconnected.activeSocket)
+                    BluetoothConnectionManager.clearCurrentConnection(activeSocket)
+                    aacpManager.disconnected()
+                    resetBatterySession()
+                    if (cleanup.detachUi) detachAacpSessionUi()
+                }
             }
         }
-        completeCleanupWhenJobsFinish(cleanupToken, unfinishedJobs)
     }
 
     private suspend fun closeAacpSession(detachUi: Boolean = false) {
@@ -3147,7 +3155,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     fun disconnectAudio(context: Context, device: BluetoothDevice?, shouldResume: Boolean = false) {
         val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
             ?: return
-        val operation = profileOperations.begin(Unit)
+        val session = aacpLifecycle.activeSession() ?: return
+        val operation = profileOperations.begin(session)
 
         bluetoothAdapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
@@ -3198,7 +3207,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     fun connectAudio(context: Context, device: BluetoothDevice?) {
         val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
             ?: return
-        val operation = profileOperations.begin(Unit)
+        val session = aacpLifecycle.activeSession() ?: return
+        val operation = profileOperations.begin(session)
 
         bluetoothAdapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
