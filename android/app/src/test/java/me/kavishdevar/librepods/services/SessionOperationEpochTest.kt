@@ -34,12 +34,11 @@ class SessionOperationEpochTest {
     }
 
     @Test
-    fun invalidationWaitsForAcceptedOperationAndThenRejectsIt() {
+    fun invalidationReturnsImmediatelyAndExposesAcceptedOperationDrain() {
         val operations = SessionOperationEpoch<FakeSession>()
         val operation = operations.begin(FakeSession())
         val actionStarted = CountDownLatch(1)
         val releaseAction = CountDownLatch(1)
-        val invalidationFinished = CountDownLatch(1)
 
         val actionThread = Thread {
             assertTrue(operations.runIfCurrent(operation) {
@@ -47,23 +46,20 @@ class SessionOperationEpochTest {
                 releaseAction.await()
             })
         }
-        val invalidationThread = Thread {
-            operations.invalidate()
-            invalidationFinished.countDown()
-        }
 
         try {
             actionThread.start()
             assertTrue(actionStarted.await(1, TimeUnit.SECONDS))
-            invalidationThread.start()
-            assertFalse(invalidationFinished.await(50, TimeUnit.MILLISECONDS))
-            releaseAction.countDown()
-            assertTrue(invalidationFinished.await(1, TimeUnit.SECONDS))
+            val drain = operations.invalidate()
+            assertFalse(drain.isCompleted)
             assertFalse(operations.runIfCurrent(operation) {})
+            releaseAction.countDown()
+            actionThread.join(1_000)
+            assertFalse(actionThread.isAlive)
+            assertTrue(drain.isCompleted)
         } finally {
             releaseAction.countDown()
             actionThread.join(1_000)
-            invalidationThread.join(1_000)
         }
     }
 }
