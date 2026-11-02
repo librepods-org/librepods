@@ -76,7 +76,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -165,7 +164,8 @@ object ServiceManager {
 // @Suppress("unused")
 @ExperimentalEncodingApi
 class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeListener {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
     @Volatile
     private var shuttingDown = false
 
@@ -2676,6 +2676,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
     private suspend fun connectToSocket(device: BluetoothDevice, manual: Boolean = false) {
         Log.d(TAG, "<LogCollector:Start> Connecting to socket")
+        airPodsProcessCleanupBarrier.awaitOpen()
         if (CrossDevice.isAvailable) return
 
         val attempt = beginAacpAttempt()
@@ -3204,10 +3205,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         synchronized(this) {
             shuttingDown = true
         }
+        val processCleanup = airPodsProcessCleanupBarrier.registerCleanup()
         val cleanup = beginAacpSessionCleanup()
-        serviceScope.cancel()
+        serviceJob.cancel()
         cleanupScope.launch {
-            finishAacpSessionCleanup(cleanup)
+            try {
+                finishAacpSessionCleanup(cleanup)
+                serviceJob.join()
+                if (cleanup.disconnected.awaitExistingCleanup(Long.MAX_VALUE)) {
+                    processCleanup.complete()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Service cleanup did not complete: ${e.message}", e)
+            }
         }
         if (cleanup.disconnected.cleanupToken != null &&
             !cleanup.disconnected.endedActiveSession) {
