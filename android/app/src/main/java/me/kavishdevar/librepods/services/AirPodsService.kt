@@ -579,17 +579,19 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private suspend fun disconnectAttManager(
         endedAttManager: ATTManager?,
         connectJob: Deferred<Unit>? = null,
-    ): Job? {
+    ): List<Job> {
+        val unfinishedJobs = mutableListOf<Job>()
         try {
-            endedAttManager?.disconnect()
+            endedAttManager?.disconnect()?.let(unfinishedJobs::add)
         } catch (e: Exception) {
             Log.w(TAG, "Error disconnecting ATT: ${e.message}")
         }
-        return cancelAndAwaitConnectJob(connectJob)
+        cancelAndAwaitConnectJob(connectJob)?.let(unfinishedJobs::add)
+        return unfinishedJobs
     }
 
     private suspend fun disconnectAttManagers(managers: List<DetachedAttManager>): List<Job> =
-        managers.mapNotNull { manager ->
+        managers.flatMap { manager ->
             disconnectAttManager(manager.manager, manager.connectJob)
         }
 

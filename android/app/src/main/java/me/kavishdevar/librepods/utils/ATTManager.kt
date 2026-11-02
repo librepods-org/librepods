@@ -29,6 +29,7 @@ import android.bluetooth.BluetoothSocket
 import android.os.ParcelUuid
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.lsposed.hiddenapibypass.HiddenApiBypass
@@ -123,21 +124,20 @@ class ATTManager(private val device: BluetoothDevice) {
         }
     }
 
-    fun invalidate() {
+    fun invalidate(): Deferred<Unit> {
         disconnectRequested = true
-        callbackGate.closeForNewCallbacks()
+        return callbackGate.closeForNewCallbacks()
     }
 
-    fun disconnect() {
-        invalidate()
+    fun disconnect(): Deferred<Unit> {
+        val drain = invalidate()
         try {
             notificationJob?.cancel()
             socket?.close()
         } catch (e: Exception) {
             Log.w(TAG, "Error closing socket: ${e.message}")
-        } finally {
-            callbackGate.closeAndDrain()
         }
+        return drain
     }
 
     fun registerListener(handle: ATTHandles, listener: (ByteArray) -> Unit) {

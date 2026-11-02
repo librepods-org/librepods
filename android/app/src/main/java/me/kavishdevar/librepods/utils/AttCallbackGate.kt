@@ -18,29 +18,43 @@
 
 package me.kavishdevar.librepods.utils
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+
 internal class AttCallbackGate {
     private val callbackLock = Any()
-
-    @Volatile
     private var acceptingCallbacks = true
+    private var inFlightCallbacks = 0
+    private val drain = CompletableDeferred<Unit>()
 
-    fun runIfOpen(callback: () -> Unit): Boolean = synchronized(callbackLock) {
-        if (!acceptingCallbacks) {
-            false
-        } else {
-            callback()
+    fun runIfOpen(callback: () -> Unit): Boolean {
+        val accepted = synchronized(callbackLock) {
+            if (!acceptingCallbacks) return@synchronized false
+            inFlightCallbacks++
             true
         }
-    }
+        if (!accepted) return false
 
-    fun closeForNewCallbacks() {
-        acceptingCallbacks = false
-    }
-
-    fun closeAndDrain() {
-        closeForNewCallbacks()
-        synchronized(callbackLock) {
-            // Acquiring the callback lock drains any callback already in flight.
+        try {
+            callback()
+        } finally {
+            val drained = synchronized(callbackLock) {
+                inFlightCallbacks--
+                !acceptingCallbacks && inFlightCallbacks == 0
+            }
+            if (drained) drain.complete(Unit)
         }
+        return true
+    }
+
+    fun closeForNewCallbacks(): Deferred<Unit> = closeAndDrain()
+
+    fun closeAndDrain(): Deferred<Unit> {
+        val drained = synchronized(callbackLock) {
+            acceptingCallbacks = false
+            inFlightCallbacks == 0
+        }
+        if (drained) drain.complete(Unit)
+        return drain
     }
 }
