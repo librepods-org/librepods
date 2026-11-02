@@ -440,6 +440,11 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertEqual(["linux/rust"], pull_request["branches"])
         self.assertEqual(workflow["on"]["push"]["paths"], pull_request["paths"])
+        for workflow_path in (
+            ".github/workflows/ci-nix-pr.yml",
+            ".github/workflows/ci-nix-flake-update.yml",
+        ):
+            self.assertIn(workflow_path, workflow["on"]["push"]["paths"])
 
 
 if __name__ == "__main__":

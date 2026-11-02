@@ -95,7 +95,10 @@ class NixPullRequestWorkflowTests(unittest.TestCase):
         report = workflow["jobs"]["report"]
 
         self.assertEqual("validate", report["needs"])
-        self.assertEqual("always()", report["if"])
+        self.assertEqual(
+            "always() && github.event_name == 'workflow_dispatch'",
+            report["if"],
+        )
         self.assertEqual({"statuses": "write"}, report["permissions"])
         self.assertEqual(1, len(report["steps"]))
         step = report["steps"][0]
@@ -148,8 +151,9 @@ class NixPullRequestWorkflowTests(unittest.TestCase):
 
         self.assertEqual(
             [
-                "nix flake check --no-build",
-                "nix build .#packages.x86_64-linux.default --no-link",
+                "nix flake check --no-build --no-update-lock-file",
+                "nix build .#packages.x86_64-linux.default --no-link "
+                "--no-update-lock-file",
             ],
             [step["run"].strip() for step in run_steps],
         )
@@ -158,6 +162,23 @@ class NixPullRequestWorkflowTests(unittest.TestCase):
             with self.subTest(step=step["name"]):
                 self.assertNotIn("env", step)
                 self.assertNotIn("${{", step["run"])
+
+    def test_validation_runs_contract_tests_and_rejects_lockfile_mutation(self):
+        workflow = load_workflow()
+        steps = {
+            step["name"]: step
+            for step in validation_job(workflow)["steps"]
+            if "name" in step
+        }
+
+        self.assertEqual(
+            "python3 -m unittest linux-rust/tests/test_nix_pr_workflow.py -v",
+            steps["Run workflow contract tests"]["run"].strip(),
+        )
+        self.assertEqual(
+            "git diff --exit-code -- flake.lock",
+            steps["Verify lockfile stayed unchanged"]["run"].strip(),
+        )
 
     def test_validation_has_no_secret_or_release_behavior(self):
         workflow = load_workflow()
