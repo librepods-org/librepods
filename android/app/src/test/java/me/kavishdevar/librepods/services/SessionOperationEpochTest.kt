@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit
 
 class SessionOperationEpochTest {
     private class FakeSession
+    private class FakeSocket
 
     @Test
     fun staleProfileCallbackIsRejectedAfterNewerOperation() {
@@ -61,5 +62,29 @@ class SessionOperationEpochTest {
             releaseAction.countDown()
             actionThread.join(1_000)
         }
+    }
+
+    @Test
+    fun callbackCapturedBeforeDisconnectCannotWriteAfterTeardown() {
+        val lifecycle = AacpSessionLifecycle<FakeSocket>()
+        val attempt = lifecycle.beginAttempt()!!
+        val socket = FakeSocket()
+        assertTrue(lifecycle.attachSocket(attempt, socket))
+        assertTrue(lifecycle.promote(attempt, socket))
+        val capturedSession = lifecycle.activeSession()!!
+        val effects = SessionOperationEpoch<AacpSession<FakeSocket>>()
+
+        val cleanup = lifecycle.disconnect()
+        effects.invalidate()
+        val lateOperation = effects.begin(capturedSession)
+        var recentlyLostOwnership = false
+
+        assertFalse(
+            runSessionOperationIfCurrent(lifecycle, effects, lateOperation) {
+                recentlyLostOwnership = true
+            },
+        )
+        assertFalse(recentlyLostOwnership)
+        assertTrue(lifecycle.completeCleanup(cleanup.cleanupToken))
     }
 }
