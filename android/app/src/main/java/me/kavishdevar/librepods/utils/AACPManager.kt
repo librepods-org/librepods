@@ -1109,24 +1109,29 @@ class AACPManager {
         try {
             Log.d(TAG, "Sending packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
 
-            if (packet[4] == Opcodes.CONTROL_COMMAND) {
-                val controlCommand = ControlCommand.fromByteArray(packet)
-                Log.d(
-                    TAG,
-                    "Control command: ${controlCommand.identifier.toHexString()} - ${
-                        controlCommand.value.joinToString(" ") { "%02X".format(it) }
-                    }"
-                )
-                setControlCommandStatusValue(
-                    ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return false,
-                    controlCommand.value
-                )
+            val controlCommand = if (packet[4] == Opcodes.CONTROL_COMMAND) {
+                ControlCommand.fromByteArray(packet).also { command ->
+                    Log.d(
+                        TAG,
+                        "Control command: ${command.identifier.toHexString()} - ${
+                            command.value.joinToString(" ") { "%02X".format(it) }
+                        }"
+                    )
+                }
+            } else {
+                null
             }
 
+            val controlIdentifier = controlCommand?.let { command ->
+                ControlCommandIdentifiers.fromByte(command.identifier) ?: return false
+            }
             val socket = BluetoothConnectionManager.getCurrentSocket()
             if (socket?.isConnected == true) {
                 socket.outputStream?.write(packet)
                 socket.outputStream?.flush()
+                if (controlCommand != null && controlIdentifier != null) {
+                    setControlCommandStatusValue(controlIdentifier, controlCommand.value)
+                }
                 return true
             } else {
                 Log.d(TAG, "Can't send packet: Socket not initialized or connected")

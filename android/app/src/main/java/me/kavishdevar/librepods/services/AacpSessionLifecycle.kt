@@ -168,6 +168,7 @@ internal class AacpSessionLifecycle<Socket : Any> {
             pendingSocket = pending?.socket,
             activeSocket = active?.socket,
             cleanupToken = generation,
+            cleanupSignal = cleanupLatch,
         )
         pending = null
         active = null

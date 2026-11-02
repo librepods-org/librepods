@@ -134,6 +134,7 @@ import me.kavishdevar.librepods.widgets.NoiseControlWidget
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -290,6 +291,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private var connectingAacpJob: ConnectingAacpJob? = null
     private var connectingAttManager: ConnectingAttManager? = null
     private var activeAttAacpSocket: BluetoothSocket? = null
+    private val profileOperations = SessionOperationEpoch<Unit>()
+    private val ownershipResetOperations = SessionOperationEpoch<AacpSession<BluetoothSocket>>()
 
     private fun resetBatterySession() {
         batteryNotification.clear()
@@ -470,6 +473,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         onEnded: () -> Unit = {},
     ): Boolean {
         if (!aacpLifecycle.endSession(attempt, connectedSocket)) return false
+        invalidateSessionEffects()
 
         var endedAttManagers = emptyList<DetachedAttManager>()
         val unfinishedJobs = mutableListOf<Job>()
@@ -511,6 +515,78 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         action: () -> Unit,
     ): Boolean = runIfCurrentAacpSession(session, action)
 
+    private fun invalidateSessionEffects() {
+        profileOperations.invalidate()
+        ownershipResetOperations.invalidate()
+        MediaController.recentlyLostOwnership = false
+    }
+
+    private fun runIfCurrentProfileOperation(
+        operation: SessionOperation<Unit>,
+        action: () -> Unit,
+    ): Boolean = profileOperations.runIfCurrent(operation, action)
+
+    private fun launchProfileOperation(
+        bluetoothAdapter: android.bluetooth.BluetoothAdapter,
+        expectedProfile: Int,
+        profile: Int,
+        proxy: BluetoothProfile,
+        operation: SessionOperation<Unit>,
+        action: () -> Unit,
+    ) {
+        val proxyClosed = AtomicBoolean(false)
+        val closeProxy = {
+            if (proxyClosed.compareAndSet(false, true)) {
+                try {
+                    bluetoothAdapter.closeProfileProxy(profile, proxy)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error closing Bluetooth profile proxy: ${e.message}")
+                }
+            }
+        }
+        val job = serviceScope.launch {
+            try {
+                if (profile == expectedProfile) {
+                    runIfCurrentProfileOperation(operation, action)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Bluetooth profile operation failed: ${e.message}")
+            } finally {
+                closeProxy()
+            }
+        }
+        job.invokeOnCompletion { closeProxy() }
+    }
+
+    private fun scheduleProfileResume(
+        operation: SessionOperation<Unit>,
+    ) {
+        serviceScope.launch {
+            delay(150)
+            runIfCurrentProfileOperation(operation) {
+                MediaController.sendPlay()
+            }
+        }
+    }
+
+    private fun markOwnershipLost(
+        session: AacpSession<BluetoothSocket>,
+    ) {
+        val operation = ownershipResetOperations.begin(session)
+        if (!ownershipResetOperations.runIfCurrent(operation) {
+                MediaController.recentlyLostOwnership = true
+            }) return
+
+        serviceScope.launch {
+            delay(3_000)
+            ownershipResetOperations.runIfCurrent(operation) {
+                runIfCurrentAacpSession(operation.session) {
+                    MediaController.recentlyLostOwnership = false
+                }
+            }
+        }
+    }
+
     private fun closeSocket(ownedSocket: BluetoothSocket) {
         try {
             ownedSocket.close()
@@ -520,7 +596,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     }
 
     private fun beginAacpSessionCleanup(detachUi: Boolean = false): AacpSessionCleanup {
-        return AacpSessionCleanup(aacpLifecycle.disconnect(), detachUi)
+        val disconnected = aacpLifecycle.disconnect()
+        invalidateSessionEffects()
+        return AacpSessionCleanup(disconnected, detachUi)
     }
 
     private suspend fun finishAacpSessionCleanup(cleanup: AacpSessionCleanup) {
@@ -1200,10 +1278,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
             override fun onOwnershipChangeReceived(owns: Boolean) {
                 if (!owns) {
-                    MediaController.recentlyLostOwnership = true
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        MediaController.recentlyLostOwnership = false
-                    }, 3000)
+                    val session = aacpLifecycle.activeSession() ?: return
+                    markOwnershipLost(session)
                     Log.d(TAG, "ownership lost")
                     MediaController.sendPause()
                     MediaController.pausedForOtherDevice = true
@@ -3070,26 +3146,27 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     fun disconnectAudio(context: Context, device: BluetoothDevice?, shouldResume: Boolean = false) {
         val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
-        bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+            ?: return
+        val operation = profileOperations.begin(Unit)
+
+        bluetoothAdapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.A2DP) {
-                    try {
-                        if (proxy.getConnectionState(device) == BluetoothProfile.STATE_DISCONNECTED) {
-                            Log.d(TAG, "Already disconnected from A2DP")
-                            return
-                        }
-                        val method =
-                            proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
+                launchProfileOperation(
+                    bluetoothAdapter,
+                    BluetoothProfile.A2DP,
+                    profile,
+                    proxy,
+                    operation,
+                ) {
+                    if (proxy.getConnectionState(device) == BluetoothProfile.STATE_DISCONNECTED) {
+                        Log.d(TAG, "Already disconnected from A2DP")
+                    } else {
+                        val method = proxy.javaClass.getMethod(
+                            "disconnect",
+                            BluetoothDevice::class.java,
+                        )
                         method.invoke(proxy, device)
-                        if (shouldResume) {
-                            Handler(Looper.getMainLooper()).postDelayed({
-                                MediaController.sendPlay()
-                            }, 150)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        bluetoothAdapter.closeProfileProxy(BluetoothProfile.A2DP, proxy)
+                        if (shouldResume) scheduleProfileResume(operation)
                     }
                 }
             }
@@ -3097,18 +3174,20 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             override fun onServiceDisconnected(profile: Int) {}
         }, BluetoothProfile.A2DP)
 
-        bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+        bluetoothAdapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.HEADSET) {
-                    try {
-                        val method =
-                            proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        bluetoothAdapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-                    }
+                launchProfileOperation(
+                    bluetoothAdapter,
+                    BluetoothProfile.HEADSET,
+                    profile,
+                    proxy,
+                    operation,
+                ) {
+                    val method = proxy.javaClass.getMethod(
+                        "disconnect",
+                        BluetoothDevice::class.java,
+                    )
+                    method.invoke(proxy, device)
                 }
             }
 
@@ -3118,21 +3197,25 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     fun connectAudio(context: Context, device: BluetoothDevice?) {
         val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
+            ?: return
+        val operation = profileOperations.begin(Unit)
 
-        bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+        bluetoothAdapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.A2DP) {
-                    try {
-                        val method =
-                            proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        bluetoothAdapter.closeProfileProxy(BluetoothProfile.A2DP, proxy)
-                        if (MediaController.pausedWhileTakingOver) {
-                            MediaController.sendPlay()
-                        }
+                launchProfileOperation(
+                    bluetoothAdapter,
+                    BluetoothProfile.A2DP,
+                    profile,
+                    proxy,
+                    operation,
+                ) {
+                    val method = proxy.javaClass.getMethod(
+                        "connect",
+                        BluetoothDevice::class.java,
+                    )
+                    method.invoke(proxy, device)
+                    if (MediaController.pausedWhileTakingOver) {
+                        scheduleProfileResume(operation)
                     }
                 }
             }
@@ -3140,18 +3223,20 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             override fun onServiceDisconnected(profile: Int) {}
         }, BluetoothProfile.A2DP)
 
-        bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+        bluetoothAdapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.HEADSET) {
-                    try {
-                        val method =
-                            proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        bluetoothAdapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-                    }
+                launchProfileOperation(
+                    bluetoothAdapter,
+                    BluetoothProfile.HEADSET,
+                    profile,
+                    proxy,
+                    operation,
+                ) {
+                    val method = proxy.javaClass.getMethod(
+                        "connect",
+                        BluetoothDevice::class.java,
+                    )
+                    method.invoke(proxy, device)
                 }
             }
 
