@@ -498,10 +498,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private fun runIfCurrentAacpSession(
         session: AacpSession<BluetoothSocket>,
         action: () -> Unit,
-    ): Boolean = synchronized(this) {
-        if (!aacpLifecycle.isActive(session)) {
-            false
-        } else {
+    ): Boolean {
+        val lease = aacpLifecycle.acquireOperation(session) ?: return false
+        return lease.run {
             BluetoothConnectionManager.withExpectedSocket(session.socket, action)
             true
         }
@@ -510,18 +509,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     private fun sendIfCurrentAacpSession(
         session: AacpSession<BluetoothSocket>,
         action: () -> Unit,
-    ): Boolean {
-        if (!aacpLifecycle.isActive(session)) return false
-
-        return BluetoothConnectionManager.withExpectedSocket(session.socket) {
-            if (!aacpLifecycle.isActive(session)) {
-                false
-            } else {
-                action()
-                true
-            }
-        }
-    }
+    ): Boolean = runIfCurrentAacpSession(session, action)
 
     private fun closeSocket(ownedSocket: BluetoothSocket) {
         try {

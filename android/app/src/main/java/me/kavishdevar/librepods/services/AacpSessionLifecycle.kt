@@ -20,6 +20,7 @@ package me.kavishdevar.librepods.services
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal data class AacpConnectionAttempt(val generation: Long)
 
@@ -27,6 +28,24 @@ internal data class AacpSession<Socket : Any>(
     val attempt: AacpConnectionAttempt,
     val socket: Socket,
 )
+
+internal class AacpOperationLease internal constructor(
+    private val release: () -> Unit,
+) {
+    private val released = AtomicBoolean(false)
+
+    fun <Result> run(action: () -> Result): Result = try {
+        action()
+    } finally {
+        close()
+    }
+
+    fun close() {
+        if (released.compareAndSet(false, true)) {
+            release()
+        }
+    }
+}
 
 internal data class DisconnectedAacpLifecycle<Socket : Any>(
     val pendingSocket: Socket?,
@@ -62,6 +81,8 @@ internal class AacpSessionLifecycle<Socket : Any> {
     private var generation = 0L
     private var cleanupGeneration: Long? = null
     private var cleanupLatch: CountDownLatch? = null
+    private var cleanupCompletionRequested = false
+    private var inFlightOperations = 0
     private var pending: Pending<Socket>? = null
     private var active: Active<Socket>? = null
 
@@ -69,6 +90,17 @@ internal class AacpSessionLifecycle<Socket : Any> {
         check(cleanupGeneration == null)
         cleanupGeneration = generation
         cleanupLatch = CountDownLatch(1)
+        cleanupCompletionRequested = false
+    }
+
+    private fun finishCleanupIfDrained() {
+        if (!cleanupCompletionRequested || inFlightOperations != 0) return
+
+        val completedLatch = cleanupLatch
+        cleanupGeneration = null
+        cleanupLatch = null
+        cleanupCompletionRequested = false
+        completedLatch?.countDown()
     }
 
     @Synchronized
@@ -146,11 +178,25 @@ internal class AacpSessionLifecycle<Socket : Any> {
     fun completeCleanup(cleanupToken: Long?): Boolean {
         if (cleanupToken == null || cleanupGeneration != cleanupToken) return false
 
-        val completedLatch = cleanupLatch
-        cleanupGeneration = null
-        cleanupLatch = null
-        completedLatch?.countDown()
+        cleanupCompletionRequested = true
+        finishCleanupIfDrained()
         return true
+    }
+
+    @Synchronized
+    fun acquireOperation(session: AacpSession<Socket>): AacpOperationLease? {
+        val current = active ?: return null
+        if (current.attempt != session.attempt || current.socket !== session.socket) return null
+
+        inFlightOperations++
+        return AacpOperationLease(::releaseOperation)
+    }
+
+    @Synchronized
+    private fun releaseOperation() {
+        check(inFlightOperations > 0)
+        inFlightOperations--
+        finishCleanupIfDrained()
     }
 
     @Synchronized
