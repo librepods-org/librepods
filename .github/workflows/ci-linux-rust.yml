@@ -12,6 +12,8 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - '.github/workflows/ci-linux-rust.yml'
+      - '.github/workflows/ci-nix-pr.yml'
+      - '.github/workflows/ci-nix-flake-update.yml'
   pull_request:
     branches:
       - linux/rust
@@ -20,6 +22,8 @@ on:
       - 'flake.nix'
       - 'flake.lock'
       - '.github/workflows/ci-linux-rust.yml'
+      - '.github/workflows/ci-nix-pr.yml'
+      - '.github/workflows/ci-nix-flake-update.yml'
   workflow_dispatch:
 
 permissions: {}

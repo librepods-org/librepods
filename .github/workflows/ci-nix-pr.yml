@@ -33,18 +33,31 @@ jobs:
           git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           git merge --no-commit --no-ff "origin/${BASE_REF}"
 
+      - name: Install workflow test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-yaml
+
+      - name: Run workflow contract tests
+        run: python3 -m unittest linux-rust/tests/test_nix_pr_workflow.py -v
+
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: Validate flake
-        run: nix flake check --no-build
+        run: nix flake check --no-build --no-update-lock-file
 
       - name: Build package
-        run: nix build .#packages.x86_64-linux.default --no-link
+        run: >-
+          nix build .#packages.x86_64-linux.default --no-link
+          --no-update-lock-file
+
+      - name: Verify lockfile stayed unchanged
+        run: git diff --exit-code -- flake.lock
 
   report:
     needs: validate
-    if: always()
+    if: always() && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       statuses: write
