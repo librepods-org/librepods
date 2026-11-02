@@ -7,6 +7,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 class AacpSessionLifecycleTest {
     private class FakeSocket
@@ -214,6 +217,57 @@ class AacpSessionLifecycleTest {
         assertNull(lifecycle.beginAttempt())
         assertTrue(lifecycle.completeCleanup(cleanupOwner.cleanupToken))
         assertNotNull(lifecycle.beginAttempt())
+    }
+
+    @Test
+    fun acceptedOperationLeaseDrainsBeforeCleanupOpensWithoutHoldingLifecycleMonitor() {
+        val lifecycle = AacpSessionLifecycle<FakeSocket>()
+        val attempt = lifecycle.beginAttempt()!!
+        val socket = FakeSocket()
+        assertTrue(lifecycle.attachSocket(attempt, socket))
+        assertTrue(lifecycle.promote(attempt, socket))
+        val session = lifecycle.activeSession()!!
+        val lease = lifecycle.acquireOperation(session)!!
+        val actionStarted = CountDownLatch(1)
+        val releaseAction = CountDownLatch(1)
+        val actionFinished = CountDownLatch(1)
+        val disconnectFinished = CountDownLatch(1)
+        val disconnected = AtomicReference<DisconnectedAacpLifecycle<FakeSocket>>()
+
+        val actionThread = Thread {
+            lease.run {
+                actionStarted.countDown()
+                releaseAction.await()
+            }
+            actionFinished.countDown()
+        }
+        val disconnectThread = Thread {
+            disconnected.set(lifecycle.disconnect())
+            disconnectFinished.countDown()
+        }
+
+        try {
+            actionThread.start()
+            assertTrue(actionStarted.await(1, TimeUnit.SECONDS))
+            disconnectThread.start()
+            assertTrue(disconnectFinished.await(1, TimeUnit.SECONDS))
+
+            val cleanup = disconnected.get()
+            assertNotNull(cleanup.cleanupToken)
+            assertNull(lifecycle.acquireOperation(session))
+            assertTrue(lifecycle.completeCleanup(cleanup.cleanupToken))
+            assertFalse(cleanup.awaitExistingCleanup(25))
+            assertNull(lifecycle.beginAttempt())
+
+            releaseAction.countDown()
+            assertTrue(actionFinished.await(1, TimeUnit.SECONDS))
+            assertTrue(cleanup.awaitExistingCleanup(1_000))
+            assertNotNull(lifecycle.beginAttempt())
+        } finally {
+            releaseAction.countDown()
+            actionThread.join(1_000)
+            disconnectThread.join(1_000)
+        }
     }
 
     @Test
