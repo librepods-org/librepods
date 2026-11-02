@@ -101,3 +101,20 @@ internal class SessionOperationEpoch<Session : Any> {
     private fun completedDrain(): Deferred<Unit> =
         CompletableDeferred<Unit>().apply { complete(Unit) }
 }
+
+internal fun <Socket : Any> runSessionOperationIfCurrent(
+    lifecycle: AacpSessionLifecycle<Socket>,
+    operations: SessionOperationEpoch<AacpSession<Socket>>,
+    operation: SessionOperation<AacpSession<Socket>>,
+    action: () -> Unit,
+): Boolean {
+    var performed = false
+    operations.runIfCurrent(operation) {
+        val lease = lifecycle.acquireOperation(operation.session) ?: return@runIfCurrent
+        lease.run {
+            action()
+            performed = true
+        }
+    }
+    return performed
+}
