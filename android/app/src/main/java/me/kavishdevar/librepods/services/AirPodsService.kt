@@ -485,6 +485,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         closeOwnedResources()
         finalizeCleanupWhenDrained(attempt.generation, unfinishedJobs) {
             synchronized(this) {
+                MediaController.recentlyLostOwnership = false
                 BluetoothConnectionManager.clearCurrentConnection(connectedSocket)
                 aacpManager.disconnected()
                 resetBatterySession()
@@ -511,24 +512,21 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
     ): Boolean = runIfCurrentAacpSession(session, action)
 
     private fun invalidateSessionEffects(): List<Job> {
-        val drains = listOf(
+        return listOf(
             profileOperations.invalidate(),
             ownershipResetOperations.invalidate(),
         )
-        MediaController.recentlyLostOwnership = false
-        return drains
     }
 
     private fun runIfCurrentProfileOperation(
         operation: SessionOperation<AacpSession<BluetoothSocket>>,
         action: () -> Unit,
-    ): Boolean {
-        var performed = false
-        profileOperations.runIfCurrent(operation) {
-            performed = runIfCurrentAacpSession(operation.session, action)
-        }
-        return performed
-    }
+    ): Boolean = runSessionOperationIfCurrent(
+        aacpLifecycle,
+        profileOperations,
+        operation,
+        action,
+    )
 
     private fun launchProfileOperation(
         bluetoothAdapter: android.bluetooth.BluetoothAdapter,
@@ -577,16 +575,22 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         session: AacpSession<BluetoothSocket>,
     ) {
         val operation = ownershipResetOperations.begin(session)
-        if (!ownershipResetOperations.runIfCurrent(operation) {
+        if (!runSessionOperationIfCurrent(
+                aacpLifecycle,
+                ownershipResetOperations,
+                operation,
+            ) {
                 MediaController.recentlyLostOwnership = true
             }) return
 
         serviceScope.launch {
             delay(3_000)
-            ownershipResetOperations.runIfCurrent(operation) {
-                runIfCurrentAacpSession(operation.session) {
-                    MediaController.recentlyLostOwnership = false
-                }
+            runSessionOperationIfCurrent(
+                aacpLifecycle,
+                ownershipResetOperations,
+                operation,
+            ) {
+                MediaController.recentlyLostOwnership = false
             }
         }
     }
@@ -636,8 +640,9 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         cancelAndAwaitConnectJob(endedConnectJob)?.let(unfinishedJobs::add)
         unfinishedJobs += disconnectAttManagers(endedAttManagers)
         finalizeCleanupWhenDrained(cleanupToken, unfinishedJobs) {
-            if (disconnected.endedActiveSession) {
-                synchronized(this) {
+            synchronized(this) {
+                MediaController.recentlyLostOwnership = false
+                if (disconnected.endedActiveSession) {
                     val activeSocket = requireNotNull(disconnected.activeSocket)
                     BluetoothConnectionManager.clearCurrentConnection(activeSocket)
                     aacpManager.disconnected()
