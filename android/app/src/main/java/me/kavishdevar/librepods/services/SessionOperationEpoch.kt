@@ -18,39 +18,86 @@
 
 package me.kavishdevar.librepods.services
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+
 internal data class SessionOperation<Session : Any>(
     val epoch: Long,
     val session: Session,
 )
 
 internal class SessionOperationEpoch<Session : Any> {
+    private data class OperationState<Session : Any>(
+        val operation: SessionOperation<Session>,
+        var accepting: Boolean = true,
+        var inFlight: Int = 0,
+        val drain: CompletableDeferred<Unit> = CompletableDeferred(),
+    )
+
     private var epoch = 0L
-    private var current: SessionOperation<Session>? = null
+    private var current: OperationState<Session>? = null
+    private val actionLock = Any()
 
     @Synchronized
     fun begin(session: Session): SessionOperation<Session> {
+        closeCurrent()
         val operation = SessionOperation(++epoch, session)
-        current = operation
+        current = OperationState(operation)
         return operation
     }
 
     @Synchronized
     fun isCurrent(operation: SessionOperation<Session>): Boolean =
-        current === operation
+        current?.let { it.accepting && it.operation === operation } == true
 
-    @Synchronized
     fun runIfCurrent(
         operation: SessionOperation<Session>,
         action: () -> Unit,
     ): Boolean {
-        if (current !== operation) return false
-        action()
-        return true
+        val state = synchronized(this) {
+            val candidate = current
+            if (candidate == null || !candidate.accepting || candidate.operation !== operation) {
+                return false
+            }
+            candidate.inFlight++
+            candidate
+        }
+
+        var performed = false
+        try {
+            synchronized(actionLock) {
+                if (isCurrent(operation)) {
+                    action()
+                    performed = true
+                }
+            }
+        } finally {
+            release(state)
+        }
+        return performed
     }
 
     @Synchronized
-    fun invalidate() {
-        epoch++
+    fun invalidate(): Deferred<Unit> = closeCurrent()
+
+    @Synchronized
+    private fun closeCurrent(): Deferred<Unit> {
+        val state = current ?: return completedDrain()
         current = null
+        state.accepting = false
+        if (state.inFlight == 0) state.drain.complete(Unit)
+        return state.drain
     }
+
+    private fun release(state: OperationState<Session>) {
+        val drained = synchronized(this) {
+            check(state.inFlight > 0)
+            state.inFlight--
+            !state.accepting && state.inFlight == 0
+        }
+        if (drained) state.drain.complete(Unit)
+    }
+
+    private fun completedDrain(): Deferred<Unit> =
+        CompletableDeferred<Unit>().apply { complete(Unit) }
 }
