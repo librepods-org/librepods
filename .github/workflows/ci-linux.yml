@@ -77,6 +77,12 @@ jobs:
             --client linux/tests/build/bluetoothmonitor_dbus_probe \
             --output linux/tests/results
 
+      - name: Verify unavailable observer data is rejected
+        run: |
+          /usr/bin/python3 linux/tests/test_dbus_observer_faults.py \
+            --client linux/tests/build/bluetoothmonitor_dbus_probe \
+            --output linux/tests/results/observer-fault
+
       - name: Build Qt application
         run: |
           cmake -S linux -B linux/build -G Ninja -DCMAKE_BUILD_TYPE=Release

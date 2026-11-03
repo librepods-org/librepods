@@ -201,12 +201,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--control-only", action="store_true",
+                        help="Run only the slow-reply control (used for observer fault injection)")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     control = run_case(args.client.resolve(), args.output, "slow-bluez-control", 0, 6)
     if control["persistent_backpressure_s"] >= 2:
         raise AssertionError("Control already has persistent socket backpressure")
     assert_messages_processed(control, [True])
+    if args.control_only:
+        return
     stressed = run_case(args.client.resolve(), args.output, "unrelated-properties-pressure", 4096, 14)
     if stressed["persistent_backpressure_s"] >= 2:
         raise AssertionError(
