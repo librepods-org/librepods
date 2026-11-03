@@ -25,8 +25,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-    env:
-      TMPDIR: ${{ runner.temp }}/librepods-qt-tests
 
     steps:
       - name: Checkout repository
@@ -42,7 +40,8 @@ jobs:
             qt6-tools-dev qt6-tools-dev-tools qt6-connectivity-dev \
             libxkbcommon-dev libssl-dev libpulse-dev libdbus-1-dev \
             dbus iproute2 python3-dbus python3-gi
-          mkdir -p "$TMPDIR"
+          mkdir -p "$RUNNER_TEMP/librepods-qt-tests"
+          printf 'TMPDIR=%s\n' "$RUNNER_TEMP/librepods-qt-tests" >> "$GITHUB_ENV"
           qmake6 -query QT_VERSION
           pkg-config --modversion dbus-1
 
