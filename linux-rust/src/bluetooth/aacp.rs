@@ -767,10 +767,13 @@ impl AACPManager {
                     keys.push((key_type, key_data));
                     offset += key_length;
                 }
+                // Key material (IRK, encryption key) is secret: it identifies the
+                // device and decrypts its BLE broadcasts, so only types and sizes
+                // are logged.
                 info!(
                     "Received Proximity Keys Response: {:?}",
                     keys.iter()
-                        .map(|(kt, kd)| (kt, hex::encode(kd)))
+                        .map(|(kt, kd)| format!("type {kt}: {} bytes", kd.len()))
                         .collect::<Vec<_>>()
                 );
                 let mut state = self.state.lock().await;
