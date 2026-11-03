@@ -7,6 +7,7 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTextStream>
@@ -26,12 +27,23 @@ int main(int argc, char **argv)
   int replies = 0;
   int connected = 0;
   int disconnected = 0;
+  QJsonArray deviceEvents;
 
   BluetoothMonitor monitor;
   QObject::connect(&monitor, &BluetoothMonitor::deviceConnected, &app,
-                   [&](const QString &, const QString &) { ++connected; });
+                   [&](const QString &address, const QString &name) {
+    ++connected;
+    deviceEvents.append(QJsonObject{{QStringLiteral("connected"), true},
+                                   {QStringLiteral("address"), address},
+                                   {QStringLiteral("name"), name}});
+  });
   QObject::connect(&monitor, &BluetoothMonitor::deviceDisconnected, &app,
-                   [&](const QString &, const QString &) { ++disconnected; });
+                   [&](const QString &address, const QString &name) {
+    ++disconnected;
+    deviceEvents.append(QJsonObject{{QStringLiteral("connected"), false},
+                                   {QStringLiteral("address"), address},
+                                   {QStringLiteral("name"), name}});
+  });
 
   QTimer heartbeat;
   QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] {
@@ -52,6 +64,7 @@ int main(int argc, char **argv)
       {QStringLiteral("bus_replies"), replies},
       {QStringLiteral("connected"), connected},
       {QStringLiteral("disconnected"), disconnected},
+      {QStringLiteral("device_events"), deviceEvents},
     };
     QTextStream(stdout) << QJsonDocument(observation).toJson(QJsonDocument::Compact)
                         << Qt::endl;

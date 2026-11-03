@@ -68,7 +68,8 @@ def stop(process):
             process.wait(timeout=3)
 
 
-def run_case(client_binary, output_dir, name, messages, duration, noise_sender="foreign"):
+def run_case(client_binary, output_dir, name, messages, duration, noise_sender="foreign",
+             connection_cycles=False):
     scratch = Path(os.environ.get("TMPDIR", Path.cwd() / ".diagnostics-scratch"))
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="librepods-dbus-", dir=scratch) as temporary:
@@ -122,8 +123,11 @@ def run_case(client_binary, output_dir, name, messages, duration, noise_sender="
             bus_control = dbus.Interface(
                 side_bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus"),
                 "org.freedesktop.DBus")
-            device_control.Start(dbus.UInt32(1500), dbus.UInt32(messages),
-                                 dbus.UInt32(65536), dbus.String(noise_sender), timeout=5)
+            if connection_cycles:
+                device_control.CycleConnections(timeout=5)
+            else:
+                device_control.Start(dbus.UInt32(1500), dbus.UInt32(messages),
+                                     dbus.UInt32(65536), dbus.String(noise_sender), timeout=5)
             started = time.monotonic()
             high_since = None
             longest_backpressure = 0.0
@@ -164,7 +168,9 @@ def run_case(client_binary, output_dir, name, messages, duration, noise_sender="
                 "persistent_backpressure_s": round(longest_backpressure, 3),
                 "side_client_replies": side_replies,
                 "last_monitor_observation": observations[-1] if observations else None,
-                "fixture_finished_load": "LOAD_SENT" in fixture_path.read_text(),
+                "fixture_finished_load": (
+                    "CONNECTION_CYCLES_SENT" if connection_cycles else "LOAD_SENT"
+                ) in fixture_path.read_text(),
             }
             (output_dir / f"{name}-samples.json").write_text(json.dumps(samples, indent=2))
             (output_dir / f"{name}-result.json").write_text(json.dumps(result, indent=2))
@@ -177,6 +183,20 @@ def run_case(client_binary, output_dir, name, messages, duration, noise_sender="
                 log.close()
 
 
+def assert_messages_processed(result, expected_connections):
+    if not result["fixture_finished_load"]:
+        raise AssertionError(f"{result['case']}: fixture did not finish sending its load")
+    observation = result["last_monitor_observation"]
+    if observation is None or observation["bus_replies"] < 1:
+        raise AssertionError(f"{result['case']}: monitor did not resume bus reply processing")
+    events = observation["device_events"]
+    if [event["connected"] for event in events] != expected_connections:
+        raise AssertionError(f"{result['case']}: missing or reordered device notifications: {events}")
+    if any(event["address"] != "00:11:22:33:44:55"
+           or event["name"] != "LibrePods test device" for event in events):
+        raise AssertionError(f"{result['case']}: device identity changed: {events}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", required=True, type=Path)
@@ -186,20 +206,23 @@ def main():
     control = run_case(args.client.resolve(), args.output, "slow-bluez-control", 0, 6)
     if control["persistent_backpressure_s"] >= 2:
         raise AssertionError("Control already has persistent socket backpressure")
-    observation = control["last_monitor_observation"]
-    if observation is None or observation["connected"] != 1:
-        raise AssertionError("The real monitor did not recognize the fixture's AirPods connection")
+    assert_messages_processed(control, [True])
     stressed = run_case(args.client.resolve(), args.output, "unrelated-properties-pressure", 4096, 14)
     if stressed["persistent_backpressure_s"] >= 2:
         raise AssertionError(
             "Unrelated PropertiesChanged traffic stopped the monitor from draining its "
             "D-Bus socket for at least two seconds; actual paired socket queues above")
+    assert_messages_processed(stressed, [True])
     bluez_noise = run_case(args.client.resolve(), args.output,
                           "bluez-non-device-pressure", 4096, 14, noise_sender="bluez")
     if bluez_noise["persistent_backpressure_s"] >= 2:
         raise AssertionError(
             "BlueZ's non-device PropertiesChanged traffic stopped the monitor from "
             "draining its D-Bus socket for at least two seconds")
+    assert_messages_processed(bluez_noise, [True])
+    cycles = run_case(args.client.resolve(), args.output, "device-reconnect-cycles", 0, 3,
+                      connection_cycles=True)
+    assert_messages_processed(cycles, [True, False, True, False, True])
 
 
 if __name__ == "__main__":

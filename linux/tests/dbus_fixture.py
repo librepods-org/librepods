@@ -72,6 +72,24 @@ class Manager(dbus.service.Object):
     def GetManagedObjects(self):
         return {dbus.ObjectPath(DEVICE_PATH): {DEVICE_INTERFACE: device.properties}}
 
+    @dbus.service.method("org.librepods.Test", in_signature="", out_signature="")
+    def CycleConnections(self):
+        transitions = iter([True, False, True, False, True])
+        device.delay_ms = 0
+
+        def transition():
+            try:
+                connected = next(transitions)
+            except StopIteration:
+                print("CONNECTION_CYCLES_SENT", flush=True)
+                return GLib.SOURCE_REMOVE
+            device.properties["Connected"] = dbus.Boolean(connected)
+            device.PropertiesChanged(DEVICE_INTERFACE,
+                                     {"Connected": dbus.Boolean(connected)}, [])
+            return GLib.SOURCE_CONTINUE
+
+        GLib.timeout_add(250, transition)
+
     @dbus.service.method("org.librepods.Test", in_signature="uuus", out_signature="")
     def Start(self, delay_ms, message_count, payload_bytes, noise_sender):
         emitter = {"foreign": noise, "bluez": bluez_noise}[str(noise_sender)]

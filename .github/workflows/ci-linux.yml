@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - fix-linux-bugs
-      - fix-qt-issue-817
     paths:
       - 'linux/**'
       - '.github/workflows/ci-linux.yml'
