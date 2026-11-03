@@ -40,4 +40,20 @@ class MediaAutoResumePolicyTest {
 
         assertFalse(policy.shouldDispatchPlay())
     }
+
+    @Test
+    fun forcedPauseUsesLatestMusicActivityWhenArmingResume() {
+        val policy = MediaAutoResumePolicy()
+
+        assertTrue(
+            policy.handlePauseRequest(
+                isMusicActive = true,
+                userPlayedMedia = false,
+                force = true,
+                isMusicActiveWhenArming = { false },
+            )
+        )
+
+        assertFalse(policy.shouldDispatchPlay())
+    }
 }

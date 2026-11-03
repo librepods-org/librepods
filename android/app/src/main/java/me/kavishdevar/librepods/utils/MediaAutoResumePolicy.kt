@@ -26,12 +26,13 @@ internal class MediaAutoResumePolicy {
         isMusicActive: Boolean,
         userPlayedMedia: Boolean,
         force: Boolean,
+        isMusicActiveWhenArming: () -> Boolean = { isMusicActive },
     ): Boolean {
         if (!isMusicActive || (userPlayedMedia && !force)) {
             return false
         }
 
-        isResumeArmed = true
+        isResumeArmed = if (force) isMusicActiveWhenArming() else true
         return true
     }
 

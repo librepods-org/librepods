@@ -265,6 +265,7 @@ object MediaController {
                 isMusicActive = audioManager.isMusicActive,
                 userPlayedMedia = userPlayedTheMedia,
                 force = force,
+                isMusicActiveWhenArming = { audioManager.isMusicActive },
             )
         ) {
             userPlayedTheMedia = false

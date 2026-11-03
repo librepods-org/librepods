@@ -26,6 +26,7 @@ navevent = "1.1.1"
 m3 = "1.5.0-alpha21"
 foundationLayout = "1.11.2"
 uiTextGoogleFonts = "1.11.2"
+junit = "4.13.2"
 
 [libraries]
 accompanist-permissions = { module = "com.google.accompanist:accompanist-permissions", version.ref = "accompanistPermissions" }
@@ -64,6 +65,7 @@ androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecy
 androidx-navigationevent = { module = "androidx.navigationevent:navigationevent", version.ref = "navevent"}
 androidx-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
 androidx-compose-ui-text-google-fonts = { group = "androidx.compose.ui", name = "ui-text-google-fonts", version.ref = "uiTextGoogleFonts" }
+junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
