@@ -82,6 +82,9 @@ jobs:
           RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}
           EOF
+      - name: Run unit tests
+        run: ./gradlew testFossDebugUnitTest
+        working-directory: android
       - name: Build debug APK for PRs
         if: github.event_name == 'pull_request'
         run: ./gradlew assembleFossDebug

@@ -692,6 +692,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 //                    }
 
                 } else if (intent?.action == AirPodsNotifications.AIRPODS_DISCONNECTED) {
+                    MediaController.onAirPodsSessionDisconnected()
                     device = null
 //                    isConnectedLocally = false
                     popupShown = false
