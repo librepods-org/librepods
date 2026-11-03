@@ -19,6 +19,8 @@
 package me.kavishdevar.librepods.utils
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal suspend fun drainTeardownMediaPause(
@@ -28,18 +30,22 @@ internal suspend fun drainTeardownMediaPause(
 ) {
     val callbackGate = AttCallbackGate()
     val callbackFinished = CompletableDeferred<Unit>()
-    val registered = registerProfileCallback { hasConnectedDevices ->
-        callbackGate.runIfOpen {
-            if (hasConnectedDevices) pauseMedia()
+    try {
+        val registered = registerProfileCallback { hasConnectedDevices ->
+            callbackGate.runIfOpen {
+                if (hasConnectedDevices) pauseMedia()
+            }
+            callbackFinished.complete(Unit)
         }
-        callbackFinished.complete(Unit)
-    }
 
-    if (registered) {
-        withTimeoutOrNull(timeoutMillis) {
-            callbackFinished.await()
+        if (registered) {
+            withTimeoutOrNull(timeoutMillis) {
+                callbackFinished.await()
+            }
+        }
+    } finally {
+        withContext(NonCancellable) {
+            callbackGate.closeAndDrain().await()
         }
     }
-
-    // Preserve the current late-callback behavior for the RED regression snapshot.
 }
