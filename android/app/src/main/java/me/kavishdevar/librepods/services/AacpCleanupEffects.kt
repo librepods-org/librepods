@@ -18,8 +18,7 @@
 
 package me.kavishdevar.librepods.services
 
-@Suppress("UNUSED_PARAMETER")
 internal fun <Effect> launchOwnedAacpCleanupEffect(
     cleanupToken: Long?,
     launchEffect: () -> Effect,
-): Effect? = launchEffect()
+): Effect? = if (cleanupToken == null) null else launchEffect()
