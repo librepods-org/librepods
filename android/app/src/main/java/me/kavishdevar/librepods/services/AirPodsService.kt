@@ -486,7 +486,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         finalizeCleanupWhenDrained(attempt.generation, unfinishedJobs) {
             synchronized(this) {
                 MediaController.recentlyLostOwnership = false
-                MediaController.onAirPodsSessionDisconnected()
+                MediaController.onAacpSessionCleanup(endedActiveSession = true)
                 BluetoothConnectionManager.clearCurrentConnection(connectedSocket)
                 aacpManager.disconnected()
                 resetBatterySession()
@@ -643,8 +643,8 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         finalizeCleanupWhenDrained(cleanupToken, unfinishedJobs) {
             synchronized(this) {
                 MediaController.recentlyLostOwnership = false
+                MediaController.onAacpSessionCleanup(disconnected.endedActiveSession)
                 if (disconnected.endedActiveSession) {
-                    MediaController.onAirPodsSessionDisconnected()
                     val activeSocket = requireNotNull(disconnected.activeSocket)
                     BluetoothConnectionManager.clearCurrentConnection(activeSocket)
                     aacpManager.disconnected()
@@ -3097,7 +3097,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     if (profile == BluetoothProfile.A2DP) {
                         val connectedDevices = proxy.connectedDevices
                         if (connectedDevices.isNotEmpty()) {
-                            MediaController.sendPause()
+                            MediaController.sendPause(armAutoResume = false)
                         }
                     }
                     bluetoothAdapter.closeProfileProxy(profile, proxy)
@@ -3119,7 +3119,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
                     if (profile == BluetoothProfile.A2DP) {
                         val connectedDevices = proxy.connectedDevices
                         if (connectedDevices.isNotEmpty()) {
-                            MediaController.sendPause()
+                            MediaController.sendPause(armAutoResume = false)
                         }
                     }
                     bluetoothAdapter.closeProfileProxy(profile, proxy)

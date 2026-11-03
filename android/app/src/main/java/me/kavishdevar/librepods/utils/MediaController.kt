@@ -256,13 +256,14 @@ object MediaController {
     }
 
     @Synchronized
-    fun sendPause(force: Boolean = false) {
+    fun sendPause(force: Boolean = false, armAutoResume: Boolean = true) {
         Log.d("MediaController", "Sending pause with iPausedTheMedia: $iPausedTheMedia, userPlayedTheMedia: $userPlayedTheMedia, isMusicActive: ${audioManager.isMusicActive}, force: $force")
         if (
             mediaAutoResumePolicy.handlePauseRequest(
                 isMusicActive = audioManager.isMusicActive,
                 userPlayedMedia = userPlayedTheMedia,
                 force = force,
+                armAutoResume = armAutoResume,
                 isMusicActiveWhenArming = { audioManager.isMusicActive },
             )
         ) {
@@ -319,8 +320,8 @@ object MediaController {
     }
 
     @Synchronized
-    fun onAirPodsSessionDisconnected() {
-        mediaAutoResumePolicy.onAirPodsSessionDisconnected()
+    fun onAacpSessionCleanup(endedActiveSession: Boolean) {
+        mediaAutoResumePolicy.onAacpSessionCleanup(endedActiveSession)
     }
 
     @Synchronized
