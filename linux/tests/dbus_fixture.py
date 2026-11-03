@@ -75,6 +75,8 @@ class Manager(dbus.service.Object):
     @dbus.service.method("org.librepods.Test", in_signature="uuus", out_signature="")
     def Start(self, delay_ms, message_count, payload_bytes, noise_sender):
         emitter = {"foreign": noise, "bluez": bluez_noise}[str(noise_sender)]
+        noise_interface = ("org.bluez.Adapter1" if str(noise_sender) == "bluez"
+                           else "org.librepods.Unrelated")
         device.delay_ms = int(delay_ms)
         device.properties["Connected"] = dbus.Boolean(True)
         device.PropertiesChanged(DEVICE_INTERFACE,
@@ -85,7 +87,7 @@ class Manager(dbus.service.Object):
         def send_batch():
             nonlocal remaining
             for _ in range(min(8, remaining)):
-                emitter.PropertiesChanged("org.librepods.Unrelated",
+                emitter.PropertiesChanged(noise_interface,
                                           {"Payload": payload}, [])
                 remaining -= 1
             if not remaining:
