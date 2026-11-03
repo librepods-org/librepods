@@ -658,20 +658,26 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
 
     private suspend fun closeAacpSession(
         detachUi: Boolean = false,
-        beforeFinalization: suspend () -> Unit = {},
+        launchOwnedEffect: (() -> Job)? = null,
     ) {
         val cleanup = beginAacpSessionCleanup(detachUi)
-        try {
-            beforeFinalization()
-        } finally {
-            cleanupScope.async {
-                finishAacpSessionCleanup(cleanup)
-            }.await()
+        val ownedEffect = launchOwnedEffect?.let { launchEffect ->
+            launchOwnedAacpCleanupEffect(cleanup.disconnected.cleanupToken, launchEffect)
         }
+        val cleanupWithEffect = if (ownedEffect == null) {
+            cleanup
+        } else {
+            cleanup.copy(effectDrains = cleanup.effectDrains + ownedEffect)
+        }
+        cleanupScope.async {
+            finishAacpSessionCleanup(cleanupWithEffect)
+        }.await()
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun pauseMediaDuringAacpCleanup() {
+    private fun launchMediaPauseDuringAacpCleanup(): Job = serviceScope.launch(
+        start = CoroutineStart.UNDISPATCHED,
+    ) {
         val bluetoothAdapter = getSystemService(BluetoothManager::class.java).adapter
         drainTeardownMediaPause(
             registerProfileCallback = { onProfileConnected ->
@@ -3129,7 +3135,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             showIslandWithKnownBattery(IslandType.MOVED_TO_REMOTE)
             closeAacpSession(
                 detachUi = true,
-                beforeFinalization = ::pauseMediaDuringAacpCleanup,
+                launchOwnedEffect = ::launchMediaPauseDuringAacpCleanup,
             )
             MediaController.pausedWhileTakingOver = false
             CrossDevice.isAvailable = true
@@ -3140,7 +3146,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         serviceScope.launch {
             closeAacpSession(
                 detachUi = true,
-                beforeFinalization = ::pauseMediaDuringAacpCleanup,
+                launchOwnedEffect = ::launchMediaPauseDuringAacpCleanup,
             )
             Log.d(TAG, "Disconnected AirPods upon user request")
         }
