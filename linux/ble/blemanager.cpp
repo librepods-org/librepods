@@ -1,9 +1,17 @@
 #include "blemanager.h"
 #include "enums.h"
 #include <QDebug>
-#include <QTimer>
 #include "logger.h"
 #include <QMap>
+#include <QDBusArgument>
+#include <QDBusMetaType>
+#include <QDBusObjectPath>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
+#include <QDBusServiceWatcher>
+#include <QDBusVariant>
+#include <QDBusVirtualObject>
+#include "BluetoothMonitor.h"
 
 AirpodsTrayApp::Enums::AirPodsModel getModelName(quint16 modelId)
 {
@@ -82,53 +90,315 @@ QString getConnectionStateName(BleInfo::ConnectionState state)
     }
 }
 
-BleManager::BleManager(QObject *parent) : QObject(parent)
+namespace
 {
-    discoveryAgent = new QBluetoothDeviceDiscoveryAgent(this);
-    discoveryAgent->setLowEnergyDiscoveryTimeout(0); // Continuous scanning
+const QString bluezService = QStringLiteral("org.bluez");
+const QString monitorManagerInterface = QStringLiteral("org.bluez.AdvertisementMonitorManager1");
+const QString monitorInterface = QStringLiteral("org.bluez.AdvertisementMonitor1");
+const QString deviceInterface = QStringLiteral("org.bluez.Device1");
+const QString propertiesInterface = QStringLiteral("org.freedesktop.DBus.Properties");
+const QString objectManagerInterface = QStringLiteral("org.freedesktop.DBus.ObjectManager");
+const QString appPath = QStringLiteral("/me/kavishdevar/librepods/advmonitor");
+const QString monitorPath = appPath + QStringLiteral("/proximity");
 
-    connect(discoveryAgent, &QBluetoothDeviceDiscoveryAgent::deviceDiscovered,
-            this, &BleManager::onDeviceDiscovered);
-    connect(discoveryAgent, &QBluetoothDeviceDiscoveryAgent::finished,
-            this, &BleManager::onScanFinished);
-    connect(discoveryAgent, &QBluetoothDeviceDiscoveryAgent::errorOccurred,
-            this, &BleManager::onErrorOccurred);
+struct AdvPattern
+{
+    quint8 start = 0;
+    quint8 adType = 0;
+    QByteArray content;
+};
+}
+
+Q_DECLARE_METATYPE(AdvPattern)
+
+namespace
+{
+QDBusArgument &operator<<(QDBusArgument &arg, const AdvPattern &pattern)
+{
+    arg.beginStructure();
+    arg << pattern.start << pattern.adType << pattern.content;
+    arg.endStructure();
+    return arg;
+}
+
+const QDBusArgument &operator>>(const QDBusArgument &arg, AdvPattern &pattern)
+{
+    arg.beginStructure();
+    arg >> pattern.start >> pattern.adType >> pattern.content;
+    arg.endStructure();
+    return arg;
+}
+
+// The ObjectManager tree bluetoothd reads the monitor from, plus the monitor's own methods.
+class MonitorApp : public QDBusVirtualObject
+{
+public:
+    explicit MonitorApp(BleManager *manager) : manager(manager) {}
+
+    QString introspect(const QString &) const override { return {}; }
+
+    bool handleMessage(const QDBusMessage &message, const QDBusConnection &connection) override
+    {
+        if (message.path() == appPath && message.interface() == objectManagerInterface
+            && message.member() == QLatin1String("GetManagedObjects"))
+        {
+            // Manufacturer specific data (0xFF) starting with Apple's company id 0x004C,
+            // little endian, then the Proximity Pairing message type 0x07.
+            const QList<AdvPattern> patterns{{0, 0xFF, QByteArray::fromHex("4c0007")}};
+            const QVariantMap properties{
+                {QStringLiteral("Type"), QStringLiteral("or_patterns")},
+                {QStringLiteral("Patterns"), QVariant::fromValue(patterns)},
+            };
+            ManagedObjectList objects;
+            objects[QDBusObjectPath(monitorPath)][monitorInterface] = properties;
+            connection.send(message.createReply(QVariant::fromValue(objects)));
+            return true;
+        }
+
+        if (message.path() != monitorPath || message.interface() != monitorInterface)
+            return false;
+
+        const QString member = message.member();
+        const QList<QVariant> args = message.arguments();
+        if (member == QLatin1String("DeviceFound") && !args.isEmpty())
+            manager->onMonitorDeviceFound(args.first().value<QDBusObjectPath>().path());
+        else if (member == QLatin1String("DeviceLost") && !args.isEmpty())
+            manager->onMonitorDeviceLost(args.first().value<QDBusObjectPath>().path());
+        else if (member == QLatin1String("Release"))
+            manager->onMonitorReleased();
+        else if (member != QLatin1String("Activate"))
+            return false;
+
+        if (!message.isReplyRequired())
+            return true;
+        connection.send(message.createReply());
+        return true;
+    }
+
+private:
+    BleManager *manager;
+};
+
+QString addressFromPath(const QString &devicePath)
+{
+    return devicePath.section(QLatin1Char('/'), -1).mid(4).replace(QLatin1Char('_'), QLatin1Char(':'));
+}
+
+QByteArray appleData(const QVariant &manufacturerData)
+{
+    QMap<quint16, QDBusVariant> entries;
+    manufacturerData.value<QDBusArgument>() >> entries;
+    return entries.value(0x004C).variant().toByteArray();
+}
+}
+
+BleManager::BleManager(QObject *parent) : QObject(parent), bus(QDBusConnection::systemBus())
+{
+    qDBusRegisterMetaType<AdvPattern>();
+    qDBusRegisterMetaType<QList<AdvPattern>>();
+    qDBusRegisterMetaType<ManagedObjectList>();
+
+    if (!bus.registerVirtualObject(appPath, new MonitorApp(this), QDBusConnection::SubPath))
+        LOG_ERROR("Could not export the advertisement monitor at" << appPath);
+
+    auto *watcher = new QDBusServiceWatcher(bluezService, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
+    connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this, &BleManager::onBluezOwnerChanged);
+    bus.connect(bluezService, QStringLiteral("/"), objectManagerInterface, QStringLiteral("InterfacesAdded"),
+                this, SLOT(onInterfacesAdded(QDBusMessage)));
+    bus.connect(bluezService, QStringLiteral("/"), objectManagerInterface, QStringLiteral("InterfacesRemoved"),
+                this, SLOT(onInterfacesRemoved(QDBusMessage)));
 }
 
 BleManager::~BleManager()
 {
-    delete discoveryAgent;
+    unregisterMonitor();
+    bus.unregisterObject(appPath, QDBusConnection::UnregisterTree);
 }
 
 void BleManager::startScan()
 {
-    LOG_DEBUG("Starting BLE scan...");
-    discoveryAgent->start(QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
+    LOG_DEBUG("Starting BLE advertisement monitor...");
+    wanted = true;
+    registerMonitor();
 }
 
 void BleManager::stopScan()
 {
-    LOG_DEBUG("Stopping BLE scan...");
-    discoveryAgent->stop();
+    LOG_DEBUG("Stopping BLE advertisement monitor...");
+    wanted = false;
+    unregisterMonitor();
 }
 
 bool BleManager::isScanning() const
 {
-    return discoveryAgent->isActive();
+    return wanted;
 }
 
-void BleManager::onDeviceDiscovered(const QBluetoothDeviceInfo &info)
+void BleManager::registerMonitor()
 {
-    // Check for Apple's manufacturer ID (0x004C)
-    if (info.manufacturerData().contains(0x004C))
+    if (!wanted || registering || !adapterPath.isEmpty())
+        return;
+    registering = true;
+
+    auto lookup = QDBusMessage::createMethodCall(bluezService, QStringLiteral("/"), objectManagerInterface,
+                                                 QStringLiteral("GetManagedObjects"));
+    auto *lookupWatcher = new QDBusPendingCallWatcher(bus.asyncCall(lookup), this);
+    connect(lookupWatcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *call) {
+        call->deleteLater();
+        QDBusPendingReply<ManagedObjectList> reply = *call;
+        QString adapter;
+        if (reply.isValid())
+        {
+            const ManagedObjectList objects = reply.value();
+            for (auto it = objects.constBegin(); it != objects.constEnd() && adapter.isEmpty(); ++it)
+                if (it.value().contains(monitorManagerInterface))
+                    adapter = it.key().path();
+        }
+        if (!wanted || adapter.isEmpty())
+        {
+            if (wanted)
+                LOG_WARN("No Bluetooth adapter offers advertisement monitors yet");
+            registering = false;
+            return;
+        }
+
+        auto registration = QDBusMessage::createMethodCall(bluezService, adapter, monitorManagerInterface,
+                                                           QStringLiteral("RegisterMonitor"));
+        registration << QVariant::fromValue(QDBusObjectPath(appPath));
+        auto *registrationWatcher = new QDBusPendingCallWatcher(bus.asyncCall(registration), this);
+        connect(registrationWatcher, &QDBusPendingCallWatcher::finished, this, [this, adapter](QDBusPendingCallWatcher *call) {
+            call->deleteLater();
+            registering = false;
+            QDBusPendingReply<> reply = *call;
+            if (reply.isError())
+            {
+                LOG_ERROR("RegisterMonitor on" << adapter << "failed:" << reply.error().message());
+                return;
+            }
+            LOG_INFO("Watching AirPods adverts through the advertisement monitor on" << adapter);
+            adapterPath = adapter;
+            if (!wanted)
+                unregisterMonitor();
+        });
+    });
+}
+
+void BleManager::unregisterMonitor()
+{
+    forgetDevices();
+    if (adapterPath.isEmpty())
+        return;
+    auto call = QDBusMessage::createMethodCall(bluezService, adapterPath, monitorManagerInterface,
+                                               QStringLiteral("UnregisterMonitor"));
+    call << QVariant::fromValue(QDBusObjectPath(appPath));
+    bus.asyncCall(call);
+    adapterPath.clear();
+}
+
+void BleManager::forgetDevices()
+{
+    for (auto it = names.constBegin(); it != names.constEnd(); ++it)
+        bus.disconnect(bluezService, it.key(), propertiesInterface, QStringLiteral("PropertiesChanged"),
+                       this, SLOT(onDevicePropertiesChanged(QDBusMessage)));
+    names.clear();
+}
+
+void BleManager::onMonitorDeviceFound(const QString &devicePath)
+{
+    if (names.contains(devicePath))
+        return;
+    names.insert(devicePath, QString());
+    bus.connect(bluezService, devicePath, propertiesInterface, QStringLiteral("PropertiesChanged"),
+                this, SLOT(onDevicePropertiesChanged(QDBusMessage)));
+
+    auto call = QDBusMessage::createMethodCall(bluezService, devicePath, propertiesInterface, QStringLiteral("GetAll"));
+    call << deviceInterface;
+    auto *watcher = new QDBusPendingCallWatcher(bus.asyncCall(call), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, devicePath](QDBusPendingCallWatcher *call) {
+        call->deleteLater();
+        QDBusPendingReply<QVariantMap> reply = *call;
+        if (reply.isValid() && names.contains(devicePath))
+            handleDeviceProperties(devicePath, reply.value());
+    });
+}
+
+void BleManager::onMonitorDeviceLost(const QString &devicePath)
+{
+    if (!names.remove(devicePath))
+        return;
+    bus.disconnect(bluezService, devicePath, propertiesInterface, QStringLiteral("PropertiesChanged"),
+                   this, SLOT(onDevicePropertiesChanged(QDBusMessage)));
+}
+
+void BleManager::onMonitorReleased()
+{
+    LOG_WARN("bluetoothd released the advertisement monitor");
+    forgetDevices();
+    adapterPath.clear();
+}
+
+void BleManager::onDevicePropertiesChanged(const QDBusMessage &message)
+{
+    const QList<QVariant> args = message.arguments();
+    if (args.size() < 2 || args.first().toString() != deviceInterface || !names.contains(message.path()))
+        return;
+    handleDeviceProperties(message.path(), qdbus_cast<QVariantMap>(args.at(1)));
+}
+
+void BleManager::onInterfacesAdded(const QDBusMessage &message)
+{
+    const QList<QVariant> args = message.arguments();
+    if (args.size() < 2 || !wanted || !adapterPath.isEmpty())
+        return;
+    const auto interfaces = qdbus_cast<QMap<QString, QVariantMap>>(args.at(1));
+    if (interfaces.contains(monitorManagerInterface))
+        registerMonitor();
+}
+
+void BleManager::onInterfacesRemoved(const QDBusMessage &message)
+{
+    const QList<QVariant> args = message.arguments();
+    if (args.isEmpty())
+        return;
+    const QString path = args.first().value<QDBusObjectPath>().path();
+    if (path == adapterPath)
     {
-        QByteArray data = info.manufacturerData().value(0x004C);
+        forgetDevices();
+        adapterPath.clear();
+    }
+    else
+    {
+        onMonitorDeviceLost(path);
+    }
+}
+
+void BleManager::onBluezOwnerChanged(const QString &, const QString &, const QString &newOwner)
+{
+    forgetDevices();
+    adapterPath.clear();
+    if (!newOwner.isEmpty())
+        registerMonitor();
+}
+
+void BleManager::handleDeviceProperties(const QString &devicePath, const QVariantMap &properties)
+{
+    if (properties.contains(QStringLiteral("Alias")))
+        names[devicePath] = properties.value(QStringLiteral("Alias")).toString();
+    if (!properties.contains(QStringLiteral("ManufacturerData")))
+        return;
+    const QByteArray data = appleData(properties.value(QStringLiteral("ManufacturerData")));
+    if (!data.isEmpty())
+        parseAdvertisement(addressFromPath(devicePath), names.value(devicePath), data);
+}
+
+void BleManager::parseAdvertisement(const QString &address, const QString &name, const QByteArray &data)
+{
+    {
         // Ensure data is long enough and starts with prefix 0x07 (indicates Proximity Pairing Message)
         if (data.size() >= 10 && data[0] == 0x07)
         {
-            QString address = info.address().toString();
             BleInfo deviceInfo;
-            deviceInfo.name = info.name().isEmpty() ? "AirPods" : info.name();
+            deviceInfo.name = name.isEmpty() ? "AirPods" : name;
             deviceInfo.address = address;
             deviceInfo.rawData = data.left(data.size() - 16);
             deviceInfo.encryptedPayload = data.mid(data.size() - 16);
@@ -213,18 +483,4 @@ void BleManager::onDeviceDiscovered(const QBluetoothDeviceInfo &info)
             emit deviceFound(deviceInfo); // Emit signal for device found
         }
     }
-}
-
-void BleManager::onScanFinished()
-{
-    if (discoveryAgent->isActive())
-    {
-        discoveryAgent->start(QBluetoothDeviceDiscoveryAgent::LowEnergyMethod);
-    }
-}
-
-void BleManager::onErrorOccurred(QBluetoothDeviceDiscoveryAgent::Error error)
-{
-    LOG_ERROR("BLE scan error occurred:" << error);
-    stopScan();
 }
