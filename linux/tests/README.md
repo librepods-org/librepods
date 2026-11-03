@@ -17,7 +17,11 @@ bus, Bluetooth adapter, device configuration, or user service is modified.
   device address, and name; the filter must not drop them.
 
 The observer samples the monitor's actual Unix socket receive queue and the
-matching daemon socket send queue by inode pair. A persistent combination of
+matching daemon socket send queue by reciprocal inode pair and daemon PID.
+Missing or ambiguous pairs fail measurement rather than defaulting to zero.
+A public-CLI fault test removes an observable daemon peer row from the external
+`ss` response and verifies that the observer rejects that unavailable data.
+A persistent combination of
 at least 32768 unread client bytes and 65536 pending daemon bytes fails the
 regression. Successful runs must also finish sending the fixture load and
 process genuine device notifications and bus replies; an idle or broken fixture

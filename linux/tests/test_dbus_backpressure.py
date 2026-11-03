@@ -27,7 +27,7 @@ def wait_for_marker(path, marker, process, timeout=10):
     raise RuntimeError(f"Timeout waiting for {marker}: {path.read_text()}")
 
 
-def queues(pid):
+def queues(pid, daemon_pid):
     lines = subprocess.check_output(["ss", "-xnpH"], text=True).splitlines()
     entries = []
     for line in lines:
@@ -39,17 +39,21 @@ def queues(pid):
                 "recv": int(fields[2]), "send": int(fields[3]),
                 "local": int(fields[5]), "peer": int(fields[7]),
                 "client": f"pid={pid}," in line,
+                "daemon": f"pid={daemon_pid}," in line,
             })
         except ValueError:
             continue
     client_entries = [entry for entry in entries if entry["client"]]
     if not client_entries:
         raise RuntimeError(f"No connected Unix socket observed for monitor PID {pid}")
-    client_recv = max(entry["recv"] for entry in client_entries)
-    broker_send = max((peer["send"] for client in client_entries for peer in entries
-                       if peer["local"] == client["peer"]
-                       and peer["peer"] == client["local"]), default=0)
-    return client_recv, broker_send
+    pairs = [(client, peer) for client in client_entries for peer in entries
+             if peer["daemon"] and peer["local"] == client["peer"]
+             and peer["peer"] == client["local"]]
+    if len(pairs) != 1:
+        raise RuntimeError(
+            f"Cannot observe a unique reciprocal D-Bus socket pair (found {len(pairs)})")
+    client, daemon = pairs[0]
+    return client["recv"], daemon["send"]
 
 
 def rss_kib(pid):
@@ -138,7 +142,7 @@ def run_case(client_binary, output_dir, name, messages, duration, noise_sender="
                 if client.poll() is not None or fixture.poll() is not None:
                     raise RuntimeError(f"A probe process exited early; inspect {name} logs")
                 now = time.monotonic()
-                client_recv, broker_send = queues(client.pid)
+                client_recv, broker_send = queues(client.pid, broker.pid)
                 samples.append({"elapsed_s": round(now - started, 3),
                                 "client_recv": client_recv, "broker_send": broker_send,
                                 "rss_kib": rss_kib(client.pid)})
