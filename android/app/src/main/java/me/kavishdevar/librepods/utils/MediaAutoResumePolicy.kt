@@ -33,7 +33,9 @@ internal class MediaAutoResumePolicy {
             return false
         }
 
-        isResumeArmed = if (force) isMusicActiveWhenArming() else true
+        if (armAutoResume) {
+            isResumeArmed = if (force) isMusicActiveWhenArming() else true
+        }
         return true
     }
 
