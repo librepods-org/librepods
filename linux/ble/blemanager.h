@@ -2,13 +2,13 @@
 #define BLEMANAGER_H
 
 #include <QObject>
-#include <QBluetoothDeviceDiscoveryAgent>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QHash>
 #include <QMap>
 #include <QString>
 #include <QDateTime>
 #include "enums.h"
-
-class QTimer;
 
 class BleInfo
 {
@@ -74,16 +74,39 @@ public:
     void stopScan();
     bool isScanning() const;
 
-private slots:
-    void onDeviceDiscovered(const QBluetoothDeviceInfo &info);
-    void onScanFinished();
-    void onErrorOccurred(QBluetoothDeviceDiscoveryAgent::Error error);
+    void onMonitorDeviceFound(const QString &devicePath);
+    void onMonitorDeviceLost(const QString &devicePath);
+    void onMonitorReleased();
 
 signals:
     void deviceFound(const BleInfo &device);
 
+private slots:
+    void onDevicePropertiesChanged(const QDBusMessage &message);
+    void onInterfacesAdded(const QDBusMessage &message);
+    void onInterfacesRemoved(const QDBusMessage &message);
+    void onBluezOwnerChanged(const QString &service, const QString &oldOwner, const QString &newOwner);
+
 private:
-    QBluetoothDeviceDiscoveryAgent *discoveryAgent;
+    void registerMonitor();
+    void unregisterMonitor();
+    void forgetDevices();
+    void handleDeviceProperties(const QString &devicePath, const QVariantMap &properties);
+    void parseAdvertisement(const QString &address, const QString &name, const QByteArray &data);
+
+    // Watches AirPods adverts through BlueZ's Advertisement Monitor rather than a discovery
+    // session. Discovery sessions are shared: every client that starts or stops one makes
+    // bluetoothd stop and restart the controller scan for all of them, and a session that is
+    // always open turns each scan the desktop asks for into that stop and restart. bluetoothd
+    // 5.87 can wedge on it waiting for a "discovery stopped" event that never comes, after
+    // which no client can scan until the service restarts. A monitor runs on the passive
+    // background scan (offloaded to the controller where it supports MSFT patterns) and only
+    // reports devices whose adverts match.
+    QDBusConnection bus;
+    bool wanted = false;
+    bool registering = false;
+    QString adapterPath;
+    QHash<QString, QString> names; // device path -> Alias
 };
 
 #endif // BLEMANAGER_H

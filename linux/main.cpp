@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QBluetoothDeviceInfo>
 #include <QBluetoothLocalDevice>
 #include <QBluetoothSocket>
 #include <QQuickWindow>
