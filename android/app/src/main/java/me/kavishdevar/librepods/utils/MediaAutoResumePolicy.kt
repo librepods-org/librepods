@@ -49,6 +49,6 @@ internal class MediaAutoResumePolicy {
     }
 
     fun onAirPodsSessionDisconnected() {
-        // Preserve the current cross-session behavior for the RED regression snapshot.
+        isResumeArmed = false
     }
 }
