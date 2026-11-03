@@ -16,6 +16,7 @@ AirpodsTrayApp::Enums::AirPodsModel getModelName(quint16 modelId)
         {0x1B20, AirPodsModel::AirPods4ANC},
         {0x0A20, AirPodsModel::AirPodsMaxLightning},
         {0x1F20, AirPodsModel::AirPodsMaxUSBC},
+        {0x2D20, AirPodsModel::AirPodsMaxUSBC},
         {0x0E20, AirPodsModel::AirPodsPro},
         {0x1420, AirPodsModel::AirPodsPro2Lightning},
         {0x2420, AirPodsModel::AirPodsPro2USBC}
@@ -123,8 +124,10 @@ void BleManager::onDeviceDiscovered(const QBluetoothDeviceInfo &info)
     if (info.manufacturerData().contains(0x004C))
     {
         QByteArray data = info.manufacturerData().value(0x004C);
-        // Ensure data is long enough and starts with prefix 0x07 (indicates Proximity Pairing Message)
-        if (data.size() >= 10 && data[0] == 0x07)
+        // Ensure data starts with prefix 0x07 (Proximity Pairing Message) and is long enough for the
+        // full format: 11 bytes of plaintext fields followed by a 16-byte encrypted payload. Shorter
+        // variants (e.g. AirPods Max when disconnected) are encrypted from byte 3 on and must be skipped.
+        if (data.size() >= 27 && data[0] == 0x07)
         {
             QString address = info.address().toString();
             BleInfo deviceInfo;
