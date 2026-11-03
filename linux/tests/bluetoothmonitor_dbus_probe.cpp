@@ -45,6 +45,7 @@ int main(int argc, char **argv)
   QTimer report;
   QObject::connect(&report, &QTimer::timeout, &app, [&] {
     const QJsonObject observation{
+      {QStringLiteral("qt_version"), QString::fromLatin1(qVersion())},
       {QStringLiteral("elapsed_ms"), clock.elapsed()},
       {QStringLiteral("ticks"), ticks},
       {QStringLiteral("largest_event_gap_ms"), largestGap},

@@ -68,7 +68,7 @@ def stop(process):
             process.wait(timeout=3)
 
 
-def run_case(client_binary, output_dir, name, messages, duration):
+def run_case(client_binary, output_dir, name, messages, duration, noise_sender="foreign"):
     scratch = Path(os.environ.get("TMPDIR", Path.cwd() / ".diagnostics-scratch"))
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="librepods-dbus-", dir=scratch) as temporary:
@@ -123,7 +123,7 @@ def run_case(client_binary, output_dir, name, messages, duration):
                 side_bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus"),
                 "org.freedesktop.DBus")
             device_control.Start(dbus.UInt32(1500), dbus.UInt32(messages),
-                                 dbus.UInt32(65536), timeout=5)
+                                 dbus.UInt32(65536), dbus.String(noise_sender), timeout=5)
             started = time.monotonic()
             high_since = None
             longest_backpressure = 0.0
@@ -156,6 +156,7 @@ def run_case(client_binary, output_dir, name, messages, duration):
                     observations.append(json.loads(line))
             result = {
                 "case": name, "noise_messages": messages,
+                "noise_sender": noise_sender,
                 "noise_payload_bytes": 65536,
                 "client_recv_peak": max(sample["client_recv"] for sample in samples),
                 "broker_send_peak": max(sample["broker_send"] for sample in samples),
@@ -193,6 +194,12 @@ def main():
         raise AssertionError(
             "Unrelated PropertiesChanged traffic stopped the monitor from draining its "
             "D-Bus socket for at least two seconds; actual paired socket queues above")
+    bluez_noise = run_case(args.client.resolve(), args.output,
+                          "bluez-non-device-pressure", 4096, 14, noise_sender="bluez")
+    if bluez_noise["persistent_backpressure_s"] >= 2:
+        raise AssertionError(
+            "BlueZ's non-device PropertiesChanged traffic stopped the monitor from "
+            "draining its D-Bus socket for at least two seconds")
 
 
 if __name__ == "__main__":

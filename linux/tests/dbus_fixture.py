@@ -64,6 +64,7 @@ class Noise(dbus.service.Object):
 
 device = Device()
 noise = Noise(noise_bus, "/org/librepods/TestNoise")
+bluez_noise = Noise(bluez_bus, "/org/bluez/hci7")
 
 
 class Manager(dbus.service.Object):
@@ -71,8 +72,9 @@ class Manager(dbus.service.Object):
     def GetManagedObjects(self):
         return {dbus.ObjectPath(DEVICE_PATH): {DEVICE_INTERFACE: device.properties}}
 
-    @dbus.service.method("org.librepods.Test", in_signature="uuu", out_signature="")
-    def Start(self, delay_ms, message_count, payload_bytes):
+    @dbus.service.method("org.librepods.Test", in_signature="uuus", out_signature="")
+    def Start(self, delay_ms, message_count, payload_bytes, noise_sender):
+        emitter = {"foreign": noise, "bluez": bluez_noise}[str(noise_sender)]
         device.delay_ms = int(delay_ms)
         device.properties["Connected"] = dbus.Boolean(True)
         device.PropertiesChanged(DEVICE_INTERFACE,
@@ -83,8 +85,8 @@ class Manager(dbus.service.Object):
         def send_batch():
             nonlocal remaining
             for _ in range(min(8, remaining)):
-                noise.PropertiesChanged("org.librepods.Unrelated",
-                                        {"Payload": payload}, [])
+                emitter.PropertiesChanged("org.librepods.Unrelated",
+                                          {"Payload": payload}, [])
                 remaining -= 1
             if not remaining:
                 print("LOAD_SENT", flush=True)
