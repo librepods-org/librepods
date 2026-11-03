@@ -129,6 +129,7 @@ import me.kavishdevar.librepods.utils.SystemApisUtils.METADATA_UNTETHERED_RIGHT_
 import me.kavishdevar.librepods.utils.SystemApisUtils.METADATA_UNTETHERED_RIGHT_CHARGING
 import me.kavishdevar.librepods.utils.SystemApisUtils.METADATA_UNTETHERED_RIGHT_ICON
 import me.kavishdevar.librepods.utils.SystemApisUtils.METADATA_UNTETHERED_RIGHT_LOW_BATTERY_THRESHOLD
+import me.kavishdevar.librepods.utils.drainTeardownMediaPause
 import me.kavishdevar.librepods.widgets.BatteryWidget
 import me.kavishdevar.librepods.widgets.NoiseControlWidget
 import org.lsposed.hiddenapibypass.HiddenApiBypass
@@ -655,11 +656,48 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         }
     }
 
-    private suspend fun closeAacpSession(detachUi: Boolean = false) {
+    private suspend fun closeAacpSession(
+        detachUi: Boolean = false,
+        beforeFinalization: suspend () -> Unit = {},
+    ) {
         val cleanup = beginAacpSessionCleanup(detachUi)
-        cleanupScope.async {
-            finishAacpSessionCleanup(cleanup)
-        }.await()
+        try {
+            beforeFinalization()
+        } finally {
+            cleanupScope.async {
+                finishAacpSessionCleanup(cleanup)
+            }.await()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun pauseMediaDuringAacpCleanup() {
+        val bluetoothAdapter = getSystemService(BluetoothManager::class.java).adapter
+        drainTeardownMediaPause(
+            registerProfileCallback = { onProfileConnected ->
+                bluetoothAdapter.getProfileProxy(
+                    this@AirPodsService,
+                    object : BluetoothProfile.ServiceListener {
+                        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                            try {
+                                onProfileConnected(
+                                    profile == BluetoothProfile.A2DP && proxy.connectedDevices.isNotEmpty()
+                                )
+                            } finally {
+                                bluetoothAdapter.closeProfileProxy(profile, proxy)
+                            }
+                        }
+
+                        override fun onServiceDisconnected(profile: Int) {
+                            onProfileConnected(false)
+                        }
+                    },
+                    BluetoothProfile.A2DP,
+                )
+            },
+            pauseMedia = { MediaController.sendPause(armAutoResume = false) },
+            timeoutMillis = CONNECTION_CLEANUP_TIMEOUT_MS,
+        )
     }
 
     private fun detachAacpSessionUi() {
@@ -3089,44 +3127,21 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         serviceScope.launch {
             Log.d(TAG, "Disconnected from AirPods, showing island.")
             showIslandWithKnownBattery(IslandType.MOVED_TO_REMOTE)
-            closeAacpSession(detachUi = true)
+            closeAacpSession(
+                detachUi = true,
+                beforeFinalization = ::pauseMediaDuringAacpCleanup,
+            )
             MediaController.pausedWhileTakingOver = false
-            val bluetoothAdapter = getSystemService(BluetoothManager::class.java).adapter
-            bluetoothAdapter.getProfileProxy(this@AirPodsService, object : BluetoothProfile.ServiceListener {
-                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                    if (profile == BluetoothProfile.A2DP) {
-                        val connectedDevices = proxy.connectedDevices
-                        if (connectedDevices.isNotEmpty()) {
-                            MediaController.sendPause(armAutoResume = false)
-                        }
-                    }
-                    bluetoothAdapter.closeProfileProxy(profile, proxy)
-                }
-
-                override fun onServiceDisconnected(profile: Int) {}
-            }, BluetoothProfile.A2DP)
             CrossDevice.isAvailable = true
         }
     }
 
     fun disconnectAirPods() {
         serviceScope.launch {
-            closeAacpSession(detachUi = true)
-
-            val bluetoothAdapter = getSystemService(BluetoothManager::class.java).adapter
-            bluetoothAdapter.getProfileProxy(this@AirPodsService, object : BluetoothProfile.ServiceListener {
-                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                    if (profile == BluetoothProfile.A2DP) {
-                        val connectedDevices = proxy.connectedDevices
-                        if (connectedDevices.isNotEmpty()) {
-                            MediaController.sendPause(armAutoResume = false)
-                        }
-                    }
-                    bluetoothAdapter.closeProfileProxy(profile, proxy)
-                }
-
-                override fun onServiceDisconnected(profile: Int) {}
-            }, BluetoothProfile.A2DP)
+            closeAacpSession(
+                detachUi = true,
+                beforeFinalization = ::pauseMediaDuringAacpCleanup,
+            )
             Log.d(TAG, "Disconnected AirPods upon user request")
         }
     }
