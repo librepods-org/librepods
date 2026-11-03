@@ -486,6 +486,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
         finalizeCleanupWhenDrained(attempt.generation, unfinishedJobs) {
             synchronized(this) {
                 MediaController.recentlyLostOwnership = false
+                MediaController.onAirPodsSessionDisconnected()
                 BluetoothConnectionManager.clearCurrentConnection(connectedSocket)
                 aacpManager.disconnected()
                 resetBatterySession()
@@ -643,6 +644,7 @@ class AirPodsService : Service(), SharedPreferences.OnSharedPreferenceChangeList
             synchronized(this) {
                 MediaController.recentlyLostOwnership = false
                 if (disconnected.endedActiveSession) {
+                    MediaController.onAirPodsSessionDisconnected()
                     val activeSocket = requireNotNull(disconnected.activeSocket)
                     BluetoothConnectionManager.clearCurrentConnection(activeSocket)
                     aacpManager.disconnected()
