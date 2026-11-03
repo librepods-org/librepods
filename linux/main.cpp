@@ -877,7 +877,8 @@ private slots:
     void bleDeviceFound(const BleInfo &device)
     {
         if (BLEUtils::isValidIrkRpa(m_deviceInfo->magicAccIRK(), device.address)) {
-            m_deviceInfo->setModel(device.modelName);
+            if (device.modelName != AirPodsModel::Unknown)
+                m_deviceInfo->setModel(device.modelName);
             auto decryptet = BLEUtils::decryptLastBytes(device.encryptedPayload, m_deviceInfo->magicAccEncKey());
             m_deviceInfo->getBattery()->parseEncryptedPacket(decryptet, device.primaryLeft, device.isThisPodInTheCase, isModelHeadset(m_deviceInfo->model()));
             m_deviceInfo->getEarDetection()->overrideEarDetectionStatus(device.isPrimaryInEar, device.isSecondaryInEar);
