@@ -1,37 +1,79 @@
-name: Build LibrePods Linux
+name: Linux CI (legacy Qt)
 
 on:
+  push:
+    branches:
+      - fix-linux-bugs
+      - fix-qt-issue-817
+    paths:
+      - 'linux/**'
+      - '.github/workflows/ci-linux.yml'
+  pull_request:
+    branches:
+      - linux/rust
+      - main
+    paths:
+      - 'linux/**'
+      - '.github/workflows/ci-linux.yml'
   workflow_dispatch:
-#  push:
-#    branches:
-#      - '*'
+
+permissions: {}
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      TMPDIR: ${{ runner.temp }}/librepods-qt-tests
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build \
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev qt6-svg-dev \
             qt6-tools-dev qt6-tools-dev-tools qt6-connectivity-dev \
-            libxkbcommon-dev
+            libxkbcommon-dev libssl-dev libpulse-dev libdbus-1-dev \
+            dbus iproute2 python3-dbus python3-gi
+          mkdir -p "$TMPDIR"
+          qmake6 -query QT_VERSION
+          pkg-config --modversion dbus-1
 
-      - name: Build project
-        working-directory: linux
+      - name: Build the real Bluetooth monitor probe
         run: |
-          mkdir build
-          cd build
-          cmake .. -G Ninja
-          ninja
+          cmake -S linux/tests -B linux/tests/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build linux/tests/build --parallel 2
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Verify isolated D-Bus drainage
+        run: |
+          /usr/bin/python3 linux/tests/test_dbus_backpressure.py \
+            --client linux/tests/build/bluetoothmonitor_dbus_probe \
+            --output linux/tests/results
+
+      - name: Build Qt application
+        run: |
+          cmake -S linux -B linux/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build linux/build --parallel 2
+
+      - name: Upload diagnostic results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: librepods-linux
+          name: qt-dbus-diagnostics
+          path: linux/tests/results
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Qt executable
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: librepods-qt
           path: linux/build/librepods
+          if-no-files-found: error
