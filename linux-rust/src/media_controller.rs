@@ -138,11 +138,19 @@ impl MediaController {
             drop(state);
 
             if !was_playing && is_playing {
-                let aacp_state = aacp_manager.state.lock().await;
-                if !aacp_state
-                    .ear_detection_status
-                    .contains(&EarDetectionStatus::InEar)
-                {
+                // Copy what is needed and release the lock: the send_* calls below
+                // lock the same state, so holding it here would deadlock the
+                // connection as soon as another device is connected.
+                let (in_ear, connected_devices) = {
+                    let aacp_state = aacp_manager.state.lock().await;
+                    (
+                        aacp_state
+                            .ear_detection_status
+                            .contains(&EarDetectionStatus::InEar),
+                        aacp_state.connected_devices.clone(),
+                    )
+                };
+                if !in_ear {
                     info!("Media playback started but buds not in ear, skipping takeover");
                     continue;
                 }
@@ -155,7 +163,6 @@ impl MediaController {
 
                 info!("already connected locally, hijacking connection by asking AirPods");
 
-                let connected_devices = aacp_state.connected_devices.clone();
                 for device in connected_devices {
                     if device.mac != local_mac {
                         if let Err(e) = aacp_manager
