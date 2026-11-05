@@ -10,6 +10,7 @@ command: librepods
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
+  - --share=ipc
   - --socket=pulseaudio
   - --system-talk-name=org.bluez
   - --allow=bluetooth

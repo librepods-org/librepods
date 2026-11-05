@@ -7,7 +7,10 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
     flake-compat.url = "https://flakehub.com/f/edolstra/flake-compat/1.tar.gz";
     systems.url = "github:nix-systems/default";
-    treefmt-nix.url = "github:numtide/treefmt-nix";
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -32,6 +35,12 @@
           ...
         }:
         let
+          libX11 = pkgs.libX11 or pkgs.xorg.libX11;
+          libXcursor = pkgs.libXcursor or pkgs.xorg.libXcursor;
+          libXi = pkgs.libXi or pkgs.xorg.libXi;
+          libXrandr = pkgs.libXrandr or pkgs.xorg.libXrandr;
+          nixfmt = pkgs.nixfmt or pkgs.nixfmt-rfc-style;
+
           buildInputs =
             with pkgs;
             [
@@ -47,10 +56,10 @@
               freetype.dev
               libGL
               pkg-config
-              xorg.libX11
-              xorg.libXcursor
-              xorg.libXi
-              xorg.libXrandr
+              libX11
+              libXcursor
+              libXi
+              libXrandr
               wayland
               libxkbcommon
               vulkan-loader
@@ -72,6 +81,7 @@
               # Default files from crane (Rust and cargo files)
               (craneLib.fileset.commonCargoSources unfilteredRoot)
               (lib.fileset.maybeMissing ./linux-rust/assets/font)
+              ./linux-rust/assets/icon.png
             ];
           };
 
@@ -98,8 +108,14 @@
               meta = {
                 description = "AirPods liberated from Apple's ecosystem";
                 homepage = "https://github.com/kavishdevar/librepods";
-                license = pkgs.lib.licenses.gpl3Only;
-                maintainers = [ "kavishdevar" ];
+                license = pkgs.lib.licenses.agpl3Only;
+                maintainers = [
+                  {
+                    name = "Kavish Devar";
+                    github = "kavishdevar";
+                    githubId = 46088622;
+                  }
+                ];
                 platforms = pkgs.lib.platforms.unix;
                 mainProgram = "librepods";
               };
@@ -115,6 +131,7 @@
           apps.default = {
             type = "app";
             program = lib.getExe librepods;
+            meta.description = "AirPods liberated from Apple's ecosystem";
           };
 
           devShells.default = craneLib.devShell {
@@ -133,8 +150,8 @@
           };
 
           treefmt = {
-            programs.nixfmt.enable = pkgs.lib.meta.availableOn pkgs.stdenv.buildPlatform pkgs.nixfmt-rfc-style.compiler;
-            programs.nixfmt.package = pkgs.nixfmt-rfc-style;
+            programs.nixfmt.enable = pkgs.lib.meta.availableOn pkgs.stdenv.buildPlatform nixfmt.compiler;
+            programs.nixfmt.package = nixfmt;
           };
         };
     };

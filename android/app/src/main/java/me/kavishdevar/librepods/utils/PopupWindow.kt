@@ -47,8 +47,7 @@ import android.widget.VideoView
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.constants.AirPodsNotifications
 import me.kavishdevar.librepods.constants.Battery
-import me.kavishdevar.librepods.constants.BatteryComponent
-import me.kavishdevar.librepods.constants.BatteryStatus
+import me.kavishdevar.librepods.constants.planBatteryPresentation
 
 @SuppressLint("InflateParams", "ClickableViewAccessibility")
 class PopupWindow(
@@ -207,30 +206,11 @@ class PopupWindow(
         val batteryLeftText = mView.findViewById<TextView>(R.id.left_battery)
         val batteryRightText = mView.findViewById<TextView>(R.id.right_battery)
         val batteryCaseText = mView.findViewById<TextView>(R.id.case_battery)
+        val presentation = planBatteryPresentation(batteryList)
 
-        batteryLeftText.text = batteryList.find { it.component == BatteryComponent.LEFT }?.let {
-            if (it.status != BatteryStatus.DISCONNECTED) {
-                "\uDBC3\uDC8E    ${it.level}%"
-            } else {
-                ""
-            }
-        } ?: ""
-
-        batteryRightText.text = batteryList.find { it.component == BatteryComponent.RIGHT }?.let {
-            if (it.status != BatteryStatus.DISCONNECTED) {
-                "\uDBC3\uDC8D    ${it.level}%"
-            } else {
-                ""
-            }
-        } ?: ""
-
-        batteryCaseText.text = batteryList.find { it.component == BatteryComponent.CASE }?.let {
-            if (it.status != BatteryStatus.DISCONNECTED) {
-                "\uDBC3\uDE6C    ${it.level}%"
-            } else {
-                ""
-            }
-        } ?: ""
+        batteryLeftText.text = presentation.left?.let { "\uDBC3\uDC8E    ${it.level}%" } ?: ""
+        batteryRightText.text = presentation.right?.let { "\uDBC3\uDC8D    ${it.level}%" } ?: ""
+        batteryCaseText.text = presentation.case?.let { "\uDBC3\uDE6C    ${it.level}%" } ?: ""
     }
 
     @SuppressLint("SetTextI18s")

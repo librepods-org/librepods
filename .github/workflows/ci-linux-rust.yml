@@ -4,24 +4,82 @@ on:
   push:
     branches:
       - linux/rust
+      - fix-linux-bugs
     tags:
       - 'linux-v*'
     paths:
       - 'linux-rust/**'
-      - '.github/workflows/linux-build.yml'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/ci-linux-rust.yml'
+      - '.github/workflows/ci-nix-pr.yml'
+      - '.github/workflows/ci-nix-flake-update.yml'
+  pull_request:
+    branches:
+      - linux/rust
+    paths:
+      - 'linux-rust/**'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/ci-linux-rust.yml'
+      - '.github/workflows/ci-nix-pr.yml'
+      - '.github/workflows/ci-nix-flake-update.yml'
   workflow_dispatch:
+
+permissions: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev appstream just libfuse2
+          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev appstream just libfuse2 python3-yaml
+
+      - name: Validate packaging
+        run: |
+          python3 -m unittest discover -s linux-rust/tests -p 'test_*.py' -v
+          appstreamcli validate --no-net linux-rust/flatpak/me.kavishdevar.librepods.metainfo.xml
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Verify Nix package source assets
+        run: |
+          package_src="$(nix eval --raw --no-update-lock-file .#packages.x86_64-linux.default.src)"
+          if [ ! -f "$package_src/assets/icon.png" ]; then
+            echo "::error::Nix package source is missing assets/icon.png"
+            exit 1
+          fi
+          cmp linux-rust/assets/icon.png "$package_src/assets/icon.png"
+
+      - name: Build Nix package
+        timeout-minutes: 60
+        run: nix build .#packages.x86_64-linux.default --no-link --no-update-lock-file
+
+      - name: Validate Nix flake
+        run: |
+          nix flake check --no-build
+          test "$(nix eval --raw .#apps.x86_64-linux.default.meta.description)" = \
+            "AirPods liberated from Apple's ecosystem"
+          nix eval --json .#packages.x86_64-linux.default.meta | python3 -c '
+          import json, sys
+          meta = json.load(sys.stdin)
+          assert meta["license"]["spdxId"] == "AGPL-3.0-only", meta["license"]
+          assert all(isinstance(maintainer, dict) for maintainer in meta["maintainers"]), meta["maintainers"]
+          '
+          nix flake check --no-build \
+            --override-input nixpkgs github:NixOS/nixpkgs/01fbdeef22b76df85ea168fbfe1bfd9e63681b30
 
       - name: Install AppImage tools
         run: |
@@ -30,16 +88,31 @@ jobs:
           chmod +x /usr/local/bin/{appimagetool,linuxdeploy}
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             linux-rust/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('linux-rust/Cargo.lock') }}
+
+      - name: Check Rust formatting
+        working-directory: linux-rust
+        run: cargo fmt --all -- --check
+
+      - name: Lint Rust
+        working-directory: linux-rust
+        run: cargo clippy --all-targets --locked
+
+      - name: Run Rust tests
+        working-directory: linux-rust
+        run: cargo test --all-targets --locked
 
       - name: Build AppImage and Binary
         working-directory: linux-rust
@@ -51,37 +124,73 @@ jobs:
           mv dist/LibrePods-x86_64.AppImage dist/librepods-x86_64.AppImage
 
       - name: Upload AppImage artifact
-        if: "!startsWith(github.ref, 'refs/tags/linux-v')"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: librepods-x86_64.AppImage
           path: linux-rust/dist/librepods-x86_64.AppImage
+          if-no-files-found: error
 
       - name: Upload binary artifact
-        if: "!startsWith(github.ref, 'refs/tags/linux-v')"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: librepods
           path: linux-rust/dist/librepods
+          if-no-files-found: error
+
+      - name: Get release version
+        if: startsWith(github.ref, 'refs/tags/linux-v')
+        id: release-version
+        run: echo "version=${GITHUB_REF_NAME#linux-v}" >> "$GITHUB_OUTPUT"
 
       - name: Create tarball for Flatpak
         if: startsWith(github.ref, 'refs/tags/linux-v')
         working-directory: linux-rust
-        run: |
-          VERSION="${GITHUB_REF_NAME#linux-v}"
-          just tarball "${VERSION}"
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "TAR_PATH=linux-rust/dist/librepods-v${VERSION}-source.tar.gz" >> $GITHUB_ENV
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: just tarball "$VERSION"
 
-      - name: Create GitHub Release (AppImage + binary + source)
+      - name: Upload source tarball artifact
         if: startsWith(github.ref, 'refs/tags/linux-v')
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: librepods-source
+          path: linux-rust/dist/librepods-v${{ steps.release-version.outputs.version }}-source.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/linux-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: librepods-x86_64.AppImage
+          path: release-assets
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: librepods
+          path: release-assets
+
+      - name: Download source tarball artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: librepods-source
+          path: release-assets
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           files: |
-            linux-rust/dist/librepods-v${{ env.VERSION }}-source.tar.gz
-            linux-rust/dist/librepods-x86_64.AppImage
-            linux-rust/dist/librepods
+            release-assets/librepods-v${{ needs.build.outputs.version }}-source.tar.gz
+            release-assets/librepods-x86_64.AppImage
+            release-assets/librepods
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

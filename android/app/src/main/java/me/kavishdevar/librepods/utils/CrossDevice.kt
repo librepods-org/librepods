@@ -157,6 +157,16 @@ object CrossDevice {
         }
     }
 
+    private fun endRemoteSession() {
+        isAvailable = false
+        val service = ServiceManager.getService()
+        if (service?.isConnectedLocally != true) {
+            batteryBytes = byteArrayOf()
+        }
+        sharedPreferences.edit { putBoolean("CrossDeviceIsAvailable", false) }
+        service?.onRemoteSessionDisconnected()
+    }
+
     fun sendReceivedPacket(packet: ByteArray) {
         if (clientSocket == null || clientSocket!!.outputStream != null) {
             return
@@ -186,6 +196,7 @@ object CrossDevice {
                 bytes = inputStream.read(buffer)
             } catch (e: IOException) {
                 e.printStackTrace()
+                endRemoteSession()
                 notifyAirPodsDisconnectedRemotely(ServiceManager.getService()?.applicationContext!!)
                 val s = serverSocket?.accept()
                 if (s != null) {
@@ -193,13 +204,15 @@ object CrossDevice {
                 }
                 break
             }
+            if (bytes == -1) {
+                endRemoteSession()
+                notifyAirPodsDisconnectedRemotely(ServiceManager.getService()?.applicationContext!!)
+                break
+            }
             var packet = buffer.copyOf(bytes)
             logPacket(packet, "Relay")
             Log.d("CrossDevice", "Received packet: ${packet.joinToString("") { "%02x".format(it) }}")
-            if (bytes == -1) {
-                notifyAirPodsDisconnectedRemotely(ServiceManager.getService()?.applicationContext!!)
-                break
-            } else if (packet.contentEquals(CrossDevicePackets.REQUEST_DISCONNECT.packet) || packet.contentEquals(CrossDevicePackets.REQUEST_DISCONNECT.packet + CrossDevicePackets.AIRPODS_DATA_HEADER.packet)) {
+            if (packet.contentEquals(CrossDevicePackets.REQUEST_DISCONNECT.packet) || packet.contentEquals(CrossDevicePackets.REQUEST_DISCONNECT.packet + CrossDevicePackets.AIRPODS_DATA_HEADER.packet)) {
                 ServiceManager.getService()?.disconnectForCD()
                 disconnectionRequested = true
                 CoroutineScope(Dispatchers.IO).launch {
@@ -210,8 +223,7 @@ object CrossDevice {
                 isAvailable = true
                 sharedPreferences.edit { putBoolean("CrossDeviceIsAvailable", true)}
             } else if (packet.contentEquals(CrossDevicePackets.AIRPODS_DISCONNECTED.packet)) {
-                isAvailable = false
-                sharedPreferences.edit { putBoolean("CrossDeviceIsAvailable", false)}
+                endRemoteSession()
             } else if (packet.contentEquals(CrossDevicePackets.REQUEST_BATTERY_BYTES.packet)) {
                 Log.d("CrossDevice", "Received battery request, battery data: ${batteryBytes.joinToString("") { "%02x".format(it) }}")
                 sendRemotePacket(batteryBytes)
@@ -240,7 +252,10 @@ object CrossDevice {
                     } else if (ServiceManager.getService()?.batteryNotification?.isBatteryData(trimmedPacket) == true) {
                         batteryBytes = trimmedPacket
                         ServiceManager.getService()?.batteryNotification?.setBattery(trimmedPacket)
-                        Log.d("CrossDevice", "Battery data: ${ServiceManager.getService()?.batteryNotification?.getBattery()[0]?.level}")
+                        Log.d(
+                            "CrossDevice",
+                            "Battery data: ${ServiceManager.getService()?.batteryNotification?.getBattery()?.firstOrNull()?.level}",
+                        )
                         ServiceManager.getService()?.updateBattery()
                         ServiceManager.getService()?.sendBatteryBroadcast()
                         ServiceManager.getService()?.sendBatteryNotification()

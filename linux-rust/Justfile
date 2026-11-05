@@ -66,5 +66,6 @@ tarball version:
     TAR="librepods-v{{version}}-source.tar.gz"
     tar -czf "dist/${TAR}" \
       --transform "s,^,librepods-v{{version}}/," \
-      Cargo.toml Cargo.lock src vendor .cargo assets flatpak
+      -C .. LICENSE \
+      -C "$PWD" Cargo.toml Cargo.lock src vendor .cargo assets flatpak
     echo "Created: dist/${TAR}"

@@ -1,5 +1,5 @@
 use crate::bluetooth::aacp::{
-    AACPEvent, BatteryComponent, BatteryStatus, ControlCommandIdentifiers,
+    AACPEvent, BatteryComponent, BatteryInfo, BatteryStatus, ControlCommandIdentifiers,
 };
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::{
@@ -7,25 +7,140 @@ use crate::devices::enums::{
     NothingState,
 };
 use crate::ui::airpods::airpods_view;
-use crate::ui::messages::BluetoothUIMessage;
+use crate::ui::messages::{BluetoothUIMessage, TrayStatus};
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path};
-use bluer::{Address};
+use crate::utils::{
+    MyTheme, get_app_settings_path, get_devices_path, save_app_settings, upsert_device,
+};
+use bluer::Address;
 use iced::border::Radius;
 use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
     Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
-    text_input, toggler
+    text_input, toggler,
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
+use iced::{
+    Background, Border, Center, Element, Font, Length, Padding, Settings, Size, Subscription, Task,
+    Theme, daemon, window,
+};
 use log::{debug, error};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
+
+fn window_icon() -> Option<window::Icon> {
+    match window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None) {
+        Ok(icon) => Some(icon),
+        Err(error) => {
+            error!("Failed to decode embedded window icon: {error}");
+            None
+        }
+    }
+}
+
+fn format_battery_summary(battery: &[BatteryInfo]) -> String {
+    let headphone = battery
+        .iter()
+        .find(|reading| reading.component == BatteryComponent::Headphone)
+        .map(|reading| reading.level);
+    if let Some(level) = headphone {
+        let charging = battery
+            .iter()
+            .find(|reading| reading.component == BatteryComponent::Headphone)
+            .map(|reading| reading.status == BatteryStatus::Charging)
+            .unwrap_or(false);
+        format!("􀺹 {}%{}", level, if charging { "\u{1002E6}" } else { "" })
+    } else {
+        let mut components = Vec::new();
+        for (component, icon) in [
+            (BatteryComponent::Left, '\u{1018E5}'),
+            (BatteryComponent::Right, '\u{1018E8}'),
+            (BatteryComponent::Case, '\u{100E6C}'),
+        ] {
+            if let Some(reading) = battery
+                .iter()
+                .find(|reading| reading.component == component)
+            {
+                components.push(format!(
+                    "{} {}%{}",
+                    icon,
+                    reading.level,
+                    if reading.status == BatteryStatus::Charging {
+                        "\u{1002E6}"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+        }
+        if components.is_empty() {
+            "Battery unknown".to_string()
+        } else {
+            components.join(" ")
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AppSettingUpdate {
+    Theme(MyTheme),
+    TrayTextMode(bool),
+    StemControl(bool),
+}
+
+impl AppSettingUpdate {
+    fn into_patch(self) -> serde_json::Value {
+        match self {
+            Self::Theme(theme) => serde_json::json!({"theme": theme}),
+            Self::TrayTextMode(is_enabled) => {
+                serde_json::json!({"tray_text_mode": is_enabled})
+            }
+            Self::StemControl(is_enabled) => serde_json::json!({"stem_control": is_enabled}),
+        }
+    }
+}
+
+fn save_setting_update(path: &Path, update: AppSettingUpdate) -> std::io::Result<()> {
+    save_app_settings(path, &update.into_patch())
+}
+
+#[cfg(target_os = "linux")]
+fn window_application_id(flatpak_id: Option<&str>) -> String {
+    flatpak_id
+        .filter(|application_id| !application_id.is_empty())
+        .unwrap_or("librepods")
+        .to_owned()
+}
+
+fn main_window_settings() -> window::Settings {
+    #[cfg(target_os = "linux")]
+    let flatpak_id = std::env::var("FLATPAK_ID").ok();
+    #[cfg(not(target_os = "linux"))]
+    let flatpak_id: Option<String> = None;
+
+    main_window_settings_for_flatpak_id(flatpak_id.as_deref())
+}
+
+fn main_window_settings_for_flatpak_id(_flatpak_id: Option<&str>) -> window::Settings {
+    let mut settings = window::Settings::default();
+    settings.min_size = Some(Size::new(400.0, 300.0));
+    settings.visible = true;
+    settings.icon = window_icon();
+    #[cfg(target_os = "linux")]
+    {
+        settings.platform_specific.application_id = window_application_id(_flatpak_id);
+    }
+    settings
+}
+
+fn open_main_window() -> (window::Id, Task<Message>) {
+    let (id, open) = window::open(main_window_settings());
+    (id, open.map(Message::WindowOpened))
+}
 
 pub fn start_ui(
     ui_rx: UnboundedReceiver<BluetoothUIMessage>,
@@ -53,7 +168,11 @@ pub fn start_ui(
     .title(App::title)
     .settings(Settings {
         id: Some("librepods".to_string()),
-        fonts: vec![include_bytes!("../../assets/font/sf_pro.otf").as_slice().into()],
+        fonts: vec![
+            include_bytes!("../../assets/font/sf_pro.otf")
+                .as_slice()
+                .into(),
+        ],
         default_font: Font::with_name("SF Pro Text"),
         ..Settings::default()
     })
@@ -62,6 +181,7 @@ pub fn start_ui(
 
 pub struct App {
     window: Option<window::Id>,
+    tray_status: TrayStatus,
     panes: pane_grid::State<Pane>,
     selected_tab: Tab,
     theme_state: combo_box::State<MyTheme>,
@@ -99,6 +219,7 @@ pub enum Message {
     ThemeSelected(MyTheme),
     CopyToClipboard(String),
     BluetoothMessage(BluetoothUIMessage),
+    UiChannelClosed,
     // ShowNewDialogTab,
     GotPairedDevices(HashMap<String, Address>),
     StartAddDevice(String, Address),
@@ -108,6 +229,39 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LifecycleEvent {
+    TrayStatusChanged,
+    LastWindowClosed,
+    BackendClosed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LifecycleAction {
+    Continue,
+    OpenWindow,
+    Exit,
+}
+
+fn lifecycle_action(
+    event: LifecycleEvent,
+    tray_status: &TrayStatus,
+    window_is_open: bool,
+) -> LifecycleAction {
+    match event {
+        LifecycleEvent::BackendClosed => LifecycleAction::Exit,
+        LifecycleEvent::LastWindowClosed if !matches!(tray_status, TrayStatus::Available) => {
+            LifecycleAction::Exit
+        }
+        LifecycleEvent::TrayStatusChanged
+            if matches!(tray_status, TrayStatus::Unavailable(_)) && !window_is_open =>
+        {
+            LifecycleAction::OpenWindow
+        }
+        _ => LifecycleAction::Continue,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -134,17 +288,13 @@ impl App {
         let split = panes.split(pane_grid::Axis::Vertical, first_pane, Pane::Content);
         panes.resize(split.unwrap().1, 0.2);
 
-
         let wait_task = Task::perform(wait_for_message(Arc::clone(&ui_rx)), |msg| msg);
 
         let (window, open_task) = if start_minimized {
             (None, Task::none())
         } else {
-            let mut settings = window::Settings::default();
-            settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
-            let (id, open) = window::open(settings);
-            (Some(id), open.map(Message::WindowOpened))
+            let (id, open) = open_main_window();
+            (Some(id), open)
         };
 
         let app_settings_path = get_app_settings_path();
@@ -180,6 +330,7 @@ impl App {
         (
             Self {
                 window,
+                tray_status: TrayStatus::Starting,
                 panes,
                 selected_tab: Tab::Device("none".to_string()),
                 theme_state: combo_box::State::new(vec![
@@ -222,8 +373,37 @@ impl App {
         )
     }
 
+    fn persist_setting(&self, update: AppSettingUpdate) -> std::io::Result<()> {
+        let app_settings_path = get_app_settings_path();
+        let settings = update.into_patch();
+        debug!(
+            "Writing settings to {}: {}",
+            app_settings_path.display(),
+            settings
+        );
+        save_setting_update(&app_settings_path, update)
+    }
+
     fn title(&self, _id: window::Id) -> String {
         "LibrePods".to_string()
+    }
+
+    fn show_main_window(&mut self) -> Task<Message> {
+        if let Some(window_id) = self.window {
+            window::gain_focus(window_id)
+        } else {
+            let (id, open) = open_main_window();
+            self.window = Some(id);
+            open
+        }
+    }
+
+    fn apply_lifecycle_event(&mut self, event: LifecycleEvent) -> Task<Message> {
+        match lifecycle_action(event, &self.tray_status, self.window.is_some()) {
+            LifecycleAction::Continue => Task::none(),
+            LifecycleAction::OpenWindow => self.show_main_window(),
+            LifecycleAction::Exit => iced::exit(),
+        }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -235,8 +415,10 @@ impl App {
             Message::WindowClosed(id) => {
                 if self.window == Some(id) {
                     self.window = None;
+                    self.apply_lifecycle_event(LifecycleEvent::LastWindowClosed)
+                } else {
+                    Task::none()
                 }
-                Task::none()
             }
             Message::Resized(event) => {
                 self.panes.resize(event.split, event.ratio);
@@ -247,43 +429,36 @@ impl App {
                 Task::none()
             }
             Message::ThemeSelected(theme) => {
-                self.selected_theme = theme;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                match self.persist_setting(AppSettingUpdate::Theme(theme)) {
+                    Ok(()) => self.selected_theme = theme,
+                    Err(error) => error!("Failed to persist theme selection: {error}"),
+                }
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
             Message::BluetoothMessage(ui_message) => {
                 match ui_message {
-                    BluetoothUIMessage::NoOp => {
+                    BluetoothUIMessage::TrayStatusChanged(status) => {
+                        match &status {
+                            TrayStatus::Starting => {}
+                            TrayStatus::Available => debug!("System tray is available"),
+                            TrayStatus::Unavailable(reason) => {
+                                error!("System tray is unavailable: {reason}")
+                            }
+                        }
+                        self.tray_status = status;
+                        let lifecycle_task =
+                            self.apply_lifecycle_event(LifecycleEvent::TrayStatusChanged);
                         let ui_rx = Arc::clone(&self.ui_rx);
-
-                        Task::perform(wait_for_message(ui_rx), |msg| msg)
+                        let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
+                        Task::batch(vec![lifecycle_task, wait_task])
                     }
                     BluetoothUIMessage::OpenWindow => {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
                         debug!("Opening main window...");
-                        if let Some(window_id) = self.window {
-                            Task::batch(vec![window::gain_focus(window_id), wait_task])
-                        } else {
-                            let mut settings = window::Settings::default();
-                            settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
-                            let (new_window_task, open_task) = window::open(settings);
-                            self.window = Some(new_window_task);
-                            Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
-                        }
+                        let window_task = self.show_main_window();
+                        Task::batch(vec![window_task, wait_task])
                     }
                     BluetoothUIMessage::DeviceConnected(mac) => {
                         let ui_rx = Arc::clone(&self.ui_rx);
@@ -416,7 +591,8 @@ impl App {
 
                         self.device_states.remove(&mac);
 
-                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac) {
+                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac)
+                        {
                             self.selected_tab = Tab::Device("none".to_string());
                         }
 
@@ -535,6 +711,10 @@ impl App {
                     }
                 }
             }
+            Message::UiChannelClosed => {
+                error!("Backend UI channel closed; exiting");
+                self.apply_lifecycle_event(LifecycleEvent::BackendClosed)
+            }
             // Message::ShowNewDialogTab => {
             //     debug!("switching to Add Device tab");
             //     self.selected_tab = Tab::AddDevice;
@@ -554,35 +734,36 @@ impl App {
                 Task::none()
             }
             Message::ConfirmAddDevice => {
-                if let Some((name, addr)) = self.pending_add_device.take()
-                    && let Some(type_) = self.selected_device_type.take()
+                if let Some((name, addr)) = self.pending_add_device.as_ref()
+                    && let Some(type_) = self.selected_device_type.as_ref()
                 {
                     let devices_path = get_devices_path();
-                    let devices_json = std::fs::read_to_string(&devices_path).unwrap_or_else(|e| {
-                        error!("Failed to read devices file: {}", e);
-                        "{}".to_string()
-                    });
-                    let mut devices_list: HashMap<String, DeviceData> =
-                        serde_json::from_str(&devices_json).unwrap_or_else(|e| {
-                            error!("Deserialization failed: {}", e);
-                            HashMap::new()
+                    let device_key = addr.to_string();
+                    let name = name.clone();
+                    let type_ = type_.clone();
+                    match upsert_device(&devices_path, &device_key, move |existing| {
+                        let information = existing.and_then(|device| {
+                            if device.type_ == type_ {
+                                device.information
+                            } else {
+                                None
+                            }
                         });
-                    devices_list.insert(
-                        addr.to_string(),
                         DeviceData {
                             name,
-                            type_: type_.clone(),
-                            information: None,
-                        },
-                    );
-                    let updated_json = serde_json::to_string(&devices_list).unwrap_or_else(|e| {
-                        error!("Serialization failed: {}", e);
-                        "{}".to_string()
-                    });
-                    if let Err(e) = std::fs::write(&devices_path, updated_json) {
-                        error!("Failed to write devices file: {}", e);
+                            type_,
+                            information,
+                        }
+                    }) {
+                        Ok(_) => {
+                            self.pending_add_device = None;
+                            self.selected_device_type = None;
+                            self.selected_tab = Tab::Device(device_key);
+                        }
+                        Err(error) => {
+                            error!("Failed to persist added device: {error}");
+                        }
                     }
-                    self.selected_tab = Tab::Device(addr.to_string());
                 }
                 Task::none()
             }
@@ -625,35 +806,17 @@ impl App {
                 Task::none()
             }
             Message::TrayTextModeChanged(is_enabled) => {
-                self.tray_text_mode = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                match self.persist_setting(AppSettingUpdate::TrayTextMode(is_enabled)) {
+                    Ok(()) => self.tray_text_mode = is_enabled,
+                    Err(error) => error!("Failed to persist tray text setting: {error}"),
+                }
                 Task::none()
             }
             Message::StemControlChanged(is_enabled) => {
-                self.stem_control = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                match self.persist_setting(AppSettingUpdate::StemControl(is_enabled)) {
+                    Ok(()) => self.stem_control = is_enabled,
+                    Err(error) => error!("Failed to persist stem control setting: {error}"),
+                }
                 Task::none()
             }
         }
@@ -686,35 +849,7 @@ impl App {
 
                                     match self.device_states.get(mac) {
                                         Some(DeviceState::AirPods(state)) => {
-                                            let b = &state.battery;
-                                            let headphone = b.iter().find(|x| x.component == BatteryComponent::Headphone)
-                                                .map(|x| x.level);
-                                            // if headphones is not None, use only that
-                                            if let Some(level) = headphone {
-                                                let charging = b.iter().find(|x| x.component == BatteryComponent::Headphone)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                format!(
-                                                    "􀺹 {}%{}",
-                                                    level, if charging {"\u{1002E6}"} else {""}
-                                                )
-                                            } else {
-                                                let left  = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let right = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let case  = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let left_charging = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let right_charging = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let case_charging = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                format!(
-                                                    "\u{1018E5} {}%{} \u{1018E8} {}%{} \u{100E6C} {}%{}",
-                                                    left, if left_charging {"\u{1002E6}"} else {""}, right, if right_charging {"\u{1002E6}"} else {""}, case, if case_charging {"\u{1002E6}"} else {""}
-                                                )
-                                            }
+                                            format_battery_summary(&state.battery)
                                         }
                                         _ => "Connected".to_string(),
                                     }
@@ -1309,10 +1444,7 @@ async fn wait_for_message(ui_rx: Arc<Mutex<UnboundedReceiver<BluetoothUIMessage>
     let mut rx = ui_rx.lock().await;
     match rx.recv().await {
         Some(msg) => Message::BluetoothMessage(msg),
-        None => {
-            error!("UI message channel closed");
-            Message::BluetoothMessage(BluetoothUIMessage::NoOp)
-        }
+        None => Message::UiChannelClosed,
     }
 }
 
@@ -1338,3 +1470,201 @@ async fn wait_for_message(ui_rx: Arc<Mutex<UnboundedReceiver<BluetoothUIMessage>
 //
 //     devices
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AppSettingUpdate, LifecycleAction, LifecycleEvent, Message, format_battery_summary,
+        lifecycle_action, save_setting_update, wait_for_message, window_icon,
+    };
+    use crate::bluetooth::aacp::{BatteryComponent, BatteryInfo, BatteryStatus};
+    use crate::ui::messages::TrayStatus;
+    use crate::utils::MyTheme;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+    use tokio::sync::Mutex;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    #[test]
+    fn embedded_window_icon_decodes() {
+        assert!(window_icon().is_some());
+    }
+
+    #[test]
+    fn battery_summary_omits_components_without_readings() {
+        let summary = format_battery_summary(&[
+            BatteryInfo {
+                component: BatteryComponent::Left,
+                level: 80,
+                status: BatteryStatus::NotCharging,
+            },
+            BatteryInfo {
+                component: BatteryComponent::Right,
+                level: 75,
+                status: BatteryStatus::NotCharging,
+            },
+        ]);
+
+        assert!(summary.contains("80%"));
+        assert!(summary.contains("75%"));
+        assert!(!summary.contains('\u{100E6C}'));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn main_window_uses_librepods_application_id() {
+        assert_eq!(
+            super::main_window_settings_for_flatpak_id(None)
+                .platform_specific
+                .application_id,
+            "librepods"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn main_window_uses_flatpak_application_id_when_available() {
+        assert_eq!(
+            super::main_window_settings_for_flatpak_id(Some("me.kavishdevar.librepods"))
+                .platform_specific
+                .application_id,
+            "me.kavishdevar.librepods"
+        );
+    }
+
+    #[test]
+    fn each_ui_action_builds_a_single_key_settings_update() {
+        let updates = [
+            (AppSettingUpdate::Theme(MyTheme::Nord), "theme"),
+            (AppSettingUpdate::TrayTextMode(true), "tray_text_mode"),
+            (AppSettingUpdate::StemControl(true), "stem_control"),
+        ];
+
+        for (update, expected_key) in updates {
+            let patch = update.into_patch();
+            let object = patch.as_object().unwrap();
+            assert_eq!(object.len(), 1);
+            assert!(object.contains_key(expected_key));
+        }
+    }
+
+    #[test]
+    fn ui_setting_update_preserves_other_latest_known_values() {
+        let temp = tempdir().unwrap();
+        let settings_path = temp.path().join("librepods").join("app_settings.json");
+        std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &settings_path,
+            json!({
+                "theme": "Dracula",
+                "tray_text_mode": true,
+                "stem_control": true,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        save_setting_update(
+            &settings_path,
+            AppSettingUpdate::Theme(MyTheme::SolarizedDark),
+        )
+        .unwrap();
+
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(settings_path).unwrap()).unwrap();
+        assert_eq!(saved["theme"], "SolarizedDark");
+        assert!(saved["tray_text_mode"].as_bool().unwrap());
+        assert!(saved["stem_control"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn tray_success_keeps_minimized_startup_hidden() {
+        assert_eq!(
+            lifecycle_action(
+                LifecycleEvent::TrayStatusChanged,
+                &TrayStatus::Available,
+                false,
+            ),
+            LifecycleAction::Continue
+        );
+    }
+
+    #[test]
+    fn tray_failure_opens_a_window_when_startup_was_minimized() {
+        assert_eq!(
+            lifecycle_action(
+                LifecycleEvent::TrayStatusChanged,
+                &TrayStatus::Unavailable("tray failed".to_string()),
+                false,
+            ),
+            LifecycleAction::OpenWindow
+        );
+    }
+
+    #[test]
+    fn tray_failure_does_not_open_a_second_window() {
+        assert_eq!(
+            lifecycle_action(
+                LifecycleEvent::TrayStatusChanged,
+                &TrayStatus::Unavailable("tray failed".to_string()),
+                true,
+            ),
+            LifecycleAction::Continue
+        );
+    }
+
+    #[test]
+    fn last_window_close_exits_when_no_tray_exists() {
+        assert_eq!(
+            lifecycle_action(
+                LifecycleEvent::LastWindowClosed,
+                &TrayStatus::Unavailable("tray failed".to_string()),
+                false,
+            ),
+            LifecycleAction::Exit
+        );
+    }
+
+    #[test]
+    fn last_window_close_exits_while_tray_is_still_starting() {
+        assert_eq!(
+            lifecycle_action(
+                LifecycleEvent::LastWindowClosed,
+                &TrayStatus::Starting,
+                false,
+            ),
+            LifecycleAction::Exit
+        );
+    }
+
+    #[test]
+    fn last_window_close_keeps_running_when_tray_exists() {
+        assert_eq!(
+            lifecycle_action(
+                LifecycleEvent::LastWindowClosed,
+                &TrayStatus::Available,
+                false,
+            ),
+            LifecycleAction::Continue
+        );
+    }
+
+    #[test]
+    fn backend_channel_close_is_terminal() {
+        assert_eq!(
+            lifecycle_action(LifecycleEvent::BackendClosed, &TrayStatus::Available, false),
+            LifecycleAction::Exit
+        );
+    }
+
+    #[tokio::test]
+    async fn closed_ui_channel_produces_terminal_message() {
+        let (sender, receiver) = unbounded_channel();
+        drop(sender);
+
+        let message = wait_for_message(Arc::new(Mutex::new(receiver))).await;
+
+        assert!(matches!(message, Message::UiChannelClosed));
+    }
+}

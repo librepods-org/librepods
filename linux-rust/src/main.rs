@@ -8,9 +8,9 @@ use crate::bluetooth::discovery::{find_connected_airpods, find_other_managed_dev
 use crate::bluetooth::le::start_le_monitor;
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
-use crate::ui::messages::BluetoothUIMessage;
+use crate::ui::messages::{BluetoothUIMessage, TrayStatus};
 use crate::ui::tray::MyTray;
-use crate::utils::{get_app_settings_path, get_devices_path};
+use crate::utils::get_devices_path;
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -19,11 +19,11 @@ use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use dbus::message::MatchRule;
 use devices::airpods::AirPodsDevice;
 use ksni::TrayMethods;
-use log::{debug, info, warn};
+use log::{info, warn};
 use std::collections::HashMap;
 use std::env;
-use std::sync::atomic::{AtomicBool};
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::unbounded_channel;
 
@@ -44,7 +44,7 @@ struct Args {
     )]
     le_debug: bool,
     #[arg(long, short = 'v', help = "Show application version and exit")]
-    version: bool
+    version: bool,
 }
 
 fn main() -> iced::Result {
@@ -102,6 +102,13 @@ fn main() -> iced::Result {
     }
 }
 
+fn tray_spawn_outcome<T, E: std::fmt::Display>(result: Result<T, E>) -> (Option<T>, TrayStatus) {
+    match result {
+        Ok(handle) => (Some(handle), TrayStatus::Available),
+        Err(error) => (None, TrayStatus::Unavailable(error.to_string())),
+    }
+}
+
 async fn async_main(
     ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
@@ -141,12 +148,21 @@ async fn async_main(
             battery_c_status: None,
             connected: false,
             listening_mode: None,
+            pending_listening_mode: None,
+            pending_conversation_detection: None,
+            next_tray_request_id: 0,
             allow_off_option: None,
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
-        let handle = tray.spawn().await.unwrap();
-        Some(handle)
+        let (handle, status) = tray_spawn_outcome(tray.spawn().await);
+        if let TrayStatus::Unavailable(reason) = &status {
+            warn!("System tray unavailable ({reason}); continuing without it");
+        }
+        if let Err(error) = ui_tx.send(BluetoothUIMessage::TrayStatusChanged(status)) {
+            warn!("Failed to report system tray status to UI: {error:?}");
+        }
+        handle
     };
 
     let session = bluer::Session::new().await?;
@@ -217,7 +233,9 @@ async fn async_main(
                             .entry(addr_str.clone())
                             .or_insert(dev_managers)
                             .set_att(dev.att_manager);
-                        if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str)) {
+                        if let Err(e) =
+                            ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str))
+                        {
                             warn!("Failed to send DeviceConnected UI message: {:?}", e);
                         }
                     }
@@ -273,11 +291,11 @@ async fn async_main(
         let Ok(addr) = addr_str.parse::<Address>() else {
             return true;
         };
-        if is_connected==0 {
+        if is_connected == 0 {
             if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceDisconnected(addr_str.clone())) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
             }
-            return true
+            return true;
         }
         if managed_devices_mac.contains(&addr_str) {
             info!("Managed device connected: {}, initializing", addr_str);
@@ -294,7 +312,9 @@ async fn async_main(
                         .or_insert(dev_managers)
                         .set_att(dev.att_manager);
                     drop(managers);
-                    if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())) {
+                    if let Err(e) =
+                        ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone()))
+                    {
                         warn!("Failed to send DeviceConnected UI message: {:?}", e);
                     }
                 });
@@ -322,7 +342,8 @@ async fn async_main(
                 .or_insert(dev_managers)
                 .set_aacp(airpods_device.aacp_manager);
             drop(managers);
-            if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())) {
+            if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone()))
+            {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
             }
         });
@@ -332,5 +353,31 @@ async fn async_main(
     info!("Listening for Bluetooth connections via D-Bus...");
     loop {
         conn.process(std::time::Duration::from_millis(1000))?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tray_spawn_outcome;
+    use crate::ui::messages::TrayStatus;
+
+    #[test]
+    fn tray_spawn_success_is_reported_explicitly() {
+        let (tray_handle, status) = tray_spawn_outcome(Result::<u8, &str>::Ok(7));
+
+        assert_eq!(tray_handle, Some(7));
+        assert_eq!(status, TrayStatus::Available);
+    }
+
+    #[test]
+    fn tray_spawn_failure_is_reported_explicitly() {
+        let (tray_handle, status) =
+            tray_spawn_outcome(Result::<(), &str>::Err("no StatusNotifierHost exists"));
+
+        assert!(tray_handle.is_none());
+        assert_eq!(
+            status,
+            TrayStatus::Unavailable("no StatusNotifierHost exists".to_string())
+        );
     }
 }

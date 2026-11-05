@@ -1,11 +1,13 @@
 use crate::bluetooth::att::{ATTHandles, ATTManager};
 use crate::devices::enums::{DeviceData, DeviceInformation, DeviceType};
 use crate::ui::messages::BluetoothUIMessage;
-use crate::utils::get_devices_path;
+use crate::utils::{get_devices_path, load_devices, upsert_device};
 use bluer::Address;
-use log::{debug, info};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io;
+use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -16,6 +18,37 @@ pub struct NothingInformation {
     pub firmware_version: String,
 }
 
+fn merge_nothing_information<F>(current: Option<DeviceData>, update: F) -> DeviceData
+where
+    F: FnOnce(&mut NothingInformation),
+{
+    let mut device = current.unwrap_or_else(|| DeviceData {
+        name: "Nothing Device".to_string(),
+        type_: DeviceType::Nothing,
+        information: None,
+    });
+    let mut information = match device.information.take() {
+        Some(DeviceInformation::Nothing(information)) => information,
+        _ => NothingInformation {
+            serial_number: String::new(),
+            firmware_version: String::new(),
+        },
+    };
+    update(&mut information);
+    device.type_ = DeviceType::Nothing;
+    device.information = Some(DeviceInformation::Nothing(information));
+    device
+}
+
+fn persist_nothing_information<F>(path: &Path, key: &str, update: F) -> io::Result<DeviceData>
+where
+    F: FnOnce(&mut NothingInformation),
+{
+    upsert_device(path, key, |current| {
+        merge_nothing_information(current, update)
+    })
+}
+
 pub struct NothingDevice {
     pub att_manager: ATTManager,
     pub information: NothingInformation,
@@ -24,7 +57,7 @@ pub struct NothingDevice {
 impl NothingDevice {
     pub async fn new(
         mac_address: Address,
-        ui_tx: mpsc::UnboundedSender<BluetoothUIMessage>,
+        _ui_tx: mpsc::UnboundedSender<BluetoothUIMessage>,
     ) -> Self {
         let mut att_manager = ATTManager::new();
         att_manager
@@ -38,10 +71,12 @@ impl NothingDevice {
             .register_listener(ATTHandles::NothingEverythingRead, tx)
             .await;
 
-        let devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let devices_path = get_devices_path();
+        let devices: HashMap<String, DeviceData> =
+            load_devices(&devices_path).unwrap_or_else(|error| {
+                error!("Failed to load devices before Nothing initialization: {error}");
+                HashMap::new()
+            });
         let device_key = mac_address.to_string();
         let information = if let Some(device_data) = devices.get(&device_key) {
             let info = device_data.information.clone();
@@ -83,8 +118,6 @@ impl NothingDevice {
             .await
             .expect("Failed to write");
 
-        // let ui_tx_clone = ui_tx.clone();
-        let information_l = information.clone();
         tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
                 if data.starts_with(&[0x55, 0x20, 0x01, 0x42, 0x40]) {
@@ -93,27 +126,16 @@ impl NothingDevice {
                         "Received firmware version from Nothing device {}: {}",
                         mac_address, firmware_version
                     );
-                    let new_information = NothingInformation {
-                        serial_number: information_l.serial_number.clone(),
-                        firmware_version: firmware_version.clone(),
-                    };
-                    let mut new_devices = devices.clone();
-                    new_devices.insert(
-                        device_key.clone(),
-                        DeviceData {
-                            name: devices
-                                .get(&device_key)
-                                .map(|d| d.name.clone())
-                                .unwrap_or("Nothing Device".to_string()),
-                            type_: devices
-                                .get(&device_key)
-                                .map(|d| d.type_.clone())
-                                .unwrap_or(DeviceType::Nothing),
-                            information: Some(DeviceInformation::Nothing(new_information)),
-                        },
-                    );
-                    let json = serde_json::to_string(&new_devices).unwrap();
-                    std::fs::write(get_devices_path(), json).expect("Failed to write devices file");
+                    if let Err(error) =
+                        persist_nothing_information(&devices_path, &device_key, |information| {
+                            information.firmware_version = firmware_version;
+                        })
+                    {
+                        error!(
+                            "Failed to persist firmware version for Nothing device {}: {}",
+                            mac_address, error
+                        );
+                    }
                 } else if data.starts_with(&[0x55, 0x20, 0x01, 0x06, 0x40]) {
                     let serial_number_start_position = data
                         .iter()
@@ -134,28 +156,16 @@ impl NothingDevice {
                             "Received serial number from Nothing device {}: {}",
                             mac_address, serial_number
                         );
-                        let new_information = NothingInformation {
-                            serial_number: serial_number.clone(),
-                            firmware_version: information_l.firmware_version.clone(),
-                        };
-                        let mut new_devices = devices.clone();
-                        new_devices.insert(
-                            device_key.clone(),
-                            DeviceData {
-                                name: devices
-                                    .get(&device_key)
-                                    .map(|d| d.name.clone())
-                                    .unwrap_or("Nothing Device".to_string()),
-                                type_: devices
-                                    .get(&device_key)
-                                    .map(|d| d.type_.clone())
-                                    .unwrap_or(DeviceType::Nothing),
-                                information: Some(DeviceInformation::Nothing(new_information)),
-                            },
-                        );
-                        let json = serde_json::to_string(&new_devices).unwrap();
-                        std::fs::write(get_devices_path(), json)
-                            .expect("Failed to write devices file");
+                        if let Err(error) =
+                            persist_nothing_information(&devices_path, &device_key, |information| {
+                                information.serial_number = serial_number;
+                            })
+                        {
+                            error!(
+                                "Failed to persist serial number for Nothing device {}: {}",
+                                mac_address, error
+                            );
+                        }
                     } else {
                         debug!(
                             "Serial number format unexpected from Nothing device {}: {:?}",
@@ -175,5 +185,57 @@ impl NothingDevice {
             att_manager,
             information,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::save_devices;
+    use tempfile::tempdir;
+
+    #[test]
+    fn latest_state_upserts_keep_both_nothing_metadata_responses() {
+        let temp = tempdir().unwrap();
+        let devices_path = temp.path().join("librepods").join("devices.json");
+        let devices = HashMap::from([
+            (
+                "target".to_string(),
+                DeviceData {
+                    name: "Ear (2)".to_string(),
+                    type_: DeviceType::Nothing,
+                    information: None,
+                },
+            ),
+            (
+                "unrelated".to_string(),
+                DeviceData {
+                    name: "Keep me".to_string(),
+                    type_: DeviceType::Nothing,
+                    information: None,
+                },
+            ),
+        ]);
+        save_devices(&devices_path, &devices).unwrap();
+
+        persist_nothing_information(&devices_path, "target", |information| {
+            information.firmware_version = "1.0.8".to_string();
+        })
+        .unwrap();
+        persist_nothing_information(&devices_path, "target", |information| {
+            information.serial_number = "SH123456".to_string();
+        })
+        .unwrap();
+
+        let saved = load_devices(&devices_path).unwrap();
+        let target = saved.get("target").unwrap();
+        assert_eq!(target.name, "Ear (2)");
+        assert_eq!(target.type_, DeviceType::Nothing);
+        let Some(DeviceInformation::Nothing(information)) = &target.information else {
+            panic!("expected Nothing device information");
+        };
+        assert_eq!(information.firmware_version, "1.0.8");
+        assert_eq!(information.serial_number, "SH123456");
+        assert_eq!(saved.get("unrelated").unwrap().name, "Keep me");
     }
 }

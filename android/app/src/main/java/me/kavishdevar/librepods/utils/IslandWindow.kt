@@ -60,8 +60,7 @@ import androidx.dynamicanimation.animation.SpringForce
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.constants.AirPodsNotifications
 import me.kavishdevar.librepods.constants.Battery
-import me.kavishdevar.librepods.constants.BatteryComponent
-import me.kavishdevar.librepods.constants.BatteryStatus
+import me.kavishdevar.librepods.constants.planBatteryPresentation
 import me.kavishdevar.librepods.services.ServiceManager
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
@@ -130,25 +129,9 @@ class IslandWindow(private val context: Context) {
 
     @SuppressLint("SetTextI18n")
     private fun updateBatteryDisplay(batteryList: ArrayList<Battery>?) {
-        if (batteryList == null || batteryList.isEmpty()) return
-
-        val leftBattery = batteryList.find { it.component == BatteryComponent.LEFT }
-        val rightBattery = batteryList.find { it.component == BatteryComponent.RIGHT }
-
-        val leftLevel = leftBattery?.level ?: 0
-        val rightLevel = rightBattery?.level ?: 0
-        leftBattery?.status ?: BatteryStatus.DISCONNECTED
-        rightBattery?.status ?: BatteryStatus.DISCONNECTED
-
         val batteryText = islandView.findViewById<TextView>(R.id.island_battery_text)
         val batteryProgressBar = islandView.findViewById<ProgressBar>(R.id.island_battery_progress)
-
-        val displayBatteryLevel = when {
-            leftLevel > 0 && rightLevel > 0 -> minOf(leftLevel, rightLevel)
-            leftLevel > 0 -> leftLevel
-            rightLevel > 0 -> rightLevel
-            else -> null
-        }
+        val displayBatteryLevel = planBatteryPresentation(batteryList).minimumBudLevel
 
         if (displayBatteryLevel != null) {
             batteryText.text = "$displayBatteryLevel%"
@@ -176,32 +159,11 @@ class IslandWindow(private val context: Context) {
         val batteryText = islandView.findViewById<TextView>(R.id.island_battery_text)
         val batteryProgressBar = islandView.findViewById<ProgressBar>(R.id.island_battery_progress)
 
-        val displayBatteryLevel = if (batteryList != null) {
-            val leftBattery = batteryList.find { it.component == BatteryComponent.LEFT }
-            val rightBattery = batteryList.find { it.component == BatteryComponent.RIGHT }
+        val displayBatteryLevel =
+            planBatteryPresentation(batteryList).minimumBudLevel ?: batteryPercentage
 
-            when {
-                (leftBattery?.level ?: 0) > 0 && (rightBattery?.level ?: 0) > 0 ->
-                    minOf(leftBattery!!.level, rightBattery!!.level)
-                (leftBattery?.level ?: 0) > 0 -> leftBattery!!.level
-                (rightBattery?.level ?: 0) > 0 -> rightBattery!!.level
-                batteryPercentage > 0 -> batteryPercentage
-                else -> null
-            }
-        } else if (batteryPercentage > 0) {
-            batteryPercentage
-        } else {
-            null
-        }
-
-        if (displayBatteryLevel != null) {
-            batteryText.text = "$displayBatteryLevel%"
-            batteryProgressBar.progress = displayBatteryLevel
-        } else {
-            batteryText.text = "?"
-            batteryProgressBar.progress = 0
-        }
-
+        batteryText.text = "$displayBatteryLevel%"
+        batteryProgressBar.progress = displayBatteryLevel
         batteryProgressBar.isIndeterminate = false
         islandView.findViewById<TextView>(R.id.island_device_name).text = name
 

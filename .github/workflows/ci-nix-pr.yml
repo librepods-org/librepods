@@ -1,0 +1,81 @@
+name: Nix PR validation
+
+on:
+  pull_request:
+    branches:
+      - linux/rust
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'linux-rust/**'
+      - '.github/workflows/ci-nix-pr.yml'
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout pull request or update branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Merge current target branch
+        env:
+          BASE_REF: linux/rust
+        run: |
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          git merge --no-commit --no-ff "origin/${BASE_REF}"
+
+      - name: Install workflow test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-yaml
+
+      - name: Run workflow contract tests
+        run: python3 -m unittest linux-rust/tests/test_nix_pr_workflow.py -v
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Validate flake
+        run: nix flake check --no-build --no-update-lock-file
+
+      - name: Build package
+        run: >-
+          nix build .#packages.x86_64-linux.default --no-link
+          --no-update-lock-file
+
+      - name: Verify lockfile stayed unchanged
+        run: git diff --exit-code -- flake.lock
+
+  report:
+    needs: validate
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+
+    steps:
+      - name: Report Nix validation status
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const validationResult = '${{ needs.validate.result }}';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: validationResult === 'success' ? 'success' : 'failure',
+              context: 'Nix PR validation / merge',
+              description: validationResult === 'success'
+                ? 'Current target merge validated successfully'
+                : `Validation ended with ${validationResult}`,
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });

@@ -7,6 +7,11 @@
 
     <metadata_license>CC-BY-SA-4.0</metadata_license>
     <project_license>AGPL-3.0-only</project_license>
+    <developer id="me.kavishdevar">
+        <name>Kavish Devar and LibrePods contributors</name>
+    </developer>
+    <url type="homepage">https://github.com/librepods-org/librepods</url>
+    <content_rating type="oars-1.1" />
 
     <description>
         <p>
@@ -15,6 +20,9 @@
     </description>
 
     <launchable type="desktop-id">me.kavishdevar.librepods.desktop</launchable>
+    <releases>
+        <release version="0.1.0" date="2025-11-10" />
+    </releases>
     <screenshots>
         <screenshot type="default">
             <image>https://raw.githubusercontent.com/kavishdevar/librepods/refs/heads/main/linux/imgs/main-app.png</image>

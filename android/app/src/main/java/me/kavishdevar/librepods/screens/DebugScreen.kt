@@ -115,10 +115,8 @@ fun parsePacket(message: String): PacketInfo {
                     "${battery.getComponentName() ?: "Unknown"}: ${battery.level}% ${if (battery.status == BatteryStatus.CHARGING) "(Charging)" else ""}"
                 }
                 batteries.forEach { battery ->
-                    if (battery.status != BatteryStatus.DISCONNECTED) {
-                        batteryInfo[battery.getComponentName() ?: "Unknown"] =
-                            "${battery.level}% ${if (battery.status == BatteryStatus.CHARGING) "(Charging)" else ""}"
-                    }
+                    batteryInfo[battery.getComponentName() ?: "Unknown"] =
+                        "${battery.level}% ${if (battery.status == BatteryStatus.CHARGING) "(Charging)" else ""}"
                 }
 
                 PacketInfo(

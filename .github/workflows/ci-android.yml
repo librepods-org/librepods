@@ -6,6 +6,7 @@ on:
       - '*'
     paths:
       - 'android/**'
+      - '.github/workflows/ci-android.yml'
   workflow_dispatch:
     inputs:
       release:
@@ -19,23 +20,42 @@ on:
         type: string
   workflow_call:
 
+permissions: {}
+
 jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: true
-      - uses: actions/setup-java@v4
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: 'zulu'
           java-version: 21
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - name: Compile and run native SDP regressions
+        run: |
+          cmake -S android/tests/native -B "$RUNNER_TEMP/librepods-native" -DCMAKE_BUILD_TYPE=Debug
+          cmake --build "$RUNNER_TEMP/librepods-native" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/librepods-native" --output-on-failure --no-tests=error
+      - name: Upload native diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-sdp-diagnostics
+          path: ${{ runner.temp }}/librepods-native/Testing/Temporary/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Run unit tests and build debug APK
+        run: ./gradlew testDebugUnitTest assembleDebug
         working-directory: android
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Debug APK
           path: android/app/build/outputs/apk/**/*.apk

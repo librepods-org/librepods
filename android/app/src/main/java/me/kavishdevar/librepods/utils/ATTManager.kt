@@ -29,6 +29,7 @@ import android.bluetooth.BluetoothSocket
 import android.os.ParcelUuid
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.lsposed.hiddenapibypass.HiddenApiBypass
@@ -58,10 +59,14 @@ class ATTManager(private val device: BluetoothDevice) {
         private const val OPCODE_HANDLE_VALUE_NTF: Byte = 0x1B
     }
 
+    @Volatile
     var socket: BluetoothSocket? = null
+    @Volatile
+    private var disconnectRequested = false
     private var input: InputStream? = null
     private var output: OutputStream? = null
     private val listeners = mutableMapOf<Int, MutableList<(ByteArray) -> Unit>>()
+    private val callbackGate = AttCallbackGate()
     private var notificationJob: kotlinx.coroutines.Job? = null
 
     // queue for non-notification PDUs (responses to requests)
@@ -69,13 +74,25 @@ class ATTManager(private val device: BluetoothDevice) {
 
     @SuppressLint("MissingPermission")
     fun connect() {
+        check(!disconnectRequested) { "ATT connection was cancelled" }
         HiddenApiBypass.addHiddenApiExemptions("Landroid/bluetooth/BluetoothSocket;")
         val uuid = ParcelUuid.fromString("00000000-0000-0000-0000-000000000000")
 
-        socket = createBluetoothSocket(device, uuid)
-        socket!!.connect()
-        input = socket!!.inputStream
-        output = socket!!.outputStream
+        val candidateSocket = createBluetoothSocket(device, uuid)
+        socket = candidateSocket
+        if (disconnectRequested) {
+            candidateSocket.close()
+            error("ATT connection was cancelled")
+        }
+
+        candidateSocket.connect()
+        if (disconnectRequested) {
+            candidateSocket.close()
+            error("ATT connection was cancelled")
+        }
+
+        input = candidateSocket.inputStream
+        output = candidateSocket.outputStream
         Log.d(TAG, "Connected to ATT")
 
         notificationJob = CoroutineScope(Dispatchers.IO).launch {
@@ -86,10 +103,11 @@ class ATTManager(private val device: BluetoothDevice) {
                         // notification -> dispatch to listeners
                         val handle = (pdu[1].toInt() and 0xFF) or ((pdu[2].toInt() and 0xFF) shl 8)
                         val value = pdu.copyOfRange(3, pdu.size)
-                        listeners[handle]?.forEach { listener ->
+                        listeners[handle]?.toList()?.forEach { listener ->
                             try {
-                                listener(value)
-                                Log.d(TAG, "Dispatched notification for handle $handle to listener, with value ${value.joinToString(" ") { String.format("%02X", it) }}")
+                                if (callbackGate.runIfOpen { listener(value) }) {
+                                    Log.d(TAG, "Dispatched notification for handle $handle to listener, with value ${value.joinToString(" ") { String.format("%02X", it) }}")
+                                }
                             } catch (e: Exception) {
                                 Log.w(TAG, "Error in listener for handle $handle: ${e.message}")
                             }
@@ -106,13 +124,20 @@ class ATTManager(private val device: BluetoothDevice) {
         }
     }
 
-    fun disconnect() {
+    fun invalidate(): Deferred<Unit> {
+        disconnectRequested = true
+        return callbackGate.closeForNewCallbacks()
+    }
+
+    fun disconnect(): Deferred<Unit> {
+        val drain = invalidate()
         try {
             notificationJob?.cancel()
             socket?.close()
         } catch (e: Exception) {
             Log.w(TAG, "Error closing socket: ${e.message}")
         }
+        return drain
     }
 
     fun registerListener(handle: ATTHandles, listener: (ByteArray) -> Unit) {

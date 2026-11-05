@@ -27,14 +27,49 @@ object BluetoothConnectionManager {
 
     private var currentSocket: BluetoothSocket? = null
     private var currentDevice: BluetoothDevice? = null
+    private val expectedSocket = ThreadLocal<BluetoothSocket?>()
 
+    fun <Result> withExpectedSocket(
+        socket: BluetoothSocket,
+        action: () -> Result,
+    ): Result {
+        val previousSocket = expectedSocket.get()
+        expectedSocket.set(socket)
+        return try {
+            action()
+        } finally {
+            if (previousSocket == null) {
+                expectedSocket.remove()
+            } else {
+                expectedSocket.set(previousSocket)
+            }
+        }
+    }
+
+    @Synchronized
     fun setCurrentConnection(socket: BluetoothSocket, device: BluetoothDevice) {
         currentSocket = socket
         currentDevice = device
         Log.d(TAG, "Current connection set to device: ${device.address}")
     }
 
+    @Synchronized
+    fun clearCurrentConnection(expectedSocket: BluetoothSocket): Boolean {
+        if (currentSocket !== expectedSocket) return false
+
+        currentSocket = null
+        currentDevice = null
+        Log.d(TAG, "Current connection cleared")
+        return true
+    }
+
+    @Synchronized
     fun getCurrentSocket(): BluetoothSocket? {
-        return currentSocket
+        val scopedSocket = expectedSocket.get()
+        return if (scopedSocket == null) {
+            currentSocket
+        } else {
+            currentSocket?.takeIf { it === scopedSocket }
+        }
     }
 }

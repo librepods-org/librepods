@@ -1,0 +1,130 @@
+name: Update flake.lock
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: update-linux-rust-flake-lock
+  cancel-in-progress: false
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.lockfile.outputs.changed }}
+      source-sha: ${{ steps.source.outputs.sha }}
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: linux/rust
+          persist-credentials: false
+
+      - name: Record source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Update flake lockfile
+        run: nix flake update
+
+      - name: Detect lockfile changes
+        id: lockfile
+        run: |
+          if git diff --quiet -- flake.lock; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate updated flake
+        if: steps.lockfile.outputs.changed == 'true'
+        run: nix flake check --no-build
+
+      - name: Build updated flake
+        if: steps.lockfile.outputs.changed == 'true'
+        run: nix build .#default
+
+      - name: Upload updated lockfile
+        if: steps.lockfile.outputs.changed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flake-lock-update
+          path: flake.lock
+          if-no-files-found: error
+          retention-days: 1
+
+  create-pull-request:
+    needs: update-lock
+    if: needs.update-lock.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      operation: ${{ steps.create-pr.outputs.pull-request-operation }}
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.update-lock.outputs.source-sha }}
+          persist-credentials: false
+
+      - name: Download updated lockfile
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: flake-lock-update
+          path: .
+
+      - name: Open flake lock update pull request
+        id: create-pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: linux/rust
+          branch: ci/weekly-flake-lock
+          delete-branch: true
+          add-paths: flake.lock
+          commit-message: 'chore(nix): update flake.lock'
+          title: 'chore(nix): update flake.lock'
+          body: |
+            Automated weekly flake input update.
+
+            Validation completed:
+            - `nix flake check --no-build`
+            - `nix build .#default`
+
+  dispatch-pr-validation:
+    needs: create-pull-request
+    if: >-
+      needs.create-pull-request.outputs.operation == 'created' ||
+      needs.create-pull-request.outputs.operation == 'updated'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Dispatch Nix PR validation
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci-nix-pr.yml',
+              ref: 'ci/weekly-flake-lock',
+            });

@@ -36,7 +36,10 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 object MediaController {
     private var initialVolume: Int? = null
     private lateinit var audioManager: AudioManager
-    var iPausedTheMedia = false
+    private val mediaAutoResumePolicy = MediaAutoResumePolicy()
+    var iPausedTheMedia: Boolean
+        get() = mediaAutoResumePolicy.isResumeArmed
+        set(value) = mediaAutoResumePolicy.setResumeArmed(value)
     var userPlayedTheMedia = false
     private lateinit var sharedPreferences: SharedPreferences
     private val handler = Handler(Looper.getMainLooper())
@@ -253,10 +256,17 @@ object MediaController {
     }
 
     @Synchronized
-    fun sendPause(force: Boolean = false) {
+    fun sendPause(force: Boolean = false, armAutoResume: Boolean = true) {
         Log.d("MediaController", "Sending pause with iPausedTheMedia: $iPausedTheMedia, userPlayedTheMedia: $userPlayedTheMedia, isMusicActive: ${audioManager.isMusicActive}, force: $force")
-        if ((audioManager.isMusicActive) && (!userPlayedTheMedia || force)) {
-            iPausedTheMedia = if (force) audioManager.isMusicActive else true
+        if (
+            mediaAutoResumePolicy.handlePauseRequest(
+                isMusicActive = audioManager.isMusicActive,
+                userPlayedMedia = userPlayedTheMedia,
+                force = force,
+                armAutoResume = armAutoResume,
+                isMusicActiveWhenArming = { audioManager.isMusicActive },
+            )
+        ) {
             userPlayedTheMedia = false
             audioManager.dispatchMediaKeyEvent(
                 KeyEvent(
@@ -281,7 +291,7 @@ object MediaController {
             lastPlayWithReplay = true
             lastPlayTime = SystemClock.uptimeMillis()
         }
-        if (iPausedTheMedia || force) { // very creative, ik. thanks.
+        if (mediaAutoResumePolicy.shouldDispatchPlay(force)) { // very creative, ik. thanks.
             Log.d("MediaController", "Sending play and setting userPlayedTheMedia to false")
             userPlayedTheMedia = false
             audioManager.dispatchMediaKeyEvent(
@@ -298,14 +308,20 @@ object MediaController {
             )
             lastSelfActionAt = SystemClock.uptimeMillis()
         }
-        if (!audioManager.isMusicActive) {
+        val isMusicActive = audioManager.isMusicActive
+        if (!isMusicActive) {
             Log.d("MediaController", "Setting iPausedTheMedia to false")
-            iPausedTheMedia = false
         }
+        mediaAutoResumePolicy.updateAfterPlayRequest(isMusicActive)
         if (pausedWhileTakingOver) {
             Log.d("MediaController", "Setting pausedWhileTakingOver to false")
             pausedWhileTakingOver = false
         }
+    }
+
+    @Synchronized
+    fun onAacpSessionCleanup(endedActiveSession: Boolean) {
+        mediaAutoResumePolicy.onAacpSessionCleanup(endedActiveSession)
     }
 
     @Synchronized

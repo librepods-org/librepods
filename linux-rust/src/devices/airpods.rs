@@ -2,7 +2,8 @@ use crate::bluetooth::aacp::ControlCommandIdentifiers;
 use crate::bluetooth::aacp::{AACPEvent, AACPManager, AirPodsLEKeys, ProximityKeyType};
 use crate::media_controller::MediaController;
 use crate::ui::messages::BluetoothUIMessage;
-use crate::ui::tray::MyTray;
+use crate::ui::tray::{MyTray, run_tray_command_worker};
+use crate::utils::get_app_settings_path;
 use bluer::Address;
 use ksni::Handle;
 use log::{debug, error, info};
@@ -10,7 +11,92 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
-use crate::utils::get_app_settings_path;
+
+const OWNERSHIP_ACKNOWLEDGEMENT_TIMEOUT: Duration = Duration::from_secs(1);
+
+async fn guarded_ownership_cleanup<
+    CurrentBeforePause,
+    Pause,
+    CurrentBeforeDeactivation,
+    Deactivation,
+>(
+    current_before_pause: CurrentBeforePause,
+    pause: Pause,
+    current_before_deactivation: CurrentBeforeDeactivation,
+    deactivation: Deactivation,
+) -> bool
+where
+    CurrentBeforePause: std::future::Future<Output = bool>,
+    Pause: std::future::Future<Output = bool>,
+    CurrentBeforeDeactivation: std::future::Future<Output = bool>,
+    Deactivation: std::future::Future<Output = ()>,
+{
+    if !current_before_pause.await {
+        return false;
+    }
+    if !pause.await {
+        return false;
+    }
+    if !current_before_deactivation.await {
+        return false;
+    }
+    deactivation.await;
+    true
+}
+
+async fn cleanup_then_bounded_acknowledgement<
+    CurrentBeforePause,
+    Pause,
+    CurrentBeforeDeactivation,
+    Deactivation,
+    CurrentBeforeAcknowledgement,
+    Acknowledgement,
+    Error,
+>(
+    current_before_pause: CurrentBeforePause,
+    pause: Pause,
+    current_before_deactivation: CurrentBeforeDeactivation,
+    deactivation: Deactivation,
+    current_before_acknowledgement: CurrentBeforeAcknowledgement,
+    acknowledgement: Acknowledgement,
+    timeout: Duration,
+) -> Result<Option<Result<(), Error>>, tokio::time::error::Elapsed>
+where
+    CurrentBeforePause: std::future::Future<Output = bool>,
+    Pause: std::future::Future<Output = bool>,
+    CurrentBeforeDeactivation: std::future::Future<Output = bool>,
+    Deactivation: std::future::Future<Output = ()>,
+    CurrentBeforeAcknowledgement: std::future::Future<Output = bool>,
+    Acknowledgement: std::future::Future<Output = Result<(), Error>>,
+{
+    if !guarded_ownership_cleanup(
+        current_before_pause,
+        pause,
+        current_before_deactivation,
+        deactivation,
+    )
+    .await
+    {
+        return Ok(None);
+    }
+    if !current_before_acknowledgement.await {
+        return Ok(None);
+    }
+    tokio::time::timeout(timeout, acknowledgement)
+        .await
+        .map(Some)
+}
+
+async fn ownership_request_is_current(
+    aacp_manager: &AACPManager,
+    media_controller: &MediaController,
+    connection_generation: u64,
+) -> bool {
+    aacp_manager
+        .is_connection_generation_current(connection_generation)
+        .await
+        && media_controller.is_current_playback_session()
+}
 
 pub struct AirPodsDevice {
     pub mac_address: Address,
@@ -134,18 +220,35 @@ impl AirPodsDevice {
         }
 
         let aacp_manager_clone = aacp_manager.clone();
-        tokio::spawn(async move {
-            while let Some((id, value)) = command_rx.recv().await {
-                if let Err(e) = aacp_manager_clone.send_control_command(id, &value).await {
-                    log::error!("Failed to send control command: {}", e);
+        let command_tray_handle = tray_handle.clone();
+        tokio::spawn(run_tray_command_worker(
+            command_rx,
+            move |identifier, value, deadline| {
+                let aacp_manager = aacp_manager_clone.clone();
+                async move {
+                    aacp_manager
+                        .send_tray_control_command(identifier, &value, deadline)
+                        .await
                 }
-            }
-        });
+            },
+            move |request_key| {
+                let tray_handle = command_tray_handle.clone();
+                async move {
+                    if let Some(handle) = tray_handle {
+                        handle
+                            .update(move |tray: &mut MyTray| {
+                                tray.clear_pending_request(request_key);
+                            })
+                            .await;
+                    }
+                }
+            },
+        ));
 
         let mc_listener = media_controller.lock().await;
         let aacp_manager_clone_listener = aacp_manager.clone();
         mc_listener
-            .start_playback_listener(aacp_manager_clone_listener, command_tx.clone())
+            .start_playback_listener(aacp_manager_clone_listener)
             .await;
         drop(mc_listener);
 
@@ -159,10 +262,12 @@ impl AirPodsDevice {
         let tray_handle_clone = tray_handle.clone();
         tokio::spawn(async move {
             while let Some(value) = listening_mode_rx.recv().await {
-                if let Some(handle) = &tray_handle_clone {
+                if let Some(mode) = value.first().copied()
+                    && let Some(handle) = &tray_handle_clone
+                {
                     handle
-                        .update(|tray: &mut MyTray| {
-                            tray.listening_mode = Some(value[0]);
+                        .update(move |tray: &mut MyTray| {
+                            tray.apply_listening_mode_report(mode);
                         })
                         .await;
                 }
@@ -200,7 +305,7 @@ impl AirPodsDevice {
                 if let Some(handle) = &tray_handle_clone {
                     handle
                         .update(|tray: &mut MyTray| {
-                            tray.conversation_detect_enabled = Some(value[0] == 0x01);
+                            tray.apply_conversation_detection_report(value[0] == 0x01);
                         })
                         .await;
                 }
@@ -220,9 +325,24 @@ impl AirPodsDevice {
                 let owns = value.first().copied().unwrap_or(0) != 0;
                 if !owns {
                     info!("Lost ownership, pausing media and disconnecting audio");
-                    let controller = mc_clone_owns.lock().await;
-                    controller.pause_all_media().await;
-                    controller.deactivate_a2dp_profile().await;
+                    let controller = mc_clone_owns.lock().await.clone();
+                    let cleanup_completed = guarded_ownership_cleanup(
+                        async { controller.is_current_playback_session() },
+                        controller.pause_all_media(),
+                        async { controller.is_current_playback_session() },
+                        async {
+                            if let Err(error) = controller.deactivate_a2dp_profile().await {
+                                error!(
+                                    "Failed to deactivate A2DP after ownership loss: {:?}",
+                                    error
+                                );
+                            }
+                        },
+                    )
+                    .await;
+                    if !cleanup_completed {
+                        debug!("Skipping ownership-loss cleanup for a replaced media session");
+                    }
                 }
             }
         });
@@ -230,7 +350,6 @@ impl AirPodsDevice {
         let aacp_manager_clone_events = aacp_manager.clone();
         let local_mac_events = local_mac.clone();
         let ui_tx_clone = ui_tx.clone();
-        let command_tx_clone = command_tx.clone();
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
                 let event_clone = event.clone();
@@ -340,22 +459,65 @@ impl AirPodsDevice {
                             });
                         }
                     }
-                    AACPEvent::OwnershipToFalseRequest => {
+                    AACPEvent::OwnershipToFalseRequest {
+                        connection_generation,
+                    } => {
                         info!(
-                            "Received ownership to false request. Setting ownership to false and pausing media."
+                            "Received ownership to false request. Pausing media before acknowledging ownership loss."
                         );
-                        let _ = command_tx_clone
-                            .send((ControlCommandIdentifiers::OwnsConnection, vec![0x00]));
-                        let controller = mc_clone.lock().await;
-                        controller.pause_all_media().await;
-                        controller.deactivate_a2dp_profile().await;
+                        let controller = mc_clone.lock().await.clone();
+                        let deactivation = async {
+                            if let Err(error) = controller.deactivate_a2dp_profile().await {
+                                error!(
+                                    "Failed to deactivate A2DP after ownership request: {:?}",
+                                    error
+                                );
+                            }
+                        };
+                        let acknowledgement = aacp_manager_clone_events
+                            .send_control_command_for_generation(
+                                ControlCommandIdentifiers::OwnsConnection,
+                                &[0x00],
+                                connection_generation,
+                            );
+                        match cleanup_then_bounded_acknowledgement(
+                            ownership_request_is_current(
+                                &aacp_manager_clone_events,
+                                &controller,
+                                connection_generation,
+                            ),
+                            controller.pause_all_media(),
+                            ownership_request_is_current(
+                                &aacp_manager_clone_events,
+                                &controller,
+                                connection_generation,
+                            ),
+                            deactivation,
+                            ownership_request_is_current(
+                                &aacp_manager_clone_events,
+                                &controller,
+                                connection_generation,
+                            ),
+                            acknowledgement,
+                            OWNERSHIP_ACKNOWLEDGEMENT_TIMEOUT,
+                        )
+                        .await
+                        {
+                            Ok(Some(Ok(()))) => {}
+                            Ok(Some(Err(error))) => {
+                                error!("Failed to relinquish AACP ownership: {}", error)
+                            }
+                            Ok(None) => debug!(
+                                "Skipping ownership request from a stale connection or media session"
+                            ),
+                            Err(_) => error!(
+                                "Timed out while acknowledging AACP ownership relinquishment"
+                            ),
+                        }
                     }
                     AACPEvent::StemPress(press_type, bud_type) => {
                         use crate::bluetooth::aacp::StemPressType;
-                        info!(
-                            "Received Stem Press: {:?} on {:?}",
-                            press_type, bud_type
-                        );
+                        info!("Received Stem Press: {:?} on {:?}", press_type, bud_type);
                         if stem_control {
                             let controller = mc_clone.lock().await;
                             match press_type {
@@ -411,4 +573,229 @@ pub struct AirPodsInformation {
     pub right_serial_number: String,
     pub version3: String,
     pub le_keys: AirPodsLEKeys,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cleanup_then_bounded_acknowledgement, guarded_ownership_cleanup};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex as StdMutex};
+    use tokio::time::Duration;
+
+    #[tokio::test]
+    async fn ownership_cleanup_finishes_before_acknowledgement_is_polled() {
+        let actions = Arc::new(StdMutex::new(Vec::new()));
+        let pause_actions = Arc::clone(&actions);
+        let deactivation_actions = Arc::clone(&actions);
+        let acknowledgement_actions = Arc::clone(&actions);
+
+        let outcome = cleanup_then_bounded_acknowledgement(
+            async { true },
+            async move {
+                pause_actions.lock().unwrap().push("pause");
+                true
+            },
+            async { true },
+            async move {
+                deactivation_actions.lock().unwrap().push("deactivation");
+            },
+            async { true },
+            async move {
+                acknowledgement_actions
+                    .lock()
+                    .unwrap()
+                    .push("acknowledgement");
+                Ok::<(), &'static str>(())
+            },
+            Duration::from_millis(50),
+        )
+        .await;
+
+        assert!(matches!(outcome, Ok(Some(Ok(())))));
+        assert_eq!(
+            actions.lock().unwrap().as_slice(),
+            ["pause", "deactivation", "acknowledgement"]
+        );
+    }
+
+    #[tokio::test]
+    async fn ownership_acknowledgement_timeout_does_not_skip_cleanup() {
+        let cleanup_finished = Arc::new(AtomicBool::new(false));
+        let cleanup_flag = Arc::clone(&cleanup_finished);
+
+        let outcome = cleanup_then_bounded_acknowledgement(
+            async { true },
+            async { true },
+            async { true },
+            async move {
+                cleanup_flag.store(true, Ordering::SeqCst);
+            },
+            async { true },
+            std::future::pending::<Result<(), &'static str>>(),
+            Duration::from_millis(10),
+        )
+        .await;
+
+        assert!(outcome.is_err());
+        assert!(cleanup_finished.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn stale_ownership_request_before_pause_skips_all_side_effects() {
+        let actions = Arc::new(StdMutex::new(Vec::new()));
+        let pause_actions = Arc::clone(&actions);
+        let deactivation_actions = Arc::clone(&actions);
+        let acknowledgement_actions = Arc::clone(&actions);
+
+        let outcome = cleanup_then_bounded_acknowledgement(
+            async { false },
+            async move {
+                pause_actions.lock().unwrap().push("pause");
+                true
+            },
+            async { true },
+            async move {
+                deactivation_actions.lock().unwrap().push("deactivation");
+            },
+            async { true },
+            async move {
+                acknowledgement_actions
+                    .lock()
+                    .unwrap()
+                    .push("acknowledgement");
+                Ok::<(), &'static str>(())
+            },
+            Duration::from_millis(50),
+        )
+        .await;
+
+        assert!(matches!(outcome, Ok(None)));
+        assert!(actions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn replaced_media_session_after_pause_skips_deactivation_and_acknowledgement() {
+        let session_current = Arc::new(AtomicBool::new(true));
+        let session_before_pause = Arc::clone(&session_current);
+        let session_during_pause = Arc::clone(&session_current);
+        let session_before_deactivation = Arc::clone(&session_current);
+        let actions = Arc::new(StdMutex::new(Vec::new()));
+        let pause_actions = Arc::clone(&actions);
+        let deactivation_actions = Arc::clone(&actions);
+        let acknowledgement_actions = Arc::clone(&actions);
+
+        let outcome = cleanup_then_bounded_acknowledgement(
+            async move { session_before_pause.load(Ordering::SeqCst) },
+            async move {
+                pause_actions.lock().unwrap().push("pause");
+                session_during_pause.store(false, Ordering::SeqCst);
+                true
+            },
+            async move { session_before_deactivation.load(Ordering::SeqCst) },
+            async move {
+                deactivation_actions.lock().unwrap().push("deactivation");
+            },
+            async { true },
+            async move {
+                acknowledgement_actions
+                    .lock()
+                    .unwrap()
+                    .push("acknowledgement");
+                Ok::<(), &'static str>(())
+            },
+            Duration::from_millis(50),
+        )
+        .await;
+
+        assert!(matches!(outcome, Ok(None)));
+        assert_eq!(actions.lock().unwrap().as_slice(), ["pause"]);
+    }
+
+    #[tokio::test]
+    async fn stale_connection_before_acknowledgement_does_not_acknowledge_replacement() {
+        let connection_current = Arc::new(AtomicBool::new(true));
+        let connection_during_deactivation = Arc::clone(&connection_current);
+        let connection_before_acknowledgement = Arc::clone(&connection_current);
+        let actions = Arc::new(StdMutex::new(Vec::new()));
+        let pause_actions = Arc::clone(&actions);
+        let deactivation_actions = Arc::clone(&actions);
+        let acknowledgement_actions = Arc::clone(&actions);
+
+        let outcome = cleanup_then_bounded_acknowledgement(
+            async { true },
+            async move {
+                pause_actions.lock().unwrap().push("pause");
+                true
+            },
+            async { true },
+            async move {
+                deactivation_actions.lock().unwrap().push("deactivation");
+                connection_during_deactivation.store(false, Ordering::SeqCst);
+            },
+            async move { connection_before_acknowledgement.load(Ordering::SeqCst) },
+            async move {
+                acknowledgement_actions
+                    .lock()
+                    .unwrap()
+                    .push("acknowledgement");
+                Ok::<(), &'static str>(())
+            },
+            Duration::from_millis(50),
+        )
+        .await;
+
+        assert!(matches!(outcome, Ok(None)));
+        assert_eq!(
+            actions.lock().unwrap().as_slice(),
+            ["pause", "deactivation"]
+        );
+    }
+
+    #[tokio::test]
+    async fn skipped_fenced_pause_stops_ownership_loss_cleanup() {
+        let actions = Arc::new(StdMutex::new(Vec::new()));
+        let deactivation_actions = Arc::clone(&actions);
+
+        let cleanup_completed = guarded_ownership_cleanup(
+            async { true },
+            async { false },
+            async { true },
+            async move {
+                deactivation_actions.lock().unwrap().push("deactivation");
+            },
+        )
+        .await;
+
+        assert!(!cleanup_completed);
+        assert!(actions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn skipped_fenced_pause_stops_ownership_request_cleanup() {
+        let actions = Arc::new(StdMutex::new(Vec::new()));
+        let deactivation_actions = Arc::clone(&actions);
+        let acknowledgement_actions = Arc::clone(&actions);
+
+        let outcome = cleanup_then_bounded_acknowledgement(
+            async { true },
+            async { false },
+            async { true },
+            async move {
+                deactivation_actions.lock().unwrap().push("deactivation");
+            },
+            async { true },
+            async move {
+                acknowledgement_actions
+                    .lock()
+                    .unwrap()
+                    .push("acknowledgement");
+                Ok::<(), &'static str>(())
+            },
+            Duration::from_millis(50),
+        )
+        .await;
+
+        assert!(matches!(outcome, Ok(None)));
+        assert!(actions.lock().unwrap().is_empty());
+    }
 }

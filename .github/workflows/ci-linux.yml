@@ -1,37 +1,105 @@
-name: Build LibrePods Linux
+name: Linux CI (legacy Qt)
 
 on:
+  push:
+    branches:
+      - fix-linux-bugs
+    paths:
+      - 'linux/**'
+      - '.github/workflows/ci-linux.yml'
+  pull_request:
+    branches:
+      - linux/rust
+      - main
+    paths:
+      - 'linux/**'
+      - '.github/workflows/ci-linux.yml'
   workflow_dispatch:
-#  push:
-#    branches:
-#      - '*'
+
+permissions: {}
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        qt: ['system', '6.11.2']
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build \
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
             qt6-base-dev qt6-declarative-dev qt6-svg-dev \
             qt6-tools-dev qt6-tools-dev-tools qt6-connectivity-dev \
-            libxkbcommon-dev
+            libxkbcommon-dev libssl-dev libpulse-dev libdbus-1-dev \
+            dbus iproute2 python3-dbus python3-gi
+          mkdir -p "$RUNNER_TEMP/librepods-qt-tests"
+          printf 'TMPDIR=%s\n' "$RUNNER_TEMP/librepods-qt-tests" >> "$GITHUB_ENV"
+          mkdir -p linux/tests/results
+          qmake6 -query QT_VERSION > linux/tests/results/system-qt-version.txt
+          pkg-config --modversion dbus-1 > linux/tests/results/libdbus-version.txt
 
-      - name: Build project
-        working-directory: linux
+      - name: Install the reported Qt version
+        if: matrix.qt == '6.11.2'
         run: |
-          mkdir build
-          cd build
-          cmake .. -G Ninja
-          ninja
+          python3 -m pip install --target "$RUNNER_TEMP/aqt" 'aqtinstall==3.3.0'
+          PYTHONPATH="$RUNNER_TEMP/aqt" python3 -m aqt install-qt \
+            linux desktop 6.11.2 linux_gcc_64 -m qtconnectivity \
+            --outputdir "$RUNNER_TEMP/Qt"
+          QT_ROOT=$(python3 -c '
+          import os, pathlib
+          binaries = sorted((pathlib.Path(os.environ["RUNNER_TEMP"]) / "Qt" / "6.11.2").rglob("bin/qmake"))
+          assert len(binaries) == 1, binaries
+          print(binaries[0].parent.parent)
+          ')
+          "$QT_ROOT/bin/qmake" -query QT_VERSION
+          printf 'CMAKE_PREFIX_PATH=%s\n' "$QT_ROOT" >> "$GITHUB_ENV"
+          printf 'LD_LIBRARY_PATH=%s/lib\n' "$QT_ROOT" >> "$GITHUB_ENV"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build the real Bluetooth monitor probe
+        run: |
+          cmake -S linux/tests -B linux/tests/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build linux/tests/build --parallel 2
+
+      - name: Verify isolated D-Bus drainage
+        run: |
+          /usr/bin/python3 linux/tests/test_dbus_backpressure.py \
+            --client linux/tests/build/bluetoothmonitor_dbus_probe \
+            --output linux/tests/results
+
+      - name: Verify unavailable observer data is rejected
+        run: |
+          /usr/bin/python3 linux/tests/test_dbus_observer_faults.py \
+            --client linux/tests/build/bluetoothmonitor_dbus_probe \
+            --output linux/tests/results/observer-fault
+
+      - name: Build Qt application
+        run: |
+          cmake -S linux -B linux/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build linux/build --parallel 2
+
+      - name: Upload diagnostic results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: librepods-linux
+          name: qt-dbus-diagnostics-${{ matrix.qt }}
+          path: linux/tests/results
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Qt executable
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: librepods-qt-${{ matrix.qt }}
           path: linux/build/librepods
+          if-no-files-found: error

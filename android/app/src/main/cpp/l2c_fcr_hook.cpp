@@ -198,8 +198,8 @@ tBTA_STATUS fake_BTA_DmSetLocalDiRecord(tSDP_DI_RECORD* p_device_info, uint32_t*
     if (p_device_info) {
         p_device_info->vendor = 0x004C;
         p_device_info->vendor_id_source = 0x0001;
+        LOGI("Set vendor=0x%04x, vendor_id_source=0x%04x", p_device_info->vendor, p_device_info->vendor_id_source);
     }
-    LOGI("Set vendor=0x%04x, vendor_id_source=0x%04x", p_device_info->vendor, p_device_info->vendor_id_source);
     if (original_BTA_DmSetLocalDiRecord) {
         return original_BTA_DmSetLocalDiRecord(p_device_info, p_handle);
     }

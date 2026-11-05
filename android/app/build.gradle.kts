@@ -78,6 +78,7 @@ dependencies {
     compileOnly(files("libs/libxposed-api-100.aar"))
     debugImplementation(files("libs/backdrop-debug.aar"))
     releaseImplementation(files("libs/backdrop-release.aar"))
+    testImplementation("junit:junit:4.13.2")
 }
 
 aboutLibraries {

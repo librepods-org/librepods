@@ -137,7 +137,7 @@ pub fn nothing_view<'a>(
                     selected_background: Background::Color(
                         theme.palette().primary.scale_alpha(0.3),
                     ),
-                    shadow: Default::default()
+                    shadow: Default::default(),
                 })
             }
         ]

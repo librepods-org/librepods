@@ -329,41 +329,23 @@ class AACPManager {
 
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            value
-        )
         return sendDataPacket(controlPacket)
     }
 
     @OptIn(ExperimentalStdlibApi::class)
     fun sendControlCommand(identifier: Byte, value: Byte): Boolean {
         val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value))
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            byteArrayOf(value)
-        )
         return sendDataPacket(controlPacket)
     }
 
     fun sendControlCommand(identifier: Byte, value: Boolean): Boolean {
-        val controlPacket = createControlCommandPacket(
-            identifier,
-            if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
-        )
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
-        )
+        val encodedValue = if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
+        val controlPacket = createControlCommandPacket(identifier, encodedValue)
         return sendDataPacket(controlPacket)
     }
 
     fun sendControlCommand(identifier: Byte, value: Int): Boolean {
         val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value.toByte()))
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            byteArrayOf(value.toByte())
-        )
         return sendDataPacket(controlPacket)
     }
 
@@ -904,11 +886,11 @@ class AACPManager {
             )
         )
         buffer.put(byteArrayOf(0x01, 0xE5.toByte(), 0x4A)) // unknown, constant
-        buffer.put("PlayingApp".toByteArray())
+        buffer.put("playingApp".toByteArray())
         buffer.put(byteArrayOf(0x56)) // 'V', seems like a identifier or a separator
         buffer.put("com.google.ios.youtube".toByteArray()) // package name, hardcoding for now, aforementioned reason
         buffer.put(byteArrayOf(0x52)) // 'R'
-        buffer.put("HostStreamingState".toByteArray())
+        buffer.put("hostStreamingState".toByteArray())
         buffer.put(byteArrayOf(0x42)) // 'B'
         buffer.put((if (streamingState) "YES" else "NO").toByteArray()) // streaming state
         buffer.put(0x49) // 'I'
@@ -1109,24 +1091,29 @@ class AACPManager {
         try {
             Log.d(TAG, "Sending packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
 
-            if (packet[4] == Opcodes.CONTROL_COMMAND) {
-                val controlCommand = ControlCommand.fromByteArray(packet)
-                Log.d(
-                    TAG,
-                    "Control command: ${controlCommand.identifier.toHexString()} - ${
-                        controlCommand.value.joinToString(" ") { "%02X".format(it) }
-                    }"
-                )
-                setControlCommandStatusValue(
-                    ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return false,
-                    controlCommand.value
-                )
+            val controlCommand = if (packet[4] == Opcodes.CONTROL_COMMAND) {
+                ControlCommand.fromByteArray(packet).also { command ->
+                    Log.d(
+                        TAG,
+                        "Control command: ${command.identifier.toHexString()} - ${
+                            command.value.joinToString(" ") { "%02X".format(it) }
+                        }"
+                    )
+                }
+            } else {
+                null
             }
 
+            val controlIdentifier = controlCommand?.let { command ->
+                ControlCommandIdentifiers.fromByte(command.identifier) ?: return false
+            }
             val socket = BluetoothConnectionManager.getCurrentSocket()
             if (socket?.isConnected == true) {
                 socket.outputStream?.write(packet)
                 socket.outputStream?.flush()
+                if (controlCommand != null && controlIdentifier != null) {
+                    setControlCommandStatusValue(controlIdentifier, controlCommand.value)
+                }
                 return true
             } else {
                 Log.d(TAG, "Can't send packet: Socket not initialized or connected")

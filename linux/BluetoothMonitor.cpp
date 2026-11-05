@@ -29,8 +29,9 @@ BluetoothMonitor::~BluetoothMonitor()
 
 void BluetoothMonitor::registerDBusService()
 {
-    // Match signals for PropertiesChanged on any BlueZ Device interface
-    if (!m_dbus.connect("", "", "org.freedesktop.DBus.Properties", "PropertiesChanged",
+    // Match only BlueZ Device1 broadcasts before Qt queues their dictionaries.
+    if (!m_dbus.connect("org.bluez", "", "org.freedesktop.DBus.Properties", "PropertiesChanged",
+                        QStringList{QStringLiteral("org.bluez.Device1")}, QStringLiteral("sa{sv}as"),
                         this, SLOT(onPropertiesChanged(QString, QVariantMap, QStringList))))
     {
         LOG_WARN("Failed to connect to D-Bus PropertiesChanged signal");
