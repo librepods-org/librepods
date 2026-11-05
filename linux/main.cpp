@@ -4,7 +4,6 @@
 #include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QBluetoothLocalDevice>
 #include <QBluetoothSocket>
 #include <QQuickWindow>
 #include <QLoggingCategory>
@@ -94,26 +93,6 @@ public:
         monitor->checkAlreadyConnectedDevices();
         LOG_INFO("AirPodsTrayApp initialized");
 
-        QBluetoothLocalDevice localDevice;
-
-        const QList<QBluetoothAddress> connectedDevices = localDevice.connectedDevices();
-        for (const QBluetoothAddress &address : connectedDevices) {
-            QBluetoothDeviceInfo device(address, "", 0);
-            if (isAirPodsDevice(device)) {
-                connectToDevice(device);
-
-                // On startup after reboot, activate A2DP profile for already connected AirPods
-                QTimer::singleShot(2000, this, [this, address]()
-                {
-                    QString formattedAddress = address.toString().replace(":", "_");
-                    mediaController->setConnectedDeviceMacAddress(formattedAddress);
-                    mediaController->activateA2dpProfile();
-                    LOG_INFO("A2DP profile activation attempted for AirPods found on startup");
-                });
-                return;
-            }
-        }
-
         initializeDBus();
         initializeBluetooth();
     }
@@ -150,11 +129,6 @@ private:
     } CrossDevice;
 
     void initializeDBus() { }
-
-    bool isAirPodsDevice(const QBluetoothDeviceInfo &device)
-    {
-        return device.serviceUuids().contains(QBluetoothUuid("74ec2172-0bad-4d01-8f77-997b2be0722a"));
-    }
 
     void notifyAndroidDevice()
     {
@@ -918,7 +892,7 @@ public:
             return;
         }
 
-        if (force) {
+        if (force && !m_deviceInfo->bluetoothAddress().isEmpty()) {
             LOG_INFO("Forcing connection to AirPods");
             QProcess process;
             process.start("bluetoothctl", QStringList() << "connect" << m_deviceInfo->bluetoothAddress());
@@ -926,16 +900,10 @@ public:
             QString output = process.readAllStandardOutput().trimmed();
             LOG_INFO("Bluetoothctl output: " << output);
         }
-        QBluetoothLocalDevice localDevice;
-        const QList<QBluetoothAddress> connectedDevices = localDevice.connectedDevices();
-        for (const QBluetoothAddress &address : connectedDevices) {
-            QBluetoothDeviceInfo device(address, "", 0);
-            LOG_DEBUG("Connected device: " << device.name() << " (" << device.address().toString() << ")");
-            if (isAirPodsDevice(device)) {
-                connectToDevice(device);
-                return;
-            }
-        }
+        // Get UUIDs from BlueZ. QBluetoothDeviceInfo(address, "", 0) has no
+        // service information and cannot identify an AirPods device.
+        if (monitor->checkAlreadyConnectedDevices())
+            return;
         LOG_WARN("AirPods not found among connected devices");
     }
 

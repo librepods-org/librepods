@@ -5,8 +5,8 @@
 #include <QDBusObjectPath>
 #include <QDBusMetaType>
 
-BluetoothMonitor::BluetoothMonitor(QObject *parent)
-    : QObject(parent), m_dbus(QDBusConnection::systemBus())
+BluetoothMonitor::BluetoothMonitor(QObject *parent, const QDBusConnection &connection)
+    : QObject(parent), m_dbus(connection)
 {
     // Register meta-types for D-Bus interaction
     qDBusRegisterMetaType<QDBusObjectPath>();
@@ -19,7 +19,6 @@ BluetoothMonitor::BluetoothMonitor(QObject *parent)
     }
 
     registerDBusService();
-    checkAlreadyConnectedDevices(); // Check for already connected devices on startup
 }
 
 BluetoothMonitor::~BluetoothMonitor()
@@ -37,30 +36,37 @@ void BluetoothMonitor::registerDBusService()
     }
 }
 
-bool BluetoothMonitor::isAirPodsDevice(const QString &devicePath)
+bool BluetoothMonitor::updateDevice(const QString &devicePath, const QVariantMap &properties, bool forceNotify)
 {
-    QDBusInterface deviceInterface("org.bluez", devicePath, "org.freedesktop.DBus.Properties", m_dbus);
-
-    // Get UUIDs to check if it's an AirPods device
-    QDBusReply<QVariant> uuidsReply = deviceInterface.call("Get", "org.bluez.Device1", "UUIDs");
-    if (!uuidsReply.isValid())
+    // A failed/incomplete read must not look like a disconnection.
+    if (!properties.contains("Connected"))
     {
         return false;
     }
-
-    QStringList uuids = uuidsReply.value().toStringList();
-    return uuids.contains("74ec2172-0bad-4d01-8f77-997b2be0722a");
-}
-
-QString BluetoothMonitor::getDeviceName(const QString &devicePath)
-{
-    QDBusInterface deviceInterface("org.bluez", devicePath, "org.freedesktop.DBus.Properties", m_dbus);
-    QDBusReply<QVariant> nameReply = deviceInterface.call("Get", "org.bluez.Device1", "Name");
-    if (nameReply.isValid())
+    const QString name = properties.value("Name", "Unknown").toString();
+    if (!properties.value("Connected").toBool())
     {
-        return nameReply.value().toString();
+        // UUIDs can disappear during disconnection. Remember the address of
+        // devices we announced instead of requiring their services again.
+        const QString address = m_connectedDevices.take(devicePath);
+        if (!address.isEmpty())
+            emit deviceDisconnected(address, name);
+        return false;
     }
-    return "Unknown";
+
+    const QStringList uuids = qdbus_cast<QStringList>(properties.value("UUIDs"));
+    const QString address = properties.value("Address").toString();
+    if (!uuids.contains("74ec2172-0bad-4d01-8f77-997b2be0722a") || address.isEmpty())
+        return false;
+
+    const bool alreadyAnnounced = m_connectedDevices.contains(devicePath);
+    m_connectedDevices.insert(devicePath, address);
+    if (!alreadyAnnounced || forceNotify)
+    {
+        emit deviceConnected(address, name);
+        LOG_DEBUG("Found connected AirPods: " << address << " Name: " << name);
+    }
+    return true;
 }
 
 bool BluetoothMonitor::checkAlreadyConnectedDevices()
@@ -68,7 +74,7 @@ bool BluetoothMonitor::checkAlreadyConnectedDevices()
     QDBusInterface objectManager("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", m_dbus);
     QDBusMessage reply = objectManager.call("GetManagedObjects");
 
-    if (reply.type() == QDBusMessage::ErrorMessage)
+    if (reply.type() == QDBusMessage::ErrorMessage || reply.arguments().isEmpty())
     {
         LOG_WARN("Failed to get managed objects: " << reply.errorMessage());
         return false;
@@ -83,35 +89,14 @@ bool BluetoothMonitor::checkAlreadyConnectedDevices()
 
     for (auto it = managedObjects.constBegin(); it != managedObjects.constEnd(); ++it)
     {
-        const QDBusObjectPath &objPath = it.key();
         const QMap<QString, QVariantMap> &interfaces = it.value();
 
         if (interfaces.contains("org.bluez.Device1"))
         {
-            const QVariantMap &deviceProps = interfaces.value("org.bluez.Device1");
-
-            // Check if the device has the necessary properties
-            if (!deviceProps.contains("UUIDs") || !deviceProps.contains("Connected") ||
-                !deviceProps.contains("Address") || !deviceProps.contains("Name"))
-            {
-                continue;
-            }
-
-            QStringList uuids = deviceProps["UUIDs"].toStringList();
-            bool isAirPods = uuids.contains("74ec2172-0bad-4d01-8f77-997b2be0722a");
-
-            if (isAirPods)
-            {
-                bool connected = deviceProps["Connected"].toBool();
-                if (connected)
-                {
-                    QString macAddress = deviceProps["Address"].toString();
-                    QString deviceName = deviceProps["Name"].toString();
-                    emit deviceConnected(macAddress, deviceName);
-                    LOG_DEBUG("Found already connected AirPods: " << macAddress << " Name: " << deviceName);
-                    deviceFound = true;
-                }
-            }
+            // Explicit rescans also retry a previously announced device whose
+            // control socket may have failed to connect.
+            if (updateDevice(it.key().path(), interfaces.value("org.bluez.Device1"), true))
+                deviceFound = true;
         }
     }
     return deviceFound;
@@ -119,43 +104,23 @@ bool BluetoothMonitor::checkAlreadyConnectedDevices()
 
 void BluetoothMonitor::onPropertiesChanged(const QString &interface, const QVariantMap &changedProps, const QStringList &invalidatedProps)
 {
-    Q_UNUSED(invalidatedProps);
-
     if (interface != "org.bluez.Device1")
     {
         return;
     }
 
-    if (changedProps.contains("Connected"))
-    {
-        bool connected = changedProps["Connected"].toBool();
-        QString path = QDBusContext::message().path();
+    // BlueZ may report Connected before SDP has populated UUIDs. Revisit the
+    // device when service discovery completes, even without another connection.
+    const QStringList relevantProperties = {"Connected", "UUIDs", "ServicesResolved"};
+    bool relevant = false;
+    for (const QString &property : relevantProperties)
+        relevant |= changedProps.contains(property) || invalidatedProps.contains(property);
+    if (!relevant)
+        return;
 
-        if (!isAirPodsDevice(path))
-        {
-            return;
-        }
-
-        QDBusInterface deviceInterface("org.bluez", path, "org.freedesktop.DBus.Properties", m_dbus);
-
-        // Get the device address
-        QDBusReply<QVariant> addrReply = deviceInterface.call("Get", "org.bluez.Device1", "Address");
-        if (!addrReply.isValid())
-        {
-            return;
-        }
-        QString macAddress = addrReply.value().toString();
-        QString deviceName = getDeviceName(path);
-
-        if (connected)
-        {
-            emit deviceConnected(macAddress, deviceName);
-            LOG_DEBUG("AirPods device connected:" << macAddress << " Name:" << deviceName);
-        }
-        else
-        {
-            emit deviceDisconnected(macAddress, deviceName);
-            LOG_DEBUG("AirPods device disconnected:" << macAddress << " Name:" << deviceName);
-        }
-    }
+    const QString path = QDBusContext::message().path();
+    QDBusInterface deviceInterface("org.bluez", path, "org.freedesktop.DBus.Properties", m_dbus);
+    QDBusReply<QVariantMap> reply = deviceInterface.call("GetAll", "org.bluez.Device1");
+    if (reply.isValid())
+        updateDevice(path, reply.value());
 }

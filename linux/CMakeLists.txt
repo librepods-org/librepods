@@ -11,6 +11,19 @@ pkg_check_modules(PULSEAUDIO REQUIRED libpulse)
 
 qt_standard_project_setup()
 
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    qt_add_executable(bluetoothmonitor-test
+        tests/bluetoothmonitor-test.cpp
+        BluetoothMonitor.cpp
+        BluetoothMonitor.h
+    )
+    target_include_directories(bluetoothmonitor-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(bluetoothmonitor-test PRIVATE Qt6::Core Qt6::DBus Qt6::Test)
+    add_test(NAME bluetoothmonitor-test COMMAND bluetoothmonitor-test)
+endif()
+
 # Translation files
 set(TS_FILES
     translations/librepods_tr.ts
