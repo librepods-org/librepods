@@ -54,6 +54,19 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
+      - name: Verify Nix package source assets
+        run: |
+          package_src="$(nix eval --raw --no-update-lock-file .#packages.x86_64-linux.default.src)"
+          if [ ! -f "$package_src/assets/icon.png" ]; then
+            echo "::error::Nix package source is missing assets/icon.png"
+            exit 1
+          fi
+          cmp linux-rust/assets/icon.png "$package_src/assets/icon.png"
+
+      - name: Build Nix package
+        timeout-minutes: 60
+        run: nix build .#packages.x86_64-linux.default --no-link --no-update-lock-file
+
       - name: Validate Nix flake
         run: |
           nix flake check --no-build
