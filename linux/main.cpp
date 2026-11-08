@@ -848,11 +848,17 @@ private slots:
             if (socket && socket->isOpen()) {
                 socket->close();
                 LOG_INFO("Disconnected from AirPods");
-                QProcess process;
-                process.start("bluetoothctl", QStringList() << "disconnect" << m_deviceInfo->bluetoothAddress());
-                process.waitForFinished();
-                QString output = process.readAllStandardOutput().trimmed();
-                LOG_INFO("Bluetoothctl output: " << output);
+                const QString address = m_deviceInfo->bluetoothAddress();
+                if (address.isEmpty()) {
+                    // Without an address bluetoothctl would disconnect its default device.
+                    LOG_WARN("AirPods address unknown, skipping bluetoothctl disconnect");
+                } else {
+                    QProcess process;
+                    process.start("bluetoothctl", QStringList() << "disconnect" << address);
+                    process.waitForFinished();
+                    QString output = process.readAllStandardOutput().trimmed();
+                    LOG_INFO("Bluetoothctl output: " << output);
+                }
                 isConnectedLocally = false;
                 CrossDevice.isAvailable = true;
             }
@@ -918,6 +924,14 @@ public:
             return;
         }
 
+        if (force && m_deviceInfo->bluetoothAddress().isEmpty()) {
+            // The address is only known once the AirPods have connected in this
+            // session (reset() clears it on disconnect). `bluetoothctl connect`
+            // with an empty argument starts a 30 s discovery instead, blocking
+            // this thread and flooding the system bus with BlueZ signals.
+            LOG_WARN("AirPods address unknown, not forcing a connection");
+            force = false;
+        }
         if (force) {
             LOG_INFO("Forcing connection to AirPods");
             QProcess process;
