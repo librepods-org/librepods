@@ -58,6 +58,7 @@ import me.kavishdevar.librepods.core.data.heartrate.HeartRateSample
 import me.kavishdevar.librepods.core.data.recording.Recording
 import me.kavishdevar.librepods.core.devices.AirPodsSpecs
 import me.kavishdevar.librepods.core.devices.AppleDevice
+import me.kavishdevar.librepods.privileged.PrivilegedClient
 import me.kavishdevar.librepods.core.devices.AppleSettings
 import me.kavishdevar.librepods.core.devices.AppleState
 import me.kavishdevar.librepods.core.devices.BatteryComponent
@@ -717,47 +718,19 @@ class LibrePodsService: Service() {
 
                         updateDeviceNotification(device = device)
 
-                        // TODO:Shizuku
-                        /* Log.d(TAG, "updating bluetooth metadata")
-                        shizuku.setMetadata(
-                            device.macAddress.value,
-                            BluetoothMetadata.METADATA_UNTETHERED_CASE_BATTERY,
-                            state.battery.find { it.component == BatteryComponent.CASE }?.level.toString()
-                                .toByteArray()
-                        )
-                        shizuku.setMetadata(
-                            device.macAddress.value,
-                            BluetoothMetadata.METADATA_UNTETHERED_CASE_CHARGING,
-                            (if (state.battery.find { it.component == BatteryComponent.CASE }?.status == BatteryStatus.CHARGING
-                                || state.battery.find { it.component == BatteryComponent.CASE }?.status == BatteryStatus.OPTIMIZED_CHARGING
-                            ) "1" else "0").toByteArray()
-                        )
-                        shizuku.setMetadata(
-                            device.macAddress.value,
-                            BluetoothMetadata.METADATA_UNTETHERED_LEFT_BATTERY,
-                            state.battery.find { it.component == BatteryComponent.LEFT }?.level.toString()
-                                .toByteArray()
-                        )
-                        shizuku.setMetadata(
-                            device.macAddress.value,
-                            BluetoothMetadata.METADATA_UNTETHERED_LEFT_CHARGING,
-                            (if (state.battery.find { it.component == BatteryComponent.LEFT }?.status == BatteryStatus.CHARGING
-                                || state.battery.find { it.component == BatteryComponent.LEFT }?.status == BatteryStatus.OPTIMIZED_CHARGING
-                            ) "1" else "0").toByteArray()
-                        )
-                        shizuku.setMetadata(
-                            device.macAddress.value,
-                            BluetoothMetadata.METADATA_UNTETHERED_RIGHT_BATTERY,
-                            state.battery.find { it.component == BatteryComponent.RIGHT }?.level.toString()
-                                .toByteArray()
-                        )
-                        shizuku.setMetadata(
-                            device.macAddress.value,
-                            BluetoothMetadata.METADATA_UNTETHERED_RIGHT_CHARGING,
-                            (if (state.battery.find { it.component == BatteryComponent.RIGHT }?.status == BatteryStatus.CHARGING
-                                || state.battery.find { it.component == BatteryComponent.RIGHT }?.status == BatteryStatus.OPTIMIZED_CHARGING
-                            ) "1" else "0").toByteArray()
-                        ) */
+                        val mac = device.macAddress.value
+                        state.battery.find { it.component == BatteryComponent.CASE }?.let {
+                            PrivilegedClient.setMetadata(mac, BluetoothMetadata.METADATA_UNTETHERED_CASE_BATTERY, it.level.toString().toByteArray())
+                            PrivilegedClient.setMetadata(mac, BluetoothMetadata.METADATA_UNTETHERED_CASE_CHARGING, (if (it.status == BatteryStatus.CHARGING || it.status == BatteryStatus.OPTIMIZED_CHARGING) "1" else "0").toByteArray())
+                        }
+                        state.battery.find { it.component == BatteryComponent.LEFT }?.let {
+                            PrivilegedClient.setMetadata(mac, BluetoothMetadata.METADATA_UNTETHERED_LEFT_BATTERY, it.level.toString().toByteArray())
+                            PrivilegedClient.setMetadata(mac, BluetoothMetadata.METADATA_UNTETHERED_LEFT_CHARGING, (if (it.status == BatteryStatus.CHARGING || it.status == BatteryStatus.OPTIMIZED_CHARGING) "1" else "0").toByteArray())
+                        }
+                        state.battery.find { it.component == BatteryComponent.RIGHT }?.let {
+                            PrivilegedClient.setMetadata(mac, BluetoothMetadata.METADATA_UNTETHERED_RIGHT_BATTERY, it.level.toString().toByteArray())
+                            PrivilegedClient.setMetadata(mac, BluetoothMetadata.METADATA_UNTETHERED_RIGHT_CHARGING, (if (it.status == BatteryStatus.CHARGING || it.status == BatteryStatus.OPTIMIZED_CHARGING) "1" else "0").toByteArray())
+                        }
                     }
 
                     state.componentState != previousState.componentState -> {
@@ -1437,69 +1410,61 @@ class LibrePodsService: Service() {
         }
     }
 
-    // TODO: Shizuku
     private fun setAppleBluetoothMetadata(
-        @Suppress("unused") device: AppleDevice
+        device: AppleDevice
     ) {
-        /* val macAddress = device.macAddress.value
+        val macAddress = device.macAddress.value
         val metadata = device.metadata.value
         val spec = AirPodsSpecs.getSpec(metadata.model)
 
-        shizuku.setMetadata(
+        PrivilegedClient.setMetadata(
             macAddress,
             BluetoothMetadata.METADATA_MAIN_ICON,
             resToUri(spec.primaryImageRes).toString().toByteArray()
         )
-        shizuku.setMetadata(
-            macAddress, BluetoothMetadata.METADATA_MODEL_NAME, metadata.modelNumber.toByteArray()
+        PrivilegedClient.setMetadata(
+            macAddress,
+            BluetoothMetadata.METADATA_MODEL_NAME,
+            metadata.modelNumber.toByteArray()
         )
-        shizuku.setMetadata(
+        PrivilegedClient.setMetadata(
             macAddress,
             BluetoothMetadata.METADATA_DEVICE_TYPE,
             BluetoothMetadata.DEVICE_TYPE_UNTETHERED_HEADSET.toByteArray()
         )
         spec.caseImageRes?.let {
-            shizuku.setMetadata(
+            PrivilegedClient.setMetadata(
                 macAddress,
                 BluetoothMetadata.METADATA_UNTETHERED_CASE_ICON,
                 resToUri(it).toString().toByteArray()
             )
         }
-//        shizuku.setMetadata(
-//            macAddress,
-//            BluetoothMetadata.METADATA_UNTETHERED_RIGHT_ICON,
-//            resToUri(spec.components.find { it.type == DeviceComponent.RIGHT }.imageRes).toString().toByteArray()
-//        )
-//        shizuku.setMetadata(
-//            macAddress,
-//            BluetoothMetadata.METADATA_UNTETHERED_LEFT_ICON,
-//            resToUri(spec.components.find { it.type == DeviceComponent.LEFT }.imageRes).toString().toByteArray()
-//        )
-        shizuku.setMetadata(
+        PrivilegedClient.setMetadata(
             macAddress,
             BluetoothMetadata.METADATA_MANUFACTURER_NAME,
             metadata.manufacturer.toByteArray()
         )
-        shizuku.setMetadata(
-            macAddress, BluetoothMetadata.METADATA_COMPANION_APP, "me.kavishdevar.librepods".toByteArray()
+        PrivilegedClient.setMetadata(
+            macAddress,
+            BluetoothMetadata.METADATA_COMPANION_APP,
+            "me.kavishdevar.librepods".toByteArray()
         )
-        shizuku.setMetadata(
+        PrivilegedClient.setMetadata(
             macAddress,
             BluetoothMetadata.METADATA_UNTETHERED_CASE_LOW_BATTERY_THRESHOLD,
             "20".toByteArray()
         )
-        shizuku.setMetadata(
+        PrivilegedClient.setMetadata(
             macAddress,
             BluetoothMetadata.METADATA_UNTETHERED_LEFT_LOW_BATTERY_THRESHOLD,
             "20".toByteArray()
         )
-        shizuku.setMetadata(
+        PrivilegedClient.setMetadata(
             macAddress,
             BluetoothMetadata.METADATA_UNTETHERED_RIGHT_LOW_BATTERY_THRESHOLD,
             "20".toByteArray()
         )
         Log.d(TAG, "Metadata set for apple device ${device.macAddress.toRedactedString()}")
-     */
     }
 }
 
