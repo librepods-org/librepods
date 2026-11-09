@@ -1,4 +1,5 @@
 use crate::audio::card::{self, CardRef};
+use crate::audio::output::{connect, wait_op};
 use crate::bluetooth::aacp::AACPManager;
 use crate::bluetooth::aacp::EarDetectionStatus;
 use dbus::arg::RefArg;
@@ -6,10 +7,7 @@ use dbus::blocking::Connection;
 use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use libpulse_binding::callbacks::ListResult;
 use libpulse_binding::context::introspect::SinkInfo;
-use libpulse_binding::context::{Context, FlagSet as ContextFlagSet};
 use libpulse_binding::def::Retval;
-use libpulse_binding::mainloop::standard::Mainloop;
-use libpulse_binding::operation::State as OperationState;
 use libpulse_binding::proplist::Proplist;
 use libpulse_binding::volume::{ChannelVolumes, Volume};
 use log::{debug, error, info, warn};
@@ -823,7 +821,12 @@ impl MediaController {
 
         match status {
             1 => {
-                let original = current_volume_opt.unwrap_or(0);
+                // Without the current volume there is nothing to restore to
+                // later (restoring a made-up 0% would mute the AirPods).
+                let Some(original) = current_volume_opt else {
+                    warn!("Could not read the AirPods volume; not lowering it");
+                    return;
+                };
                 debug!("Conversation start (1). Current volume: {}", original);
                 {
                     let mut state = self.state.lock().await;
@@ -832,9 +835,9 @@ impl MediaController {
                         state.conv_conversation_started = true;
                         // Persist it so a disconnect mid-conversation can't leave
                         // the AirPods at 25% (restored on the next activation).
-                        let mut settings = crate::utils::AppSettings::load();
-                        settings.conv_volume_restore = Some(original);
-                        settings.save();
+                        crate::utils::AppSettings::update(|s| {
+                            s.conv_volume_restore = Some(original)
+                        });
                     } else {
                         debug!(
                             "Conversation already started; not overwriting conv_original_volume"
@@ -1005,6 +1008,13 @@ impl MediaController {
             tokio::time::sleep(DEFAULT_REFRESH_DELAY).await;
             if let Some(sink) = get_sink_name_by_mac(&mac).await {
                 let _ = tokio::task::spawn_blocking(move || {
+                    // The refresh briefly makes another output the default,
+                    // and streams that follow the default go with it: anything
+                    // playing would come out of the speakers for a moment.
+                    if card::any_playing() {
+                        debug!("[pw] audio is playing; not refreshing the default output");
+                        return;
+                    }
                     card::refresh_default(card::DefaultKind::Sink, &sink)
                 })
                 .await;
@@ -1090,9 +1100,8 @@ static LAST_WIREPLUMBER_RESTART: std::sync::Mutex<Option<std::time::Instant>> =
     std::sync::Mutex::new(None);
 
 fn clear_pending_conv_volume() {
-    let mut settings = crate::utils::AppSettings::load();
-    if settings.conv_volume_restore.take().is_some() {
-        settings.save();
+    if crate::utils::AppSettings::load().conv_volume_restore.is_some() {
+        crate::utils::AppSettings::update(|s| s.conv_volume_restore = None);
     }
 }
 
@@ -1218,24 +1227,8 @@ mod tests {
 
 // --- PulseAudio helpers ---
 
-fn pulse_connect() -> Option<(Mainloop, Context)> {
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mainloop, "LibrePods")?;
-    context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).ok()?;
-    loop {
-        mainloop.iterate(false);
-        match context.get_state() {
-            libpulse_binding::context::State::Ready => break,
-            libpulse_binding::context::State::Failed
-            | libpulse_binding::context::State::Terminated => return None,
-            _ => {}
-        }
-    }
-    Some((mainloop, context))
-}
-
 fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
-    let (mut mainloop, context) = match pulse_connect() {
+    let (mut mainloop, context) = match connect() {
         Some(c) => c,
         None => return vec![],
     };
@@ -1262,9 +1255,7 @@ fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
         }
     });
 
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
     mainloop.quit(Retval(0));
     // Clone instead of Rc::try_unwrap(..).unwrap(): if the server goes away
     // mid-request (pipewire-pulse restart) the callback still holds a reference,
@@ -1275,7 +1266,7 @@ fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
 }
 
 fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
-    let (mut mainloop, context) = pulse_connect()?;
+    let (mut mainloop, context) = connect()?;
     let introspector = context.introspect();
     let sink_info: Rc<RefCell<Option<OwnedSinkInfo>>> = Rc::new(RefCell::new(None));
     let op = introspector.get_sink_info_by_name(sink_name, {
@@ -1290,9 +1281,7 @@ fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
     mainloop.quit(Retval(0));
 
     let borrowed = sink_info.borrow();
@@ -1307,7 +1296,7 @@ fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
 }
 
 pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
-    let (mut mainloop, context) = match pulse_connect() {
+    let (mut mainloop, context) = match connect() {
         Some(c) => c,
         None => return false,
     };
@@ -1325,9 +1314,7 @@ pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
 
     if let Some(info) = sink_info.borrow().as_ref() {
         let channels = info.volume.len();
@@ -1337,9 +1324,7 @@ pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
         new_volumes.set(channels, Volume(raw));
 
         let op = introspector.set_sink_volume_by_name(sink_name, &new_volumes, None);
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(false);
-        }
+        wait_op(&mut mainloop, &op);
         mainloop.quit(Retval(0));
         true
     } else {
@@ -1355,7 +1340,7 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
     let mac_clone = mac.to_string();
 
     tokio::task::spawn_blocking(move || {
-        let (mut mainloop, context) = pulse_connect()?;
+        let (mut mainloop, context) = connect()?;
         let introspector = context.introspect();
         let sink_list: Rc<RefCell<Vec<OwnedSinkInfo>>> = Rc::new(RefCell::new(Vec::new()));
         let op = introspector.get_sink_info_list({
@@ -1370,9 +1355,7 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
                 }
             }
         });
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(false);
-        }
+        wait_op(&mut mainloop, &op);
         mainloop.quit(Retval(0));
 
         for sink in sink_list.borrow().iter() {

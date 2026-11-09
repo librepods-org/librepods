@@ -6,14 +6,13 @@
 //! PROFILE_LOCK so they can't interleave and leave the card in the wrong state.
 
 use libpulse_binding::callbacks::ListResult;
-use libpulse_binding::operation::State as OperationState;
 use log::{debug, info, warn};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use crate::audio::output::connect;
+use crate::audio::output::{connect, wait_op};
 
 static PROFILE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -71,9 +70,7 @@ pub fn active_profile(card: CardRef) -> Option<String> {
         CardRef::Index(i) => introspect.get_card_info_by_index(i, cb),
         CardRef::Name(n) => introspect.get_card_info_by_name(n, cb),
     };
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(true);
-    }
+    wait_op(&mut mainloop, &op);
     drop(op);
     let result = profile.borrow().clone();
     result
@@ -93,9 +90,7 @@ fn set_profile_unlocked(card: CardRef, profile: &str) -> bool {
         CardRef::Index(i) => introspect.set_card_profile_by_index(i, profile, Some(cb)),
         CardRef::Name(n) => introspect.set_card_profile_by_name(n, profile, Some(cb)),
     };
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(true);
-    }
+    wait_op(&mut mainloop, &op);
     let success = ok.get();
     if !success {
         warn!("[pw] setting profile {} on {:?} failed", profile, card);
@@ -161,9 +156,7 @@ fn card_index_by_name(card: &str) -> Option<u32> {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(true);
-    }
+    wait_op(&mut mainloop, &op);
     drop(op);
     index.get()
 }
@@ -192,9 +185,7 @@ pub fn suspend_resume(card: &str) -> bool {
             Box::new(move |success| ok.set(success))
         };
         let op = introspect.suspend_sink_by_index(sink, suspend, Some(cb));
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(true);
-        }
+        wait_op(&mut mainloop, &op);
         ok.get()
     };
     info!("[pw] reset A2DP transport (suspend/resume): {}", card);
@@ -228,9 +219,7 @@ fn sinks_of_card(card_index: u32) -> Vec<u32> {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(true);
-    }
+    wait_op(&mut mainloop, &op);
     drop(op);
     let result = sinks.borrow().clone();
     result
@@ -242,6 +231,28 @@ fn sinks_of_card(card_index: u32) -> Vec<u32> {
 pub struct SavedStream {
     pub index: u32,
     pub app: Option<String>,
+}
+
+/// True if any playback stream is playing (not paused) on any output.
+pub fn any_playing() -> bool {
+    let Some((mut mainloop, context)) = connect() else {
+        // Can't tell: assume so, the cautious answer for the callers.
+        return true;
+    };
+    let playing = Rc::new(Cell::new(false));
+    let op = context.introspect().get_sink_input_info_list({
+        let playing = playing.clone();
+        move |result| {
+            if let ListResult::Item(item) = result
+                && !item.corked
+            {
+                playing.set(true);
+            }
+        }
+    });
+    let done = wait_op(&mut mainloop, &op);
+    drop(op);
+    !done || playing.get()
 }
 
 /// All playback streams (sink-inputs) with their sink and app name.
@@ -269,9 +280,7 @@ fn list_streams() -> Vec<(SavedStream, u32)> {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(true);
-    }
+    wait_op(&mut mainloop, &op);
     drop(op);
     let result = streams.borrow().clone();
     result
@@ -326,9 +335,7 @@ pub fn move_streams_to_card(streams: &[SavedStream], card_index: u32, wait: Dura
             Box::new(move |success| ok.set(success))
         };
         let op = introspect.move_sink_input_by_index(saved.index, sink, Some(cb));
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(true);
-        }
+        wait_op(&mut mainloop, &op);
         if ok.get() {
             moved += 1;
         }
@@ -367,9 +374,7 @@ pub fn refresh_default(kind: DefaultKind, name: &str) {
             *current.borrow_mut() = n.map(|n| n.to_string());
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(true);
-    }
+    wait_op(&mut mainloop, &op);
     drop(op);
     if current.borrow().as_deref() != Some(name) {
         return;
@@ -392,9 +397,7 @@ pub fn refresh_default(kind: DefaultKind, name: &str) {
                     }
                 }
             });
-            while op.get_state() == OperationState::Running {
-                mainloop.iterate(true);
-            }
+            wait_op(&mut mainloop, &op);
         }
         DefaultKind::Source => {
             let op = context.introspect().get_source_info_list({
@@ -410,9 +413,7 @@ pub fn refresh_default(kind: DefaultKind, name: &str) {
                     }
                 }
             });
-            while op.get_state() == OperationState::Running {
-                mainloop.iterate(true);
-            }
+            wait_op(&mut mainloop, &op);
         }
     }
     let Some(other) = other.borrow().clone() else {
@@ -424,26 +425,10 @@ pub fn refresh_default(kind: DefaultKind, name: &str) {
             DefaultKind::Sink => context.set_default_sink(target, |_| {}),
             DefaultKind::Source => context.set_default_source(target, |_| {}),
         };
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(true);
-        }
+        wait_op(&mut mainloop, &op);
     };
     debug!("[pw] refreshing default {:?} {} (via {})", kind, name, other);
     set(&other);
     std::thread::sleep(Duration::from_millis(150));
     set(name);
-}
-
-/// Run refresh_default after `delay` (giving desktop clients time to learn about
-/// a device that just appeared), off the async runtime.
-pub fn schedule_default_refresh(
-    runtime: &tokio::runtime::Handle,
-    kind: DefaultKind,
-    name: String,
-    delay: Duration,
-) {
-    runtime.spawn(async move {
-        tokio::time::sleep(delay).await;
-        let _ = tokio::task::spawn_blocking(move || refresh_default(kind, &name)).await;
-    });
 }

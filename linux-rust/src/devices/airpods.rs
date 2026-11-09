@@ -29,7 +29,18 @@ impl AirPodsDevice {
     ) -> Self {
         info!("Creating new AirPodsDevice for {}", mac_address);
         let mut aacp_manager = AACPManager::new();
-        aacp_manager.connect(mac_address).await;
+        if !aacp_manager.connect(mac_address).await {
+            // No control channel: nothing below can work (every send would
+            // fail), and the tray must not claim the AirPods are connected.
+            return AirPodsDevice {
+                mac_address,
+                aacp_manager,
+                media_controller: Arc::new(Mutex::new(MediaController::new(
+                    mac_address.to_string(),
+                    local_mac,
+                ))),
+            };
+        }
 
         // let mut att_manager = ATTManager::new();
         // att_manager.connect(mac_address).await.expect("Failed to connect ATT");
@@ -82,12 +93,10 @@ impl AirPodsDevice {
             error!("Failed to request proximity keys: {}", e);
         }
 
-        let mut app_settings = crate::utils::AppSettings::load();
-        if app_settings.convo_restore_pending {
+        if crate::utils::AppSettings::load().convo_restore_pending {
             info!("Restoring conversation awareness left off by an interrupted mic capture");
             if aacp_manager.set_conversation_detection(true).await {
-                app_settings.convo_restore_pending = false;
-                app_settings.save();
+                crate::utils::AppSettings::update(|s| s.convo_restore_pending = false);
             }
         }
 

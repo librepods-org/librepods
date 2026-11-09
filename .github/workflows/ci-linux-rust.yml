@@ -42,6 +42,10 @@ jobs:
             linux-rust/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('linux-rust/Cargo.lock') }}
 
+      - name: Run tests
+        working-directory: linux-rust
+        run: cargo test
+
       - name: Build AppImage and Binary
         working-directory: linux-rust
         run: |

@@ -240,20 +240,18 @@ impl App {
     }
 
     fn save_settings(&self) {
-        AppSettings {
-            theme: self.selected_theme,
-            tray_text_mode: self.tray_text_mode,
-            stem_control: self.stem_control,
-            hires_mic_enabled: self.hires_mic_enabled,
-            hires_mic_agc: self.hires_mic_agc,
-            hires_mic_pause_convo: self.hires_mic_pause_convo,
-            a2dp_reset: self.a2dp_reset,
-            audio_off_when_not_wearing: self.audio_off_when_not_wearing,
-            pause_when_one_removed: self.pause_when_one_removed,
-            // Keep settings the window doesn't edit (written by the backend).
-            ..AppSettings::load()
-        }
-        .save();
+        // Only the fields the window edits; the rest is written by the backend.
+        AppSettings::update(|s| {
+            s.theme = self.selected_theme;
+            s.tray_text_mode = self.tray_text_mode;
+            s.stem_control = self.stem_control;
+            s.hires_mic_enabled = self.hires_mic_enabled;
+            s.hires_mic_agc = self.hires_mic_agc;
+            s.hires_mic_pause_convo = self.hires_mic_pause_convo;
+            s.a2dp_reset = self.a2dp_reset;
+            s.audio_off_when_not_wearing = self.audio_off_when_not_wearing;
+            s.pause_when_one_removed = self.pause_when_one_removed;
+        });
     }
 
     fn title(&self, _id: window::Id) -> String {

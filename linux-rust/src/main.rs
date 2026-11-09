@@ -252,8 +252,15 @@ async fn async_main(
                 let ui_tx_clone = ui_tx_sig.clone();
                 let device_managers_sig = device_managers_sig.clone();
                 tokio::spawn(async move {
+                    // Connect before taking the lock: the UI reads this map.
+                    let dev = match devices::nothing::NothingDevice::new(addr, ui_tx_clone.clone()).await {
+                        Ok(dev) => dev,
+                        Err(e) => {
+                            warn!("Could not set up Nothing device {}: {}", addr_str, e);
+                            return;
+                        }
+                    };
                     let mut managers = device_managers_sig.write().await;
-                    let dev = devices::nothing::NothingDevice::new(addr, ui_tx_clone.clone()).await;
                     let dev_managers = DeviceManagers::with_att(dev.att_manager.clone());
                     managers
                         .entry(addr_str.clone())
@@ -289,6 +296,7 @@ async fn async_main(
             close_stale_link(&device_managers_sig, &addr_str).await;
             let airpods_device =
                 AirPodsDevice::new(addr, handle_clone, ui_tx_clone.clone(), local_mac_sig).await;
+            let channel_up = airpods_device.aacp_manager.is_connected();
             let mut managers = device_managers_sig.write().await;
             // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
             let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
@@ -298,6 +306,12 @@ async fn async_main(
                 .set_aacp(airpods_device.aacp_manager);
             drop(managers);
             end_setup(&connecting, &addr_str);
+            if !channel_up {
+                // Don't show a device whose controls can't work; the next
+                // connect signal from BlueZ sets it up again.
+                warn!("{} has no AACP channel; not showing it as connected", addr_str);
+                return;
+            }
             if let Err(e) = ui_tx_clone.send(BluetoothUIMessage::DeviceConnected(addr_str.clone())) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
             }
@@ -330,6 +344,7 @@ async fn async_main(
             .await;
 
             let hires_aacp = airpods_device.aacp_manager.clone();
+            let channel_up = hires_aacp.is_connected();
             let mut managers = device_managers.write().await;
             // let dev_managers = DeviceManagers::with_both(airpods_device.aacp_manager.clone(), airpods_device.att_manager.clone());
             let dev_managers = DeviceManagers::with_aacp(airpods_device.aacp_manager.clone());
@@ -339,7 +354,9 @@ async fn async_main(
                 .set_aacp(airpods_device.aacp_manager);
             drop(managers);
             end_setup(&connecting, &mac_str);
-            if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceConnected(
+            if !channel_up {
+                warn!("{} has no AACP channel; not showing it as connected", mac_str);
+            } else if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceConnected(
                 device.address().to_string(),
             )) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
@@ -368,13 +385,21 @@ async fn async_main(
                 let ui_tx_clone = ui_tx.clone();
                 let device_managers = device_managers.clone();
                 tokio::spawn(async move {
-                    let mut managers = device_managers.write().await;
                     if type_ == devices::enums::DeviceType::Nothing {
-                        let dev = devices::nothing::NothingDevice::new(
+                        // Connect before taking the lock: the UI reads this map.
+                        let dev = match devices::nothing::NothingDevice::new(
                             device.address(),
                             ui_tx_clone.clone(),
                         )
-                        .await;
+                        .await
+                        {
+                            Ok(dev) => dev,
+                            Err(e) => {
+                                warn!("Could not set up Nothing device {}: {}", addr_str, e);
+                                return;
+                            }
+                        };
+                        let mut managers = device_managers.write().await;
                         let dev_managers = DeviceManagers::with_att(dev.att_manager.clone());
                         managers
                             .entry(addr_str.clone())
@@ -384,7 +409,6 @@ async fn async_main(
                             warn!("Failed to send DeviceConnected UI message: {:?}", e);
                         }
                     }
-                    drop(managers)
                 });
             }
         }
@@ -558,8 +582,10 @@ fn spawn_shutdown_handler(
                     aacp.disarm_hires_mic().await;
                 }
             }
+            // The virtual mic stays loaded for the next run; send apps elsewhere.
+            let _ = tokio::task::spawn_blocking(crate::audio::hires_mic::park_on_exit).await;
         };
-        if tokio::time::timeout(std::time::Duration::from_secs(3), cleanup)
+        if tokio::time::timeout(std::time::Duration::from_secs(6), cleanup)
             .await
             .is_err()
         {

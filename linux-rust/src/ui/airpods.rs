@@ -67,7 +67,7 @@ pub fn airpods_view<'a>(
                                 aacp_manager
                                     .send_rename_packet(&new_name)
                                     .await
-                                    .expect("Failed to send rename packet");
+                                    .unwrap_or_else(|e| log::error!("Failed to send rename packet: {}", e));
                             }
                         });
                         let mut state = state.clone();
@@ -121,7 +121,7 @@ pub fn airpods_view<'a>(
                                         &[selected_mode_c.to_byte()],
                                     )
                                     .await
-                                    .expect("Failed to send Noise Control Mode command");
+                                    .unwrap_or_else(|e| log::error!("Failed to send Noise Control Mode command: {}", e));
                             });
                             let mut state = state_clone.clone();
                             state.noise_control_mode = selected_mode.clone();
@@ -229,7 +229,7 @@ pub fn airpods_view<'a>(
                                             aacp_manager.send_control_command(
                                                 ControlCommandIdentifiers::AdaptiveVolumeConfig,
                                                 if is_enabled { &[0x01] } else { &[0x02] }
-                                            ).await.expect("Failed to send Personalized Volume command");
+                                            ).await.unwrap_or_else(|e| log::error!("Failed to send Personalized Volume command: {}", e));
                                         }
                                     );
                                     let mut state = state.clone();
@@ -336,7 +336,7 @@ pub fn airpods_view<'a>(
                             aacp_manager.send_control_command(
                                 ControlCommandIdentifiers::AllowOffOption,
                                 if is_enabled { &[0x01] } else { &[0x02] }
-                            ).await.expect("Failed to send Off Listening Mode command");
+                            ).await.unwrap_or_else(|e| log::error!("Failed to send Off Listening Mode command: {}", e));
                         }
                     );
                     let mut state = state.clone();

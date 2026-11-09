@@ -4,13 +4,13 @@ use libpulse_binding::callbacks::ListResult;
 use libpulse_binding::context::{Context, FlagSet as ContextFlagSet};
 use libpulse_binding::def::Retval;
 use libpulse_binding::mainloop::standard::{IterateResult, Mainloop};
-use libpulse_binding::operation::State as OperationState;
+use libpulse_binding::operation::{Operation, State as OperationState};
 use log::{error, info, warn};
 use std::cell::{Cell, RefCell};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dbus::blocking::Connection;
 use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
@@ -28,8 +28,6 @@ fn fifo_path() -> String {
 pub struct VirtualMic {
     module: u32,
 }
-
-unsafe impl Send for VirtualMic {}
 
 impl VirtualMic {
     /// `description` is the name shown in sound settings (e.g. "AirPods Pro
@@ -74,6 +72,40 @@ impl VirtualMic {
         );
         Some(VirtualMic { module })
     }
+
+    /// Take over a virtual mic left loaded by an earlier LibrePods run instead
+    /// of unloading it and creating a new one: some apps (Discord) crash when a
+    /// microphone appears or disappears while they record. Only adopted if the
+    /// source exists and its FIFO is still there; otherwise every leftover module
+    /// is unloaded and None returned.
+    pub fn adopt() -> Option<VirtualMic> {
+        let modules = our_modules();
+        if modules.is_empty() {
+            return None;
+        }
+        let fifo = fifo_path();
+        let fifo_ok = std::fs::metadata(&fifo).is_ok_and(|m| {
+            use std::os::unix::fs::FileTypeExt;
+            m.file_type().is_fifo()
+        });
+        let keep = if fifo_ok && source_index(SOURCE_NAME).is_some() {
+            modules
+                .iter()
+                .find(|(_, arg)| arg.contains(&format!("file={fifo} ")))
+                .map(|(i, _)| *i)
+        } else {
+            None
+        };
+        for (index, _) in &modules {
+            if Some(*index) != keep {
+                warn!("[pw] unloading stale hi-res module {}", index);
+                unload_module(*index);
+            }
+        }
+        let module = keep?;
+        info!("[pw] reusing the hi-res mic left by an earlier run (module {})", module);
+        Some(VirtualMic { module })
+    }
 }
 
 impl Drop for VirtualMic {
@@ -96,8 +128,6 @@ const O_NONBLOCK: i32 = 0o4000;
 /// Writes up to PIPE_BUF are atomic on a pipe, so a full FIFO never leaves a
 /// partial (misaligned) sample behind.
 const PIPE_BUF: usize = 4096;
-
-unsafe impl Send for Output {}
 
 impl Output {
     pub fn open(_sample_rate: u32, _channels: u8) -> Option<Output> {
@@ -207,8 +237,9 @@ pub fn source_consumer(name: &str) -> SourceUse {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
+    if !wait_op(&mut mainloop, &op) {
+        // Can't tell; don't report it missing (that would recreate it).
+        return SourceUse::Present(None);
     }
 
     let app = Rc::new(RefCell::new(None::<String>));
@@ -231,9 +262,7 @@ pub fn source_consumer(name: &str) -> SourceUse {
                 }
             }
         });
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(false);
-        }
+        wait_op(&mut mainloop, &op);
     }
     mainloop.quit(Retval(0));
 
@@ -325,16 +354,34 @@ fn resume_media_players(services: &[String]) {
     }
 }
 
+/// Upper bound for connecting to the sound server and for each request to it.
+/// A hung pipewire-pulse must not hang the caller (the hi-res monitor, and
+/// through it disconnect handling) forever.
+const PULSE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Run the mainloop once without blocking; if nothing was dispatched, sleep
+/// briefly instead of spinning. Returns false if the mainloop quit or failed.
+fn pump(mainloop: &mut Mainloop) -> bool {
+    match mainloop.iterate(false) {
+        IterateResult::Quit(_) | IterateResult::Err(_) => false,
+        IterateResult::Success(0) => {
+            std::thread::sleep(Duration::from_millis(1));
+            true
+        }
+        IterateResult::Success(_) => true,
+    }
+}
+
 pub(crate) fn connect() -> Option<(Mainloop, Context)> {
     let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mainloop, "LibrePods-HiResMic")?;
+    let mut context = Context::new(&mainloop, "LibrePods")?;
     context
         .connect(None, ContextFlagSet::NOAUTOSPAWN, None)
         .ok()?;
+    let deadline = Instant::now() + PULSE_TIMEOUT;
     loop {
-        match mainloop.iterate(false) {
-            IterateResult::Quit(_) | IterateResult::Err(_) => return None,
-            IterateResult::Success(_) => {}
+        if !pump(&mut mainloop) {
+            return None;
         }
         match context.get_state() {
             libpulse_binding::context::State::Ready => break,
@@ -342,37 +389,243 @@ pub(crate) fn connect() -> Option<(Mainloop, Context)> {
             | libpulse_binding::context::State::Terminated => return None,
             _ => {}
         }
+        if Instant::now() >= deadline {
+            warn!("[pw] timed out connecting to the sound server");
+            return None;
+        }
     }
     Some((mainloop, context))
 }
 
-fn unload_stale_modules() {
+/// Wait for a request to the sound server to finish. Returns false if it
+/// didn't complete (timed out, or the connection went away); the callers'
+/// result cells then still hold their "nothing found / failed" defaults.
+pub(crate) fn wait_op<T: ?Sized>(mainloop: &mut Mainloop, op: &Operation<T>) -> bool {
+    let deadline = Instant::now() + PULSE_TIMEOUT;
+    while op.get_state() == OperationState::Running {
+        if !pump(mainloop) {
+            return false;
+        }
+        if Instant::now() >= deadline {
+            warn!("[pw] a request to the sound server timed out");
+            return false;
+        }
+    }
+    op.get_state() == OperationState::Done
+}
+
+/// Loaded modules that create our virtual mic: (index, argument).
+fn our_modules() -> Vec<(u32, String)> {
     let Some((mut mainloop, context)) = connect() else {
-        return;
+        return Vec::new();
     };
-    let stale: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+    let found: Rc<RefCell<Vec<(u32, String)>>> = Rc::new(RefCell::new(Vec::new()));
     let introspect = context.introspect();
     let op = introspect.get_module_info_list({
-        let stale = stale.clone();
+        let found = found.clone();
+        move |result| {
+            if let ListResult::Item(item) = result
+                && let Some(arg) = &item.argument
+                && arg.contains(&format!("source_name={SOURCE_NAME} "))
+            {
+                found.borrow_mut().push((item.index, arg.to_string()));
+            }
+        }
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    mainloop.quit(Retval(0));
+    let result = found.borrow().clone();
+    result
+}
+
+fn unload_stale_modules() {
+    for (index, _) in our_modules() {
+        warn!("[pw] unloading stale hi-res module {}", index);
+        unload_module(index);
+    }
+}
+
+/// Index of a source by name, or None if it doesn't exist.
+fn source_index(name: &str) -> Option<u32> {
+    let (mut mainloop, context) = connect()?;
+    let index: Rc<Cell<Option<u32>>> = Rc::new(Cell::new(None));
+    let op = context.introspect().get_source_info_by_name(name, {
+        let index = index.clone();
         move |result| {
             if let ListResult::Item(item) = result {
-                if let Some(arg) = &item.argument {
-                    if arg.contains(SOURCE_NAME) {
-                        stale.borrow_mut().push(item.index);
-                    }
+                index.set(Some(item.index));
+            }
+        }
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    mainloop.quit(Retval(0));
+    index.get()
+}
+
+/// A recording stream (source-output). The app name is kept with the index so
+/// a reused index isn't mistaken for it later.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recorder {
+    pub index: u32,
+    pub app: Option<String>,
+}
+
+/// All real recorders (level meters excluded) with the index of their source.
+fn list_recorders() -> Vec<(Recorder, u32)> {
+    let Some((mut mainloop, context)) = connect() else {
+        return Vec::new();
+    };
+    let found: Rc<RefCell<Vec<(Recorder, u32)>>> = Rc::new(RefCell::new(Vec::new()));
+    let op = context.introspect().get_source_output_info_list({
+        let found = found.clone();
+        move |result| {
+            if let ListResult::Item(item) = result
+                && item.sample_spec.rate >= MIN_RECORDER_RATE
+            {
+                let app = item
+                    .proplist
+                    .get_str("application.name")
+                    .or_else(|| item.name.as_ref().map(|n| n.to_string()));
+                found.borrow_mut().push((
+                    Recorder {
+                        index: item.index,
+                        app,
+                    },
+                    item.source,
+                ));
+            }
+        }
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    mainloop.quit(Retval(0));
+    let result = found.borrow().clone();
+    result
+}
+
+/// Real recorders on a source (level meters excluded).
+pub fn recorders_on(source: &str) -> Vec<Recorder> {
+    let Some(index) = source_index(source) else {
+        return Vec::new();
+    };
+    list_recorders()
+        .into_iter()
+        .filter(|(_, on)| *on == index)
+        .map(|(r, _)| r)
+        .collect()
+}
+
+/// True if any app records from any microphone.
+pub fn any_recorder() -> bool {
+    !list_recorders().is_empty()
+}
+
+/// Name of the current default source.
+pub fn default_source() -> Option<String> {
+    let (mut mainloop, context) = connect()?;
+    let current: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let op = context.introspect().get_server_info({
+        let current = current.clone();
+        move |info| {
+            *current.borrow_mut() = info.default_source_name.as_ref().map(|n| n.to_string());
+        }
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    mainloop.quit(Retval(0));
+    let result = current.borrow().clone();
+    result
+}
+
+/// Make `name` the default source. Streams that follow the default are moved
+/// to it by the session manager, the same as when the user picks a microphone
+/// in the desktop's sound settings.
+pub fn set_default_source(name: &str) -> bool {
+    let Some((mut mainloop, mut context)) = connect() else {
+        return false;
+    };
+    let ok = Rc::new(Cell::new(false));
+    let op = context.set_default_source(name, {
+        let ok = ok.clone();
+        move |success| ok.set(success)
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    mainloop.quit(Retval(0));
+    ok.get()
+}
+
+/// The microphone to send apps to while ours can't deliver audio: the real
+/// (non-monitor) source with the highest session priority other than `exclude`,
+/// i.e. the one the session manager would fall back to.
+pub fn fallback_source(exclude: &str) -> Option<String> {
+    let (mut mainloop, context) = connect()?;
+    let best: Rc<RefCell<Option<(i64, String)>>> = Rc::new(RefCell::new(None));
+    let op = context.introspect().get_source_info_list({
+        let best = best.clone();
+        let exclude = exclude.to_string();
+        move |result| {
+            if let ListResult::Item(item) = result
+                && item.monitor_of_sink.is_none()
+                && let Some(name) = item.name.as_ref()
+                && *name != *exclude
+            {
+                let priority = item
+                    .proplist
+                    .get_str("priority.session")
+                    .and_then(|p| p.parse::<i64>().ok())
+                    .unwrap_or(0);
+                let mut best = best.borrow_mut();
+                if best.as_ref().is_none_or(|(p, _)| priority > *p) {
+                    *best = Some((priority, name.to_string()));
                 }
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    mainloop.quit(Retval(0));
+    let result = best.borrow().clone().map(|(_, name)| name);
+    result
+}
+
+/// Move recorders that still exist (same index *and* app) and aren't on
+/// `target` yet to the source `target`. Returns the ones moved.
+pub fn move_recorders(recorders: &[Recorder], target: &str) -> Vec<Recorder> {
+    if recorders.is_empty() {
+        return Vec::new();
+    }
+    let Some(target_index) = source_index(target) else {
+        return Vec::new();
+    };
+    let current = list_recorders();
+    let Some((mut mainloop, context)) = connect() else {
+        return Vec::new();
+    };
+    let mut introspect = context.introspect();
+    let mut moved = Vec::new();
+    for rec in recorders {
+        if !current.iter().any(|(r, on)| r == rec && *on != target_index) {
+            continue;
+        }
+        let ok = Rc::new(Cell::new(false));
+        let cb: Box<dyn FnMut(bool) + 'static> = {
+            let ok = ok.clone();
+            Box::new(move |success| ok.set(success))
+        };
+        let op = introspect.move_source_output_by_name(rec.index, target, Some(cb));
+        wait_op(&mut mainloop, &op);
+        if ok.get() {
+            info!("[pw] moved recorder {:?} to {}", rec.app, target);
+            moved.push(rec.clone());
+        } else {
+            warn!("[pw] could not move recorder {:?} to {}", rec.app, target);
+        }
     }
     mainloop.quit(Retval(0));
-
-    for index in stale.borrow().iter() {
-        warn!("[pw] unloading stale hi-res module {}", index);
-        unload_module(*index);
-    }
+    moved
 }
 
 fn load_module(name: &str, args: &str) -> Option<u32> {
@@ -383,9 +636,7 @@ fn load_module(name: &str, args: &str) -> Option<u32> {
         let idx = idx.clone();
         move |index| idx.set(index)
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
     mainloop.quit(Retval(0));
 
     match idx.get() {
@@ -401,9 +652,7 @@ fn unload_module(index: u32) {
     if let Some((mut mainloop, mut context)) = connect() {
         let mut introspect = context.introspect();
         let op = introspect.unload_module(index, |_| {});
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(false);
-        }
+        wait_op(&mut mainloop, &op);
         mainloop.quit(Retval(0));
     }
 }

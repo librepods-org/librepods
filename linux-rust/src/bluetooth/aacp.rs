@@ -487,6 +487,12 @@ impl AACPManager {
             || state.ear_detection_status.contains(&EarDetectionStatus::InEar)
     }
 
+    /// True once the AirPods have reported an ear-detection state on this
+    /// connection (is_worn() is only a guess before that).
+    pub async fn ear_status_reported(&self) -> bool {
+        !self.state.lock().await.ear_detection_status.is_empty()
+    }
+
     pub async fn conversation_detection_enabled(&self) -> bool {
         self.state
             .lock()
@@ -603,17 +609,20 @@ impl AACPManager {
     /// AirPods connect the L2CAP channel can be refused or time out, and giving up
     /// after one attempt would leave the device half-initialised until the next
     /// reconnect.
-    pub async fn connect(&mut self, addr: Address) {
-        for (attempt, backoff) in [1u64, 2, 4].into_iter().enumerate() {
+    /// Returns false if the channel could not be opened.
+    pub async fn connect(&mut self, addr: Address) -> bool {
+        const BACKOFF_SECS: [u64; 4] = [1, 2, 4, 8];
+        for attempt in 0..=BACKOFF_SECS.len() {
             if self.try_connect(addr).await {
-                return;
+                return true;
             }
-            if attempt < 2 {
+            if let Some(backoff) = BACKOFF_SECS.get(attempt) {
                 warn!("AACP connect attempt {} failed; retrying in {}s", attempt + 1, backoff);
-                sleep(Duration::from_secs(backoff)).await;
+                sleep(Duration::from_secs(*backoff)).await;
             }
         }
         error!("Could not open the AACP channel to {}", addr);
+        false
     }
 
     async fn try_connect(&mut self, addr: Address) -> bool {
@@ -686,8 +695,11 @@ impl AACPManager {
     }
 
     async fn send_packet(&self, data: &[u8]) -> Result<()> {
-        let state = self.state.lock().await;
-        if let Some(sender) = &state.sender {
+        // Clone the sender and release the state lock before the (bounded,
+        // possibly waiting) send: every incoming packet and the UI need that
+        // lock, and a stalled socket would otherwise freeze them all.
+        let sender = self.state.lock().await.sender.clone();
+        if let Some(sender) = sender {
             sender.send(data.to_vec()).await.map_err(|e| {
                 error!("Failed to send packet to channel: {}", e);
                 Error::from(std::io::Error::new(
@@ -1112,7 +1124,7 @@ impl AACPManager {
                     return;
                 }
                 let count = payload[2] as usize;
-                if payload.len() < 3 + count * 8 {
+                if payload.len() < 5 + count * 8 {
                     error!(
                         "Connected Devices packet length mismatch: {}",
                         hex::encode(payload)
@@ -1569,4 +1581,31 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
         }
     }
     info!("Send thread finished.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AACPManager, HEADER_BYTES, opcodes};
+
+    /// A connected-devices packet that announces more entries than it carries
+    /// must be rejected, not read past its end.
+    #[tokio::test]
+    async fn short_connected_devices_packet_is_rejected() {
+        let manager = AACPManager::new();
+        for extra in 0..2 {
+            // opcode, 0x00, count = 1, then 8 + `extra` bytes: one or two
+            // short of the 10 the entry needs (it starts at offset 5).
+            let mut packet = HEADER_BYTES.to_vec();
+            packet.extend_from_slice(&[opcodes::CONNECTED_DEVICES, 0x00, 0x01]);
+            packet.extend(std::iter::repeat_n(0xAA, 8 + extra));
+            manager.receive_packet(&packet).await;
+            assert!(manager.state.lock().await.connected_devices.is_empty());
+        }
+        // A complete one is still accepted.
+        let mut packet = HEADER_BYTES.to_vec();
+        packet.extend_from_slice(&[opcodes::CONNECTED_DEVICES, 0x00, 0x01]);
+        packet.extend(std::iter::repeat_n(0xAA, 10));
+        manager.receive_packet(&packet).await;
+        assert_eq!(manager.state.lock().await.connected_devices.len(), 1);
+    }
 }

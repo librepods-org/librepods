@@ -38,6 +38,9 @@ const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(30);
 /// forever would only churn the AACP channel.
 const MAX_FAILED_RESTARTS: u32 = 3;
 const LEVEL_RELEASE: f32 = 0.85;
+/// After connecting, how long a parked mic waits for the first ear-detection
+/// report before it is unparked anyway (ear detection may be switched off).
+const EAR_REPORT_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, PartialEq, Eq)]
 enum CaptureAction {
@@ -143,8 +146,9 @@ pub struct HiResMic {
 }
 
 impl HiResMic {
-    // Create the persistent virtual input and spawn the activity monitor. The
-    // monitor owns the virtual device and unloads it when it exits.
+    // Make the shared virtual input available (see SharedMic) and spawn the
+    // activity monitor. When the monitor exits the input is kept (and parked
+    // later), or unloaded if the hi-res mic was turned off.
     pub async fn start(aacp: &AACPManager, addr: String, status: MicStatus) -> Option<HiResMic> {
         // Name it after the AirPods, like their output: "<AirPods name> Microphone".
         let device_name = aacp
@@ -159,8 +163,13 @@ impl HiResMic {
             Some(name) => format!("{name} Microphone"),
             None => "AirPods Microphone".to_string(),
         };
-        let vmic = open_virtual_mic(&mic_name).await?;
-        refresh_desktop_default_source(aacp.runtime());
+        let created = {
+            let name = mic_name.clone();
+            blocking(move || acquire_mic(&name)).await.flatten()?
+        };
+        if created {
+            refresh_desktop_default_source(aacp.runtime());
+        }
         let stop = Arc::new(Notify::new());
         let wake = aacp.hires_wake();
         // Spawn on the backend runtime, not the caller's (the UI toggle uses a
@@ -171,7 +180,6 @@ impl HiResMic {
             status,
             stop.clone(),
             wake,
-            vmic,
             mic_name,
         ));
         Some(HiResMic {
@@ -205,17 +213,20 @@ async fn monitor_loop(
     status: MicStatus,
     stop: Arc<Notify>,
     wake: Arc<Notify>,
-    vmic: VirtualMic,
     mic_name: String,
 ) {
-    // None while hidden: with no bud worn (past the grace period) the virtual mic
-    // is removed so apps fall back to another mic, like the output does.
-    let mut vmic: Option<VirtualMic> = Some(vmic);
+    // False while parked: with no bud worn (past the grace period) apps are sent
+    // to another mic, like the output is. A mic that was parked before this
+    // connection (disconnect, earlier run) stays parked until a bud is worn.
+    let mut shown = !blocking(mic_is_parked).await.unwrap_or(false);
+    let started = Instant::now();
     let mut capture: Option<Capture> = None;
     // Conversation detection value saved while we override it off for capture.
     let mut old_convo_state: Option<bool> = None;
     let mut restart_backoff = STALL_TIMEOUT;
     let mut next_restart_at = Instant::now();
+    // Earliest next START after one failed (don't retry on every poll).
+    let mut next_start_at = Instant::now();
     let mut failed_restarts: u32 = 0;
     // Ear generation at which we gave up restarting; retry once it changes.
     let mut gave_up_at_ear: Option<u64> = None;
@@ -250,24 +261,29 @@ async fn monitor_loop(
         }
         let worn = worn_now || out_since.is_some_and(|t| t.elapsed() < NOT_WORN_GRACE);
 
-        // Show the virtual mic again as soon as a bud is back.
-        if worn_now && vmic.is_none() {
-            info!("[hires] bud back in; restoring '{}'", output::SOURCE_NAME);
-            vmic = open_virtual_mic(&mic_name).await;
-            if vmic.is_some() {
-                refresh_desktop_default_source(&tokio::runtime::Handle::current());
-            }
-            source_missing_polls = 0;
+        // Bring apps back to the virtual mic as soon as a bud is back. Right
+        // after connecting is_worn() is only a guess until the AirPods report
+        // their ear state (they connect when the case opens, not yet worn):
+        // wait for the report, or briefly in case ear detection is off.
+        if worn_now
+            && !shown
+            && (aacp.ear_status_reported().await || started.elapsed() > EAR_REPORT_WAIT)
+        {
+            info!("[hires] bud back in; unparking '{}'", output::SOURCE_NAME);
+            blocking(unpark_mic).await;
+            shown = true;
         }
 
-        let usage = if vmic.is_some() {
-            tokio::task::spawn_blocking(|| output::source_consumer(output::SOURCE_NAME))
-                .await
-                .unwrap_or(output::SourceUse::Present(None))
-        } else {
-            output::SourceUse::Present(None)
-        };
+        let usage = blocking(|| output::source_consumer(output::SOURCE_NAME))
+            .await
+            .unwrap_or(output::SourceUse::Present(None));
         let app = match usage {
+            // Parked: whoever still records from it gets silence; don't start
+            // the AirPods mic for them.
+            output::SourceUse::Present(_) if !shown => {
+                source_missing_polls = 0;
+                None
+            }
             output::SourceUse::Present(app) => {
                 source_missing_polls = 0;
                 app
@@ -288,11 +304,10 @@ async fn monitor_loop(
                         }
                         status.reset();
                     }
-                    if let Some(fresh) = open_virtual_mic(&mic_name).await {
-                        // Don't run the old one's Drop: its module index belongs
-                        // to the dead server and may now name someone else's module.
-                        if let Some(old) = vmic.replace(fresh) {
-                            std::mem::forget(old);
+                    let name = mic_name.clone();
+                    if blocking(move || recreate_mic(&name)).await.unwrap_or(false) {
+                        if !shown {
+                            blocking(park_mic).await;
                         }
                         refresh_desktop_default_source(&tokio::runtime::Handle::current());
                         source_missing_polls = 0;
@@ -330,9 +345,15 @@ async fn monitor_loop(
         }
 
         match action {
+            CaptureAction::Start if Instant::now() < next_start_at => {}
             CaptureAction::Start => {
                 info!("[hires] recorder detected ({:?}), starting capture", app);
-                if let Some(c) = start_capture(&aacp, &addr, &status).await {
+                let new_capture = start_capture(&aacp, &addr, &status).await;
+                if new_capture.is_none() {
+                    warn!("[hires] could not start the capture; retrying shortly");
+                    next_start_at = Instant::now() + STALL_TIMEOUT;
+                }
+                if let Some(c) = new_capture {
                     status.set_capture(app);
                     capture = Some(c);
 
@@ -387,8 +408,11 @@ async fn monitor_loop(
                     stop_capture(capture.take().unwrap(), &aacp).await;
                     capture = start_capture(&aacp, &addr, &status).await;
                     if capture.is_none() {
-                        warn!("[hires] capture restart failed; will retry on next poll");
+                        warn!("[hires] capture restart failed; retrying shortly");
                         status.reset();
+                        // The STOP went out without a START after it.
+                        schedule_a2dp_reset(&addr);
+                        next_start_at = Instant::now() + STALL_TIMEOUT;
                     }
                     // Back off if the device keeps not delivering (e.g. another
                     // device holds the AirPods' mic) instead of restarting every
@@ -429,19 +453,20 @@ async fn monitor_loop(
             }
         }
 
-        // No bud worn past the grace period: hide the virtual mic so apps (and
-        // the default source) fall back to another mic, matching the output that
+        // No bud worn past the grace period: park the virtual mic so apps (and
+        // the default source) switch to another mic, matching the output that
         // the media controller switches away at the same moment.
         if !worn
             && capture.is_none()
-            && vmic.is_some()
+            && shown
             && crate::utils::AppSettings::load().audio_off_when_not_wearing
         {
             info!(
-                "[hires] no bud in ear; hiding '{}' so apps use another mic",
+                "[hires] no bud in ear; parking '{}' so apps use another mic",
                 output::SOURCE_NAME
             );
-            vmic = None;
+            blocking(park_mic).await;
+            shown = false;
         }
 
         // Once disabled and nothing is recording from the source, unload it.
@@ -455,27 +480,332 @@ async fn monitor_loop(
         if let Some(prev) = old_convo_state.take() {
             restore_conversation_detection(&aacp, prev).await;
         }
+        // The AirPods are still connected (LibrePods is exiting, or the monitor
+        // is being replaced): the STOP needs its A2DP reset like any other, or
+        // they keep playing from one earbud. Done here rather than scheduled,
+        // since the process may exit before a scheduled one runs.
+        if aacp.is_connected() {
+            tokio::time::sleep(A2DP_RESET_DELAY).await;
+            let reset_addr = addr.clone();
+            blocking(move || output::reset_a2dp(&reset_addr)).await;
+        }
     }
     status.reset();
+
+    if aacp.hires_mic_enabled() {
+        // Disconnected (or LibrePods exiting): keep the virtual mic.
+        release_mic(&tokio::runtime::Handle::current());
+    } else {
+        blocking(remove_mic).await;
+    }
 }
 
-/// The virtual mic was just (re)created: make desktop volume controls pick up
-/// the default source again (see card::refresh_default).
+/// The virtual mic was just created: make desktop volume controls pick up the
+/// default source again (see card::refresh_default). That briefly switches the
+/// default to another mic and back, which moves every app recording from the
+/// default along with it, so it's skipped while anything records.
 fn refresh_desktop_default_source(runtime: &tokio::runtime::Handle) {
-    crate::audio::card::schedule_default_refresh(
-        runtime,
-        crate::audio::card::DefaultKind::Source,
-        output::SOURCE_NAME.to_string(),
-        Duration::from_millis(1500),
-    );
+    runtime.spawn(async {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let _ = tokio::task::spawn_blocking(|| {
+            if output::any_recorder() {
+                debug!("[hires] an app is recording; not refreshing the default source");
+                return;
+            }
+            crate::audio::card::refresh_default(
+                crate::audio::card::DefaultKind::Source,
+                output::SOURCE_NAME,
+            );
+        })
+        .await;
+    });
 }
 
-async fn open_virtual_mic(name: &str) -> Option<VirtualMic> {
-    let name = name.to_string();
-    tokio::task::spawn_blocking(move || VirtualMic::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8, &name))
-        .await
-        .ok()
-        .flatten()
+// --- The virtual mic, shared by every AirPods connection --------------------
+//
+// Some apps crash when a microphone is added or removed while they record:
+// Discord's voice engine aborts (in libpulse, from its mic volume control) on
+// any source appearing or disappearing, even one it doesn't use. So the
+// virtual mic is created once and then kept: across disconnects, with no bud
+// worn, and across LibrePods restarts (a new run adopts the loaded module). It
+// is only unloaded when the hi-res mic is turned off.
+//
+// While the AirPods can't deliver mic audio the mic is "parked": another mic
+// becomes the default and apps pinned to ours are moved to it, then both are
+// undone when the AirPods are back. Apps see an ordinary device switch.
+
+/// After a disconnect, how long the mic stays as it is before it is parked. A
+/// short drop (the AirPods reconnect right away) then changes nothing at all.
+const DISCONNECT_PARK_DELAY: Duration = Duration::from_secs(15);
+/// After switching the default mic, time for the session manager to move the
+/// streams that follow the default before we look for the ones left behind.
+const DEFAULT_SWITCH_SETTLE: Duration = Duration::from_millis(400);
+
+struct SharedMic {
+    vmic: VirtualMic,
+    /// Some while parked.
+    parked: Option<Parked>,
+    /// AirPods connection monitors using it (normally 0 or 1; briefly 2 while a
+    /// reconnect replaces a stale connection).
+    users: u32,
+    /// Bumped on every acquire, so a delayed park only acts on the release it
+    /// was scheduled for.
+    generation: u64,
+}
+
+/// What parking changed, to undo it when the AirPods are back.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct Parked {
+    /// The mic made default while parked (only if ours was the default).
+    default_set: Option<String>,
+    /// Recorders still on our mic after the default switch (apps pinned to it)
+    /// that were moved to the other mic.
+    moved: Vec<output::Recorder>,
+}
+
+impl Parked {
+    fn serialize(&self) -> String {
+        let mut s = String::new();
+        if let Some(d) = &self.default_set {
+            s.push_str(&format!("default\t{d}\n"));
+        }
+        for r in &self.moved {
+            s.push_str(&format!("moved\t{}\t{}\n", r.index, r.app.as_deref().unwrap_or("")));
+        }
+        s
+    }
+
+    fn parse(text: &str) -> Parked {
+        let mut p = Parked::default();
+        for line in text.lines() {
+            let mut fields = line.splitn(3, '\t');
+            match (fields.next(), fields.next(), fields.next()) {
+                (Some("default"), Some(name), None) if !name.is_empty() => {
+                    p.default_set = Some(name.to_string());
+                }
+                (Some("moved"), Some(index), app) => {
+                    if let Ok(index) = index.parse() {
+                        p.moved.push(output::Recorder {
+                            index,
+                            app: app.filter(|a| !a.is_empty()).map(str::to_string),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        p
+    }
+}
+
+static SHARED_MIC: Mutex<Option<SharedMic>> = Mutex::new(None);
+
+/// Parked state, kept next to the FIFO so a restarted LibrePods that adopts the
+/// mic can still undo it.
+fn parked_path() -> String {
+    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    format!("{dir}/librepods-hires.parked")
+}
+
+fn save_parked(parked: Option<&Parked>) {
+    match parked {
+        Some(p) => {
+            if let Err(e) = crate::utils::write_atomic(
+                std::path::Path::new(&parked_path()),
+                p.serialize().as_bytes(),
+            ) {
+                warn!("[hires] could not save the parked mic state: {}", e);
+            }
+        }
+        None => {
+            let _ = std::fs::remove_file(parked_path());
+        }
+    }
+}
+
+fn shared_mic() -> std::sync::MutexGuard<'static, Option<SharedMic>> {
+    SHARED_MIC.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Send apps to another mic (see the section comment). Blocking.
+fn park() -> Parked {
+    let mut parked = Parked::default();
+    let Some(fallback) = output::fallback_source(output::SOURCE_NAME) else {
+        info!("[hires] no other microphone to switch apps to; leaving them on '{}'", output::SOURCE_NAME);
+        return parked;
+    };
+    if output::default_source().as_deref() == Some(output::SOURCE_NAME) {
+        if output::set_default_source(&fallback) {
+            info!("[hires] AirPods mic unavailable; default microphone is now {}", fallback);
+            parked.default_set = Some(fallback.clone());
+            std::thread::sleep(DEFAULT_SWITCH_SETTLE);
+        } else {
+            warn!("[hires] could not make {} the default microphone", fallback);
+        }
+    }
+    let left = output::recorders_on(output::SOURCE_NAME);
+    parked.moved = output::move_recorders(&left, &fallback);
+    parked
+}
+
+/// Undo park(): restore our mic as the default (unless the user picked another
+/// one meanwhile) and move the apps that were moved back. Blocking.
+fn unpark(parked: &Parked) {
+    if let Some(fallback) = &parked.default_set {
+        if output::default_source().as_deref() == Some(fallback.as_str()) {
+            if output::set_default_source(output::SOURCE_NAME) {
+                info!("[hires] AirPods mic back; it's the default microphone again");
+            }
+        } else {
+            info!("[hires] default microphone was changed meanwhile; leaving it");
+        }
+    }
+    if !parked.moved.is_empty() {
+        output::move_recorders(&parked.moved, output::SOURCE_NAME);
+    }
+}
+
+/// Make the virtual mic available to an AirPods connection: reuse the existing
+/// one or adopt/create it. Returns Some(true) if a new device was
+/// created, Some(false) if an existing one is used. Blocking.
+fn acquire_mic(description: &str) -> Option<bool> {
+    let mut guard = shared_mic();
+    let created = match guard.as_mut() {
+        // If it's parked it stays parked: the monitor unparks it once a bud
+        // is worn (see monitor_loop).
+        Some(_) => false,
+        None => {
+            let (vmic, created) = match VirtualMic::adopt() {
+                Some(vmic) => (vmic, false),
+                None => (
+                    VirtualMic::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8, description)?,
+                    true,
+                ),
+            };
+            // An earlier run may have parked the adopted mic; keep that state
+            // so the monitor can undo it once a bud is worn. A freshly
+            // created mic has nothing to undo.
+            let parked = if created {
+                save_parked(None);
+                None
+            } else {
+                std::fs::read_to_string(parked_path())
+                    .ok()
+                    .map(|t| Parked::parse(&t))
+            };
+            *guard = Some(SharedMic {
+                vmic,
+                parked,
+                users: 0,
+                generation: 0,
+            });
+            created
+        }
+    };
+    let mic = guard.as_mut().expect("set above");
+    mic.users += 1;
+    mic.generation += 1;
+    Some(created)
+}
+
+/// True if the mic exists and is parked. Blocking.
+fn mic_is_parked() -> bool {
+    shared_mic().as_ref().is_some_and(|m| m.parked.is_some())
+}
+
+/// Park the mic now (no bud worn, or LibrePods exiting). Blocking.
+fn park_mic() {
+    let mut guard = shared_mic();
+    if let Some(mic) = guard.as_mut()
+        && mic.parked.is_none()
+    {
+        let parked = park();
+        save_parked(Some(&parked));
+        mic.parked = Some(parked);
+    }
+}
+
+/// Unpark the mic (a bud is back in). Blocking.
+fn unpark_mic() {
+    let mut guard = shared_mic();
+    if let Some(mic) = guard.as_mut()
+        && let Some(parked) = mic.parked.take()
+    {
+        unpark(&parked);
+        save_parked(None);
+    }
+}
+
+/// The AirPods connection ended: park the mic after DISCONNECT_PARK_DELAY
+/// unless a new connection took it meanwhile.
+fn release_mic(runtime: &tokio::runtime::Handle) {
+    let generation = {
+        let mut guard = shared_mic();
+        let Some(mic) = guard.as_mut() else { return };
+        mic.users = mic.users.saturating_sub(1);
+        mic.generation
+    };
+    runtime.spawn(async move {
+        tokio::time::sleep(DISCONNECT_PARK_DELAY).await;
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut guard = shared_mic();
+            let Some(mic) = guard.as_mut() else { return };
+            if mic.users > 0 || mic.generation != generation || mic.parked.is_some() {
+                return;
+            }
+            info!("[hires] AirPods still gone; switching apps to another microphone");
+            let parked = park();
+            save_parked(Some(&parked));
+            mic.parked = Some(parked);
+        })
+        .await;
+    });
+}
+
+/// The hi-res mic was turned off: unload the virtual mic. Blocking.
+fn remove_mic() {
+    let mic = shared_mic().take();
+    if let Some(mic) = mic {
+        info!("[hires] hi-res mic turned off; removing '{}'", output::SOURCE_NAME);
+        drop(mic.vmic);
+    }
+    save_parked(None);
+}
+
+/// pipewire-pulse restarted and dropped the virtual mic: create a new one. The
+/// old module index belongs to the dead server (and may now name someone else's
+/// module), so it's forgotten rather than unloaded. Blocking.
+fn recreate_mic(description: &str) -> bool {
+    let mut guard = shared_mic();
+    let Some(fresh) = VirtualMic::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8, description) else {
+        return false;
+    };
+    save_parked(None);
+    match guard.as_mut() {
+        Some(mic) => {
+            std::mem::forget(std::mem::replace(&mut mic.vmic, fresh));
+            mic.parked = None;
+        }
+        None => {
+            *guard = Some(SharedMic {
+                vmic: fresh,
+                parked: None,
+                users: 1,
+                generation: 1,
+            });
+        }
+    }
+    true
+}
+
+/// LibrePods is exiting: keep the virtual mic loaded (the next run adopts it)
+/// but send apps to another mic, since nothing will feed this one.
+pub fn park_on_exit() {
+    park_mic();
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    tokio::task::spawn_blocking(f).await.ok()
 }
 
 /// Turn conversation awareness back on after a capture. If the AirPods are
@@ -488,9 +818,7 @@ async fn restore_conversation_detection(aacp: &AACPManager, enabled: bool) {
     }
     if !aacp.set_conversation_detection(enabled).await && enabled {
         info!("[hires] AirPods gone; will restore conversation awareness on next connect");
-        let mut settings = crate::utils::AppSettings::load();
-        settings.convo_restore_pending = true;
-        settings.save();
+        crate::utils::AppSettings::update(|s| s.convo_restore_pending = true);
     }
 }
 
@@ -639,7 +967,22 @@ fn spawn_decode_thread(
 
 #[cfg(test)]
 mod tests {
-    use super::{CaptureAction, capture_action};
+    use super::{CaptureAction, Parked, capture_action};
+    use crate::audio::output::Recorder;
+
+    #[test]
+    fn parked_state_round_trips() {
+        let parked = Parked {
+            default_set: Some("alsa_input.usb-mic.mono-fallback".into()),
+            moved: vec![
+                Recorder { index: 117144, app: Some("WEBRTC VoiceEngine".into()) },
+                Recorder { index: 7, app: None },
+            ],
+        };
+        assert_eq!(Parked::parse(&parked.serialize()), parked);
+        assert_eq!(Parked::parse(""), Parked::default());
+        assert_eq!(Parked::parse("garbage\nmoved\tx\tapp\n"), Parked::default());
+    }
 
     #[test]
     fn starts_only_when_enabled_recording_and_worn() {

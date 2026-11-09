@@ -21,9 +21,13 @@ pub fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // Unique per write: two threads saving the same file at once must not
+    // share (and interleave in) one temp file.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = path.with_extension(format!(
-        "tmp.{}",
-        std::process::id()
+        "tmp.{}.{}",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)
@@ -220,10 +224,41 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn load() -> Self {
-        std::fs::read_to_string(get_app_settings_path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        let path = get_app_settings_path();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        match serde_json::from_str(&text) {
+            Ok(settings) => settings,
+            Err(e) => {
+                // Defaults are used, and the next save would replace the file
+                // with them: keep a copy of what was there (once per run).
+                static WARNED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let backup = path.with_extension("json.unreadable");
+                    let _ = std::fs::copy(&path, &backup);
+                    log::warn!(
+                        "Could not read {} ({}); using defaults. A copy was kept at {}",
+                        path.display(),
+                        e,
+                        backup.display()
+                    );
+                }
+                Self::default()
+            }
+        }
+    }
+
+    /// Change settings on disk: load, apply `change`, save, as one step. The
+    /// window and several backend tasks all write this file; separate
+    /// load()/save() calls from two of them would drop one side's change.
+    pub fn update(change: impl FnOnce(&mut AppSettings)) {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut settings = Self::load();
+        change(&mut settings);
+        settings.save();
     }
 
     pub fn save(&self) {
