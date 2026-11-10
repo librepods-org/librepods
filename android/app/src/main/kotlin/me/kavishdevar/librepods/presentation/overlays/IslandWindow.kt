@@ -25,6 +25,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
@@ -227,6 +228,10 @@ class IslandWindow(
             setupComposeView()
         }
 
+        // Set the state first so the window is laid out at the expanded width; a wrap_content
+        // window is first measured at the platform's preferred dialog width and would clip the island.
+        islandState = forcedState?: if (appSettings.islandSettings.enableExpanded) IslandState.EXPANDED else IslandState.COMPACT
+
         if (composeView?.parent == null) {
             val params = createLayoutParams(islandState)
             try {
@@ -236,9 +241,9 @@ class IslandWindow(
             } catch (e: Exception) {
                 Log.e("IslandWindow", "Error adding overlay view: $e")
             }
+        } else {
+            updateWindowParams(islandState)
         }
-
-        islandState = forcedState?: if (appSettings.islandSettings.enableExpanded) IslandState.EXPANDED else IslandState.COMPACT
 
         if (!keepOpen) resetTimer()
     }
@@ -269,11 +274,16 @@ class IslandWindow(
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = appSettings.islandSettings.offsetX.roundToInt()
-            y = appSettings.islandSettings.offsetY.roundToInt()
+            // Accessibility overlays draw above the status bar; app overlays draw below it, so keep them clear of it.
+            val offsetY = appSettings.islandSettings.offsetY.roundToInt()
+            y = if (usingAccessibilityService) offsetY else maxOf(offsetY, statusBarHeight())
 
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
     }
+
+    private fun statusBarHeight(): Int =
+        windowManager.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars()).top
 
     private fun setupComposeView() {
         lifecycleOwner = IslandLifecycleOwner()

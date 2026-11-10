@@ -9,17 +9,17 @@ data class IslandSettings(
 
     val showListeningModeControl: Boolean = false,
 
-    val expandedHeight: Float = 300f,
-    val expandedWidth: Float = 800f,
-    val expandedBorderRadius: Float = 85f,
+    val expandedHeight: Float = 252f,
+    val expandedWidth: Float = 1008f,
+    val expandedBorderRadius: Float = 114f,
     val expandedBorderWidth: Float = 0f,
     val expandedBackgroundColor: OverlayBackgroundColor = OverlayBackgroundColor.Default(OverlayType.Island),
-    val expandedBackgroundAlpha: Float = 0.95f,
+    val expandedBackgroundAlpha: Float = 1f,
     val expandedUseMonochrome: Boolean = false,
     val expandedOpenAppOnTap: Boolean = false,
     val expandedBatteryStyle: OverlayBatteryStyle = OverlayBatteryStyle.CIRCLE_TEXT,
 
-    val fontSize: Float = 20f,
+    val fontSize: Float = 17f,
 
     val compactHeight: Float = 85f,
     val compactWidth: Float = 300f,
