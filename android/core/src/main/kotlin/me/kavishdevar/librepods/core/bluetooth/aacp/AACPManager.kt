@@ -21,8 +21,10 @@ package me.kavishdevar.librepods.core.bluetooth.aacp
 import android.bluetooth.BluetoothSocket
 import android.os.ParcelUuid
 import android.util.Log
+import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.core.bluetooth.aacp.packet.AACPPacket
@@ -73,6 +75,9 @@ class AACPManager(private val device: AppleDevice) {
 
     private var socket: BluetoothSocket? = null
 
+    private var readerJob: Job? = null
+    private var initJob: Job? = null
+
     private val rtBuddyManager = RTBuddyManager(::sendPacket)
 
     private suspend fun sendDelayedInitPackets() {
@@ -122,36 +127,54 @@ class AACPManager(private val device: AppleDevice) {
                 Log.i(TAG, "connected!")
             }
 
-            CoroutineScope(Dispatchers.IO).launch {
+            initJob?.cancel()
+            initJob = CoroutineScope(Dispatchers.IO).launch {
                 sendDelayedInitPackets()
                 delay(3.seconds) // just android stuff ig
                 sendDelayedInitPackets()
             }
 
-            CoroutineScope(Dispatchers.IO).launch {
+            // Cancel any reader left over from a previous socket before starting a new one,
+            // otherwise every reconnect leaks another reader against a dead socket.
+            readerJob?.cancel()
+            readerJob = CoroutineScope(Dispatchers.IO).launch {
                 Log.i(TAG, "starting to read data...")
 
-                while (socket.isConnected) {
-                    try {
+                try {
+                    while (socket.isConnected) {
                         val buffer = ByteArray(1024)
-                        val bytesRead = socket.inputStream.read(buffer)
-                        var data: ByteArray
+
+                        val bytesRead = try {
+                            socket.inputStream.read(buffer)
+                        } catch (e: IOException) {
+                            // A failed read on a Bluetooth socket is terminal. Retrying it spins
+                            // this coroutine at 100% CPU and floods the log, because the loop
+                            // condition below stays true until *we* close the socket.
+                            Log.i(TAG, "read failed, treating as disconnected: ${e.message}")
+                            break
+                        }
+
+                        if (bytesRead == -1) {
+                            // EOF: the peer tore the channel down (e.g. the AirPods were taken
+                            // by another device). read() returns -1 immediately and forever from
+                            // here on, so the loop must exit rather than log and continue.
+                            Log.i(TAG, "socket closed by peer (bytesRead = -1)")
+                            break
+                        }
+
                         if (bytesRead > 0) {
-                            data = buffer.copyOfRange(0, bytesRead)
+                            val data = buffer.copyOfRange(0, bytesRead)
                             try {
                                 processPacket(data)
                             } catch (e: Exception) {
+                                // A bad packet should not take the connection down.
                                 Log.e(TAG, "Error processing received packet: ${e.message}")
                                 e.printStackTrace()
                             }
-
-                        } else if (bytesRead == -1) {
-                            Log.i("AirPodsService", "socket closed (bytesRead = -1)")
                         }
-                    } catch (e: Exception) {
-                        Log.i(TAG, "Error reading data, we have probably disconnected.")
-                        e.printStackTrace()
                     }
+                } finally {
+                    Log.i(TAG, "stopped reading data")
                 }
             }
         } ?: run {
@@ -1028,6 +1051,10 @@ class AACPManager(private val device: AppleDevice) {
     }
 
     fun disconnect() {
+        readerJob?.cancel()
+        readerJob = null
+        initJob?.cancel()
+        initJob = null
         try {
             socket?.close()
         } catch (e: Exception) {
