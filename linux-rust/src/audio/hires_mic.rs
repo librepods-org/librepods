@@ -353,7 +353,7 @@ async fn monitor_loop(
         }
 
         match action {
-            CaptureAction::Start if Instant::now() < next_start_at => {}
+            CaptureAction::Start if !ear_known || Instant::now() < next_start_at => {}
             CaptureAction::Start => {
                 info!("[hires] recorder detected ({:?}), starting capture", app);
                 let new_capture = start_capture(&aacp, &addr, &status).await;
@@ -608,11 +608,34 @@ impl Parked {
 
 static SHARED_MIC: Mutex<Option<SharedMic>> = Mutex::new(None);
 
-/// Parked state, kept next to the FIFO so a restarted LibrePods that adopts the
-/// mic can still undo it.
+/// Parked state, kept on disk so it can still be undone by a later run. It is
+/// in the state directory rather than next to the FIFO because it must outlive
+/// the session: parking at shutdown makes another mic the default, and the
+/// session manager remembers that default across a reboot. Without this file
+/// the AirPods mic would then never become the default again by itself.
 fn parked_path() -> String {
-    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-    format!("{dir}/librepods-hires.parked")
+    let dir = std::env::var("XDG_STATE_HOME").unwrap_or_else(|_| {
+        format!("{}/.local/state", std::env::var("HOME").unwrap_or_default())
+    });
+    format!("{dir}/librepods/hires-mic.parked")
+}
+
+/// Parked state saved by an earlier run or before the sound server restarted,
+/// for a virtual mic that was created anew since. The default-mic switch can
+/// still be undone. The moved recorders can't: their stream indices belong to
+/// the old sound server and may now name other apps' streams.
+fn carried_over(parked: Option<Parked>) -> Option<Parked> {
+    let default_set = parked?.default_set?;
+    Some(Parked {
+        default_set: Some(default_set),
+        moved: Vec::new(),
+    })
+}
+
+fn load_parked() -> Option<Parked> {
+    std::fs::read_to_string(parked_path())
+        .ok()
+        .map(|t| Parked::parse(&t))
 }
 
 fn save_parked(parked: Option<&Parked>) {
@@ -690,16 +713,16 @@ fn acquire_mic(description: &str) -> Option<bool> {
                     true,
                 ),
             };
-            // An earlier run may have parked the adopted mic; keep that state
-            // so the monitor can undo it once a bud is worn. A freshly
-            // created mic has nothing to undo.
+            // An earlier run may have parked the mic; keep that state so the
+            // monitor can undo it once a bud is worn. For a freshly created
+            // mic (after a reboot or logout) only the default-mic switch is
+            // left to undo.
             let parked = if created {
-                save_parked(None);
-                None
+                let parked = carried_over(load_parked());
+                save_parked(parked.as_ref());
+                parked
             } else {
-                std::fs::read_to_string(parked_path())
-                    .ok()
-                    .map(|t| Parked::parse(&t))
+                load_parked()
             };
             *guard = Some(SharedMic {
                 vmic,
@@ -788,16 +811,20 @@ fn recreate_mic(description: &str) -> bool {
     let Some(fresh) = VirtualMic::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8, description) else {
         return false;
     };
-    save_parked(None);
+    // If it was parked it still is: the default mic is the one parking chose,
+    // and that is to be undone once a bud is worn.
     match guard.as_mut() {
         Some(mic) => {
             std::mem::forget(std::mem::replace(&mut mic.vmic, fresh));
-            mic.parked = None;
+            mic.parked = carried_over(mic.parked.take());
+            save_parked(mic.parked.as_ref());
         }
         None => {
+            let parked = carried_over(load_parked());
+            save_parked(parked.as_ref());
             *guard = Some(SharedMic {
                 vmic: fresh,
-                parked: None,
+                parked,
                 users: 1,
                 generation: 1,
             });
@@ -975,7 +1002,7 @@ fn spawn_decode_thread(
 
 #[cfg(test)]
 mod tests {
-    use super::{CaptureAction, Parked, capture_action};
+    use super::{CaptureAction, Parked, capture_action, carried_over};
     use crate::audio::output::Recorder;
 
     #[test]
@@ -990,6 +1017,24 @@ mod tests {
         assert_eq!(Parked::parse(&parked.serialize()), parked);
         assert_eq!(Parked::parse(""), Parked::default());
         assert_eq!(Parked::parse("garbage\nmoved\tx\tapp\n"), Parked::default());
+    }
+
+    #[test]
+    fn only_the_default_switch_survives_a_new_mic() {
+        let parked = Parked {
+            default_set: Some("alsa_input.usb-mic.mono-fallback".into()),
+            moved: vec![Recorder { index: 7, app: Some("app".into()) }],
+        };
+        let kept = carried_over(Some(parked)).expect("default switch is kept");
+        assert_eq!(kept.default_set.as_deref(), Some("alsa_input.usb-mic.mono-fallback"));
+        assert!(kept.moved.is_empty());
+        // Nothing to undo: not parked any more.
+        let moved_only = Parked {
+            default_set: None,
+            moved: vec![Recorder { index: 7, app: None }],
+        };
+        assert_eq!(carried_over(Some(moved_only)), None);
+        assert_eq!(carried_over(None), None);
     }
 
     #[test]
