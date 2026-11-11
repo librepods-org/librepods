@@ -1,3 +1,5 @@
+use crate::audio::card::{self, CardRef};
+use crate::audio::output::{connect, wait_op};
 use crate::bluetooth::aacp::AACPManager;
 use crate::bluetooth::aacp::EarDetectionStatus;
 use dbus::arg::RefArg;
@@ -5,10 +7,7 @@ use dbus::blocking::Connection;
 use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
 use libpulse_binding::callbacks::ListResult;
 use libpulse_binding::context::introspect::SinkInfo;
-use libpulse_binding::context::{Context, FlagSet as ContextFlagSet};
 use libpulse_binding::def::Retval;
-use libpulse_binding::mainloop::standard::Mainloop;
-use libpulse_binding::operation::State as OperationState;
 use libpulse_binding::proplist::Proplist;
 use libpulse_binding::volume::{ChannelVolumes, Volume};
 use log::{debug, error, info, warn};
@@ -46,13 +45,26 @@ struct MediaControllerState {
     device_index: Option<u32>,
     cached_a2dp_profile: String,
     old_in_ear_data: Vec<bool>,
-    user_played_the_media: bool,
-    i_paused_the_media: bool,
     ear_detection_enabled: bool,
-    disconnect_when_not_wearing: bool,
+    /// Playback streams that were on the AirPods when we switched the card off,
+    /// moved back when the card comes back.
+    saved_streams: Vec<card::SavedStream>,
     conv_original_volume: Option<u32>,
     conv_conversation_started: bool,
     playback_listener_running: bool,
+    /// Last seen hi-res mic state, to detect a call starting.
+    mic_was_active: bool,
+    /// Last seen "another device is playing / in a call on the AirPods".
+    other_was_active: bool,
+    /// Desktop default-device refresh done for this connection.
+    default_refreshed: bool,
+    /// When the AirPods were last claimed from other devices (see
+    /// take_over_audio); None once another device uses them or their audio is
+    /// switched off here.
+    last_takeover: Option<std::time::Instant>,
+    /// The AirPods disconnected: delayed work for this connection must not act
+    /// any more (a new connection has its own controller).
+    connection_ended: bool,
 }
 
 impl MediaControllerState {
@@ -65,10 +77,13 @@ impl MediaControllerState {
             device_index: None,
             cached_a2dp_profile: String::new(),
             old_in_ear_data: vec![false, false],
-            user_played_the_media: false,
-            i_paused_the_media: false,
             ear_detection_enabled: true,
-            disconnect_when_not_wearing: true,
+            saved_streams: Vec::new(),
+            mic_was_active: false,
+            other_was_active: false,
+            default_refreshed: false,
+            last_takeover: None,
+            connection_ended: false,
             conv_original_volume: None,
             conv_conversation_started: false,
             playback_listener_running: false,
@@ -79,6 +94,10 @@ impl MediaControllerState {
 #[derive(Clone)]
 pub struct MediaController {
     state: Arc<Mutex<MediaControllerState>>,
+    /// Held for a whole activate / deactivate (and the debounced "still no bud
+    /// in?" check + deactivate), so switching the AirPods' audio on and off can't
+    /// interleave. The profile lock in audio::card only covers single changes.
+    routing: Arc<Mutex<()>>,
 }
 
 impl MediaController {
@@ -88,6 +107,7 @@ impl MediaController {
         state.local_mac = local_mac;
         MediaController {
             state: Arc::new(Mutex::new(state)),
+            routing: Arc::new(Mutex::new(())),
         }
     }
 
@@ -125,60 +145,133 @@ impl MediaController {
     ) {
         info!("Starting playback listener loop");
         loop {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::select! {
+                _ = aacp_manager.disconnected() => {
+                    info!("AirPods disconnected, stopping playback listener");
+                    let mut state = self.state.lock().await;
+                    state.playback_listener_running = false;
+                    state.connection_ended = true;
+                    return;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+            }
 
             let is_playing = tokio::task::spawn_blocking(|| Self::check_if_playing())
                 .await
                 .unwrap_or(false);
+            // An app opening the hi-res mic (e.g. joining a voice call) is the
+            // call equivalent of "playback started": calls aren't MPRIS players,
+            // so without this a call would never take the AirPods back from
+            // another device.
+            let mic_active = aacp_manager.mic_active();
+            let local_mac = self.state.lock().await.local_mac.clone();
+            let other_active = aacp_manager.other_device_using_audio(&local_mac).await;
 
             let mut state = self.state.lock().await;
             let was_playing = state.is_playing;
             state.is_playing = is_playing;
-            let local_mac = state.local_mac.clone();
+            let was_mic_active = std::mem::replace(&mut state.mic_was_active, mic_active);
+            let other_was_active = std::mem::replace(&mut state.other_was_active, other_active);
+            if other_active {
+                // Another device has the AirPods now: the next start here must
+                // claim them again.
+                state.last_takeover = None;
+            }
             drop(state);
 
             if !was_playing && is_playing {
-                let aacp_state = aacp_manager.state.lock().await;
-                if !aacp_state
-                    .ear_detection_status
-                    .contains(&EarDetectionStatus::InEar)
-                {
-                    info!("Media playback started but buds not in ear, skipping takeover");
-                    continue;
-                }
-                info!("Media playback started, taking ownership and activating a2dp");
-                let _ = control_tx.send((
-                    crate::bluetooth::aacp::ControlCommandIdentifiers::OwnsConnection,
-                    vec![0x01],
-                ));
-                self.activate_a2dp_profile().await;
-
-                info!("already connected locally, hijacking connection by asking AirPods");
-
-                let connected_devices = aacp_state.connected_devices.clone();
-                for device in connected_devices {
-                    if device.mac != local_mac {
-                        if let Err(e) = aacp_manager
-                            .send_media_information(&local_mac, &device.mac, true)
-                            .await
-                        {
-                            error!("Failed to send media information to {}: {}", device.mac, e);
-                        }
-                        if let Err(e) = aacp_manager.send_smart_routing_show_ui(&device.mac).await {
-                            error!(
-                                "Failed to send smart routing show ui to {}: {}",
-                                device.mac, e
-                            );
-                        }
-                        if let Err(e) = aacp_manager.send_hijack_request(&device.mac).await {
-                            error!("Failed to send hijack request to {}: {}", device.mac, e);
-                        }
-                    }
-                }
-
-                debug!("completed playback takeover process");
+                self.take_over_audio(&aacp_manager, &control_tx, "Media playback started")
+                    .await;
+            } else if !was_mic_active && mic_active {
+                self.take_over_audio(&aacp_manager, &control_tx, "Hi-res mic started")
+                    .await;
+            } else if other_was_active && !other_active && (mic_active || is_playing) {
+                // E.g. a phone call on an iPhone took the AirPods in the middle
+                // of a voice call here. When it ends nothing else would bring
+                // them back: the mic never stopped, so there is no new start.
+                self.take_over_audio(
+                    &aacp_manager,
+                    &control_tx,
+                    "Other device released the AirPods during a call or playback",
+                )
+                .await;
             }
         }
+    }
+
+    /// Claim the AirPods for this computer: tell them we own the connection,
+    /// bring up A2DP and ask other connected devices (iPhone) to let go.
+    async fn take_over_audio(
+        &self,
+        aacp_manager: &AACPManager,
+        control_tx: &tokio::sync::mpsc::UnboundedSender<(
+            crate::bluetooth::aacp::ControlCommandIdentifiers,
+            Vec<u8>,
+        )>,
+        reason: &str,
+    ) {
+        // Copy what we need and release the AACP state lock right away: sending
+        // packets takes the same lock (holding it here would deadlock when
+        // another device is listed), and holding it through A2DP activation
+        // would stall all AirPods packet handling.
+        let (worn, connected_devices) = {
+            let aacp_state = aacp_manager.state.lock().await;
+            (
+                aacp_state
+                    .ear_detection_status
+                    .contains(&EarDetectionStatus::InEar),
+                aacp_state.connected_devices.clone(),
+            )
+        };
+        if !worn {
+            info!("{} but buds not in ear, skipping takeover", reason);
+            return;
+        }
+        // Players report "Playing" again on every seek, track change or new
+        // video. Claiming the AirPods each time floods them (and the other
+        // device, which shows a handover banner) with ownership and hijack
+        // packets although nothing changed since the last claim.
+        let claimed_recently = self
+            .state
+            .lock()
+            .await
+            .last_takeover
+            .is_some_and(|t| t.elapsed() < TAKEOVER_REPEAT_GUARD);
+        if claimed_recently {
+            debug!("{}; the AirPods were claimed moments ago, nothing to do", reason);
+            return;
+        }
+        info!("{}, taking ownership and activating a2dp", reason);
+        let _ = control_tx.send((
+            crate::bluetooth::aacp::ControlCommandIdentifiers::OwnsConnection,
+            vec![0x01],
+        ));
+        self.activate_a2dp_profile().await;
+
+        let local_mac = self.state.lock().await.local_mac.clone();
+        for device in connected_devices {
+            if device.mac == local_mac {
+                continue;
+            }
+            info!("Asking AirPods to hand over from {}", device.mac);
+            if let Err(e) = aacp_manager
+                .send_media_information(&local_mac, &device.mac, true)
+                .await
+            {
+                error!("Failed to send media information to {}: {}", device.mac, e);
+            }
+            if let Err(e) = aacp_manager.send_smart_routing_show_ui(&device.mac).await {
+                error!(
+                    "Failed to send smart routing show ui to {}: {}",
+                    device.mac, e
+                );
+            }
+            if let Err(e) = aacp_manager.send_hijack_request(&device.mac).await {
+                error!("Failed to send hijack request to {}: {}", device.mac, e);
+            }
+        }
+        self.state.lock().await.last_takeover = Some(std::time::Instant::now());
+        debug!("completed takeover process");
     }
 
     fn check_if_playing() -> bool {
@@ -199,16 +292,14 @@ impl MediaController {
         service.starts_with("org.mpris.MediaPlayer2.kdeconnect.mpris_")
     }
 
+    /// `other_device_active`: another device (iPhone) is currently playing or
+    /// in a call on the AirPods; then a bud going in doesn't pull audio here.
     pub async fn handle_ear_detection(
         &self,
         old_statuses: Vec<EarDetectionStatus>,
         new_statuses: Vec<EarDetectionStatus>,
+        other_device_active: bool,
     ) {
-        debug!(
-            "Entering handle_ear_detection with old_statuses: {:?}, new_statuses: {:?}",
-            old_statuses, new_statuses
-        );
-
         let old_in_ear_data: Vec<bool> = old_statuses
             .iter()
             .map(|s| *s == EarDetectionStatus::InEar)
@@ -217,91 +308,113 @@ impl MediaController {
             .iter()
             .map(|s| *s == EarDetectionStatus::InEar)
             .collect();
-
-        let in_ear = new_in_ear_data.iter().all(|&b| b);
-        let old_all_out = old_in_ear_data.iter().all(|&b| !b);
-        let new_has_at_least_one_in = new_in_ear_data.iter().any(|&b| b);
-        let new_all_out = new_in_ear_data.iter().all(|&b| !b);
-
-        debug!(
-            "Computed states: in_ear={}, old_all_out={}, new_has_at_least_one_in={}, new_all_out={}",
-            in_ear, old_all_out, new_has_at_least_one_in, new_all_out
+        info!(
+            "Ear Detection - old_in_ear_data: {:?}, new_in_ear_data: {:?}",
+            old_in_ear_data, new_in_ear_data
         );
 
         {
-            let state = self.state.lock().await;
+            let mut state = self.state.lock().await;
+            state.old_in_ear_data = new_in_ear_data.clone();
             if !state.ear_detection_enabled {
                 debug!("Ear detection disabled, skipping");
                 return;
             }
         }
 
-        if new_has_at_least_one_in && old_all_out {
-            debug!("Condition met: buds inserted, activating A2DP and checking play state");
-            self.activate_a2dp_profile().await;
-            {
-                let mut state = self.state.lock().await;
-                if state.is_playing {
-                    state.user_played_the_media = true;
-                    debug!("Set user_played_the_media to true as media was playing");
-                }
-            }
-        } else if new_all_out {
-            debug!("Condition met: buds removed, pausing media");
-            self.pause().await;
-            {
-                let state = self.state.lock().await;
-                if state.disconnect_when_not_wearing {
-                    debug!("Disconnect when not wearing enabled, deactivating A2DP");
-                    drop(state);
-                    self.deactivate_a2dp_profile().await;
-                }
-            }
-        }
-
-        let reset_user_played = (old_in_ear_data.iter().any(|&b| !b)
-            && new_in_ear_data.iter().all(|&b| b))
-            || (new_in_ear_data.iter().any(|&b| !b) && old_in_ear_data.iter().all(|&b| b));
-        if reset_user_played {
-            debug!("Transition detected, resetting user_played_the_media");
-            let mut state = self.state.lock().await;
-            state.user_played_the_media = false;
-        }
-
-        info!(
-            "Ear Detection - old_in_ear_data: {:?}, new_in_ear_data: {:?}",
-            old_in_ear_data, new_in_ear_data
+        let settings = crate::utils::AppSettings::load();
+        let mut actions = ear_actions(
+            &old_in_ear_data,
+            &new_in_ear_data,
+            settings.audio_off_when_not_wearing,
+            settings.pause_when_one_removed,
         );
+        if actions.activate_a2dp && other_device_active {
+            // Putting a bud in must not pull the AirPods away from another device
+            // that is playing or in a call (that would bypass the ownership
+            // handover). Playing media or joining a call here still takes over.
+            info!("Another device is using the AirPods; not switching audio here");
+            actions.activate_a2dp = false;
+            actions.resume = false;
+        }
+        debug!("Ear actions: {:?}", actions);
 
-        let mut old_sorted = old_in_ear_data.clone();
-        old_sorted.sort();
-        let mut new_sorted = new_in_ear_data.clone();
-        new_sorted.sort();
-        if new_sorted != old_sorted {
-            debug!("Ear data changed, checking resume/pause logic");
-            if in_ear {
-                debug!("Resuming media as buds are in ear");
-                self.resume().await;
-                self.state.lock().await.i_paused_the_media = false;
-            } else if !old_all_out {
-                debug!("Pausing media as buds are not fully in ear");
+        if !new_in_ear_data.iter().any(|&b| b) {
+            // Conversation awareness may have ducked the volume to 25%; with no
+            // bud worn it would stay there.
+            self.end_conversation_ducking().await;
+        }
+        if actions.pause {
+            // Only pause if something is playing to the AirPods: taking them off
+            // shouldn't pause music playing on the speakers or another headset.
+            if self.airpods_have_streams().await {
                 self.pause().await;
-                self.state.lock().await.i_paused_the_media = true;
             } else {
-                debug!("Playing media");
-                self.resume().await;
-                self.state.lock().await.i_paused_the_media = false;
+                debug!("Nothing playing on the AirPods; not pausing");
             }
         }
-
-        {
-            let mut state = self.state.lock().await;
-            state.old_in_ear_data = new_in_ear_data;
-            debug!("Updated old_in_ear_data to {:?}", state.old_in_ear_data);
+        if actions.activate_a2dp {
+            self.activate_a2dp_profile().await;
+        }
+        if actions.resume {
+            self.resume().await;
+        }
+        if actions.deactivate_a2dp {
+            // Debounced: adjusting a bud briefly reports both out. Media is
+            // already paused; only switch the output if nobody put a bud back.
+            let controller = self.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(AUDIO_OFF_DEBOUNCE).await;
+                // Right after connecting the sound server may not have the
+                // AirPods' card yet. It appears with A2DP on (and usually as the
+                // default output), so keep trying for a while: otherwise sound
+                // would go to AirPods nobody wears.
+                for attempt in 0..CARD_OFF_ATTEMPTS {
+                    {
+                        // Check and switch under the routing lock: a bud going
+                        // back in right now either sees the card already off
+                        // (and turns it back on) or makes still_out false here.
+                        // Without the lock, the bud-in path could see A2DP still
+                        // on, do nothing, and then this would switch it off with
+                        // a bud in.
+                        let _routing = controller.routing.lock().await;
+                        let (ended, still_out) = {
+                            let state = controller.state.lock().await;
+                            (
+                                state.connection_ended,
+                                !state.old_in_ear_data.iter().any(|&b| b),
+                            )
+                        };
+                        if ended {
+                            // The card found now would belong to a new connection
+                            // (which may well have a bud in an ear).
+                            debug!("AirPods disconnected meanwhile; not switching audio");
+                            return;
+                        }
+                        if !still_out {
+                            debug!("Bud back in ear within debounce; keeping AirPods audio");
+                            return;
+                        }
+                        if attempt == 0 {
+                            info!("No bud in ear; switching audio to another output");
+                        }
+                        if controller.deactivate_a2dp_profile_locked().await {
+                            return;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                warn!("Could not switch the AirPods' audio off (no bud in ear)");
+            });
         }
     }
 
     pub async fn activate_a2dp_profile(&self) {
+        let _routing = self.routing.lock().await;
+        self.activate_a2dp_profile_locked().await;
+    }
+
+    async fn activate_a2dp_profile_locked(&self) {
         debug!("Entering activate_a2dp_profile");
         let state = self.state.lock().await;
 
@@ -310,40 +423,37 @@ impl MediaController {
             return;
         }
 
-        let device_index = state.device_index;
         let mac = state.connected_device_mac.clone();
         drop(state);
 
-        let mut current_device_index = device_index;
-
-        if current_device_index.is_none() {
-            warn!("Device index not found, trying to get it.");
-            current_device_index = self.get_audio_device_index(&mac).await;
-            if let Some(idx) = current_device_index {
+        // Look the card up fresh and wait for its A2DP profiles: right after the
+        // AirPods connect, ear detection can arrive before PipeWire has created
+        // the bluez card or before BlueZ has connected A2DP, and the card index
+        // changes whenever the card is recreated. A WirePlumber restart is only
+        // a last resort (it cuts every audio stream).
+        let mut ready = false;
+        for attempt in 0..A2DP_WAIT_ATTEMPTS {
+            if let Some(idx) = self.get_audio_device_index(&mac).await {
                 self.state.lock().await.device_index = Some(idx);
-            } else {
-                warn!("Could not get device index. Cannot activate A2DP profile.");
-                return;
+                if self.is_a2dp_profile_available().await {
+                    ready = true;
+                    break;
+                }
             }
+            debug!("A2DP not available yet (attempt {}), waiting", attempt + 1);
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
 
-        if !self.is_a2dp_profile_available().await {
-            warn!("A2DP profile not available, attempting to restart WirePlumber");
-            if self.restart_wire_plumber().await {
-                let mut state = self.state.lock().await;
-                state.device_index = self
-                    .get_audio_device_index(&state.connected_device_mac)
-                    .await;
-                debug!(
-                    "Updated device_index after WirePlumber restart: {:?}",
-                    state.device_index
-                );
-                if !self.is_a2dp_profile_available().await {
-                    error!("A2DP profile still not available after WirePlumber restart");
-                    return;
-                }
-            } else {
-                error!("Could not restart WirePlumber, A2DP profile unavailable");
+        if !ready {
+            warn!("A2DP profile still not available after waiting");
+            if !self.restart_wire_plumber_last_resort().await {
+                return;
+            }
+            // Note: no state lock held across these calls (they take it).
+            let idx = self.get_audio_device_index(&mac).await;
+            self.state.lock().await.device_index = idx;
+            if idx.is_none() || !self.is_a2dp_profile_available().await {
+                error!("A2DP profile still not available after WirePlumber restart");
                 return;
             }
         }
@@ -356,15 +466,38 @@ impl MediaController {
 
         let device_index = self.state.lock().await.device_index;
         if let Some(idx) = device_index {
+            let active = tokio::task::spawn_blocking(move || {
+                card::active_profile(CardRef::Index(idx))
+            })
+            .await
+            .unwrap_or(None);
+            if active.as_deref() == Some(preferred_profile.as_str()) {
+                // Re-setting the same profile restarts the transport for nothing.
+                debug!("A2DP profile {} already active", preferred_profile);
+                self.restore_saved_streams(idx).await;
+                self.restore_pending_conv_volume().await;
+                // First activation after (re)connecting: the sink just appeared.
+                self.refresh_desktop_default(false).await;
+                return;
+            }
             info!("Activating A2DP profile for AirPods: {}", preferred_profile);
             let profile_name = preferred_profile.clone();
-            let success =
-                tokio::task::spawn_blocking(move || set_card_profile_sync(idx, &profile_name))
-                    .await
-                    .unwrap_or(false);
+            let success = tokio::task::spawn_blocking(move || {
+                card::set_profile(CardRef::Index(idx), &profile_name)
+            })
+            .await
+            .unwrap_or(false);
 
             if success {
                 info!("Successfully activated A2DP profile: {}", preferred_profile);
+                // Fresh transport: a hi-res A2DP reset requested before this
+                // can be skipped (see hires_mic::schedule_a2dp_reset).
+                if active.as_deref().is_none_or(|p| !p.starts_with("a2dp")) {
+                    card::note_activated();
+                }
+                self.restore_saved_streams(idx).await;
+                self.restore_pending_conv_volume().await;
+                self.refresh_desktop_default(true).await;
             } else {
                 warn!("Failed to activate A2DP profile: {}", preferred_profile);
             }
@@ -564,7 +697,9 @@ impl MediaController {
             return cached_profile;
         }
 
-        for profile in ["a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp-sink"] {
+        // Prefer AAC ("a2dp-sink"): the AirPods' native codec, and lighter on the
+        // link than SBC-XQ while the hi-res mic stream shares it.
+        for profile in ["a2dp-sink", "a2dp-sink-sbc_xq", "a2dp-sink-sbc"] {
             if self.is_profile_available(index, profile).await {
                 info!("Selected best available A2DP profile: {}", profile);
                 self.state.lock().await.cached_a2dp_profile = profile.to_string();
@@ -594,14 +729,44 @@ impl MediaController {
             .unwrap_or(false)
     }
 
-    async fn restart_wire_plumber(&self) -> bool {
+    /// Restart WirePlumber only as a last resort: it drops every audio stream
+    /// (including an ongoing call), so never during hi-res capture and at most
+    /// once per WIREPLUMBER_RESTART_COOLDOWN across the whole process.
+    async fn restart_wire_plumber_last_resort(&self) -> bool {
+        if crate::audio::hires_mic::any_capture_active() {
+            warn!("Not restarting WirePlumber during an active mic capture");
+            return false;
+        }
+        // A restart removes and re-adds every audio device. An app recording
+        // from any microphone is most likely in a call, which that would cut
+        // (and Discord's voice engine aborts when devices come and go).
+        let recording = tokio::task::spawn_blocking(crate::audio::output::any_recorder)
+            .await
+            .unwrap_or(true);
+        if recording {
+            warn!("Not restarting WirePlumber while an app is recording");
+            return false;
+        }
+        {
+            let mut last = LAST_WIREPLUMBER_RESTART
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if last.is_some_and(|t| t.elapsed() < WIREPLUMBER_RESTART_COOLDOWN) {
+                warn!("WirePlumber was restarted recently; not restarting again");
+                return false;
+            }
+            *last = Some(std::time::Instant::now());
+        }
         info!("Restarting WirePlumber to rediscover A2DP profiles");
-        let result = Command::new("systemctl")
-            .args(["--user", "restart", "wireplumber"])
-            .output();
+        let result = tokio::task::spawn_blocking(|| {
+            Command::new("systemctl")
+                .args(["--user", "restart", "wireplumber"])
+                .output()
+        })
+        .await;
 
         match result {
-            Ok(output) if output.status.success() => {
+            Ok(Ok(output)) if output.status.success() => {
                 info!("WirePlumber restarted successfully");
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 true
@@ -624,11 +789,11 @@ impl MediaController {
                 if let Some(device_string) = card.proplist.get_str("device.string")
                     && device_string.contains(&mac_clone)
                 {
-                    info!("Found audio device index for MAC {}: {}", mac_clone, card.index);
+                    debug!("Found audio device index for MAC {}: {}", mac_clone, card.index);
                     return Some(card.index);
                 }
             }
-            error!("No matching Bluetooth card found for MAC address: {}", mac_clone);
+            debug!("No matching Bluetooth card found for MAC address: {}", mac_clone);
             None
         })
             .await
@@ -636,30 +801,50 @@ impl MediaController {
     }
 
     pub async fn deactivate_a2dp_profile(&self) {
+        let _routing = self.routing.lock().await;
+        self.deactivate_a2dp_profile_locked().await;
+    }
+
+    /// Returns false if the card profile could not be switched off (e.g. the
+    /// card doesn't exist yet).
+    async fn deactivate_a2dp_profile_locked(&self) -> bool {
         debug!("Entering deactivate_a2dp_profile");
         let mut state = self.state.lock().await;
+        // The AirPods' audio is given up here: claim them again on the next start.
+        state.last_takeover = None;
 
-        if state.device_index.is_none() {
-            state.device_index = self
-                .get_audio_device_index(&state.connected_device_mac)
-                .await;
-        }
+        // Fresh lookup: a cached index is stale once the card was recreated
+        // (reconnect, PipeWire restart), and setting a profile on it fails.
+        // (get_audio_device_index doesn't take the state lock.)
+        state.device_index = self
+            .get_audio_device_index(&state.connected_device_mac)
+            .await;
 
         if state.connected_device_mac.is_empty() || state.device_index.is_none() {
-            warn!("Connected device MAC or index is empty, cannot deactivate A2DP profile");
-            return;
+            debug!("No sound card for the AirPods (yet); cannot switch its profile off");
+            return false;
         }
         let device_index = state.device_index.unwrap();
         drop(state);
+
+        // Remember which apps were playing to the AirPods; streams that target
+        // the AirPods explicitly don't follow the default sink back by themselves.
+        let streams = tokio::task::spawn_blocking(move || card::streams_on_card(device_index))
+            .await
+            .unwrap_or_default();
+        if !streams.is_empty() {
+            debug!("Saving {} stream(s) to move back later", streams.len());
+            self.state.lock().await.saved_streams = streams;
+        }
 
         info!("Deactivating A2DP profile for AirPods by setting to off");
 
         let success = tokio::task::spawn_blocking(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                set_card_profile_sync(device_index, "off")
+                card::set_profile(CardRef::Index(device_index), "off")
             }))
                 .unwrap_or_else(|e| {
-                    warn!("Panic in set_card_profile_sync: {:?}", e);
+                    warn!("Panic while switching the card profile off: {:?}", e);
                     false
                 })
         })
@@ -671,6 +856,7 @@ impl MediaController {
         } else {
             warn!("Failed to deactivate A2DP profile");
         }
+        success
     }
 
     pub async fn handle_conversational_awareness(&self, status: u8) {
@@ -702,13 +888,23 @@ impl MediaController {
 
         match status {
             1 => {
-                let original = current_volume_opt.unwrap_or(0);
+                // Without the current volume there is nothing to restore to
+                // later (restoring a made-up 0% would mute the AirPods).
+                let Some(original) = current_volume_opt else {
+                    warn!("Could not read the AirPods volume; not lowering it");
+                    return;
+                };
                 debug!("Conversation start (1). Current volume: {}", original);
                 {
                     let mut state = self.state.lock().await;
                     if !state.conv_conversation_started {
                         state.conv_original_volume = Some(original);
                         state.conv_conversation_started = true;
+                        // Persist it so a disconnect mid-conversation can't leave
+                        // the AirPods at 25% (restored on the next activation).
+                        crate::utils::AppSettings::update(|s| {
+                            s.conv_volume_restore = Some(original)
+                        });
                     } else {
                         debug!(
                             "Conversation already started; not overwriting conv_original_volume"
@@ -859,6 +1055,87 @@ impl MediaController {
                 .await
                 .unwrap_or(false);
         }
+        clear_pending_conv_volume();
+    }
+
+    /// After the AirPods' sink (re)appears, make desktop volume controls pick
+    /// up the default again (see card::refresh_default). `force`: the sink was
+    /// just recreated; otherwise only once per connection.
+    async fn refresh_desktop_default(&self, force: bool) {
+        let mac = {
+            let mut state = self.state.lock().await;
+            if state.default_refreshed && !force {
+                return;
+            }
+            state.default_refreshed = true;
+            state.connected_device_mac.clone()
+        };
+        tokio::spawn(async move {
+            // Give desktop clients time to learn about the new sink first.
+            tokio::time::sleep(DEFAULT_REFRESH_DELAY).await;
+            if let Some(sink) = get_sink_name_by_mac(&mac).await {
+                let _ = tokio::task::spawn_blocking(move || {
+                    // The refresh briefly makes another output the default,
+                    // and streams that follow the default go with it: anything
+                    // playing would come out of the speakers for a moment.
+                    if card::any_playing() {
+                        debug!("[pw] audio is playing; not refreshing the default output");
+                        return;
+                    }
+                    card::refresh_default(card::DefaultKind::Sink, &sink)
+                })
+                .await;
+            }
+        });
+    }
+
+    /// Restore the volume if conversation awareness ducked it.
+    async fn end_conversation_ducking(&self) {
+        let (started, mac) = {
+            let state = self.state.lock().await;
+            (state.conv_conversation_started, state.connected_device_mac.clone())
+        };
+        if !started {
+            return;
+        }
+        if let Some(sink) = get_sink_name_by_mac(&mac).await {
+            info!("No bud in ear; restoring the volume lowered by conversation awareness");
+            self.restore_volume_if_needed(&sink).await;
+        }
+    }
+
+    /// A volume ducked by conversation awareness whose restore was cut short by
+    /// a disconnect: apply it once the AirPods' sink exists again.
+    async fn restore_pending_conv_volume(&self) {
+        let Some(volume) = crate::utils::AppSettings::load().conv_volume_restore else {
+            return;
+        };
+        if self.state.lock().await.conv_conversation_started {
+            return; // a conversation is in progress now; it restores at its end
+        }
+        let mac = self.state.lock().await.connected_device_mac.clone();
+        for _ in 0..10 {
+            if let Some(sink) = get_sink_name_by_mac(&mac).await {
+                info!("Restoring volume {}% left lowered by an interrupted conversation", volume);
+                tokio::task::spawn_blocking(move || transition_sink_volume(&sink, volume))
+                    .await
+                    .unwrap_or(false);
+                clear_pending_conv_volume();
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    }
+
+    /// True if any playback stream is going to the AirPods right now.
+    async fn airpods_have_streams(&self) -> bool {
+        let mac = self.state.lock().await.connected_device_mac.clone();
+        let Some(idx) = self.get_audio_device_index(&mac).await else {
+            return false;
+        };
+        tokio::task::spawn_blocking(move || !card::streams_on_card(idx).is_empty())
+            .await
+            .unwrap_or(true)
     }
 
     fn list_mpris_services(conn: &Connection) -> Vec<String> {
@@ -883,26 +1160,148 @@ impl MediaController {
     }
 }
 
-// --- PulseAudio helpers ---
+/// ~8 s of 500 ms attempts waiting for the bluez card and its A2DP profiles.
+const A2DP_WAIT_ATTEMPTS: u32 = 16;
+const WIREPLUMBER_RESTART_COOLDOWN: Duration = Duration::from_secs(600);
+static LAST_WIREPLUMBER_RESTART: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
 
-fn pulse_connect() -> Option<(Mainloop, Context)> {
-    let mut mainloop = Mainloop::new()?;
-    let mut context = Context::new(&mainloop, "LibrePods")?;
-    context.connect(None, ContextFlagSet::NOAUTOSPAWN, None).ok()?;
-    loop {
-        mainloop.iterate(false);
-        match context.get_state() {
-            libpulse_binding::context::State::Ready => break,
-            libpulse_binding::context::State::Failed
-            | libpulse_binding::context::State::Terminated => return None,
-            _ => {}
-        }
+fn clear_pending_conv_volume() {
+    if crate::utils::AppSettings::load().conv_volume_restore.is_some() {
+        crate::utils::AppSettings::update(|s| s.conv_volume_restore = None);
     }
-    Some((mainloop, context))
 }
 
+/// A takeover within this long of the previous one is skipped (unless another
+/// device used the AirPods in between, or their audio was switched off here).
+const TAKEOVER_REPEAT_GUARD: Duration = Duration::from_secs(30);
+/// 1 s attempts at switching the card off while it doesn't exist yet.
+const CARD_OFF_ATTEMPTS: u32 = 10;
+
+/// Delay before refreshing the desktop's default device after the sink appears.
+const DEFAULT_REFRESH_DELAY: Duration = Duration::from_millis(1500);
+
+/// How long "both buds out" must last before audio switches to another output
+/// (the same moment the hi-res monitor hides the AirPods mic).
+const AUDIO_OFF_DEBOUNCE: Duration = card::NOT_WORN_GRACE;
+
+impl MediaController {
+    /// Move streams saved at deactivation back onto the AirPods' sink.
+    async fn restore_saved_streams(&self, card_index: u32) {
+        let streams = std::mem::take(&mut self.state.lock().await.saved_streams);
+        if streams.is_empty() {
+            return;
+        }
+        let _ = tokio::task::spawn_blocking(move || {
+            card::move_streams_to_card(&streams, card_index, Duration::from_secs(3))
+        })
+        .await;
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct EarActions {
+    pause: bool,
+    resume: bool,
+    activate_a2dp: bool,
+    deactivate_a2dp: bool,
+}
+
+/// What an ear-detection change should do. `old`/`new` are per-bud "in ear"
+/// flags; `old` is empty on the first report after connecting.
+///
+/// - 0 buds in (from >= 1): pause media; switch audio away if
+///   `audio_off_when_not_wearing` (debounced by the caller).
+/// - >= 1 bud in (from 0): bring the AirPods' audio back and resume what we paused.
+/// - 2 -> 1 / 1 -> 2: keep playing, unless `pause_when_one_removed`.
+fn ear_actions(
+    old: &[bool],
+    new: &[bool],
+    audio_off_when_not_wearing: bool,
+    pause_when_one_removed: bool,
+) -> EarActions {
+    let old_in = old.iter().filter(|&&b| b).count();
+    let new_in = new.iter().filter(|&&b| b).count();
+    let first_report = old.is_empty();
+    let mut a = EarActions::default();
+
+    if new_in == 0 {
+        if old_in > 0 {
+            a.pause = true;
+            a.deactivate_a2dp = audio_off_when_not_wearing;
+        } else if first_report {
+            // Connected while not worn (e.g. buds on the desk): don't grab audio.
+            a.deactivate_a2dp = audio_off_when_not_wearing;
+        }
+    } else if old_in == 0 {
+        a.activate_a2dp = true;
+        a.resume = !first_report;
+    } else if new_in < old_in {
+        a.pause = pause_when_one_removed;
+    } else if new_in > old_in {
+        a.resume = pause_when_one_removed;
+    }
+    a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EarActions, ear_actions};
+
+    const BOTH: [bool; 2] = [true, true];
+    const ONE: [bool; 2] = [true, false];
+    const NONE: [bool; 2] = [false, false];
+
+    #[test]
+    fn one_bud_out_keeps_playing_by_default() {
+        assert_eq!(ear_actions(&BOTH, &ONE, true, false), EarActions::default());
+        assert_eq!(ear_actions(&ONE, &BOTH, true, false), EarActions::default());
+    }
+
+    #[test]
+    fn one_bud_out_pauses_when_opted_in() {
+        let a = ear_actions(&BOTH, &ONE, true, true);
+        assert!(a.pause && !a.deactivate_a2dp);
+        assert!(ear_actions(&ONE, &BOTH, true, true).resume);
+    }
+
+    #[test]
+    fn both_out_pauses_and_switches_audio_away() {
+        for old in [BOTH, ONE] {
+            let a = ear_actions(&old, &NONE, true, false);
+            assert!(a.pause && a.deactivate_a2dp && !a.activate_a2dp);
+        }
+        let a = ear_actions(&BOTH, &NONE, false, false);
+        assert!(a.pause && !a.deactivate_a2dp);
+    }
+
+    #[test]
+    fn bud_back_in_restores_audio_and_resumes() {
+        for new in [ONE, BOTH] {
+            let a = ear_actions(&NONE, &new, true, false);
+            assert!(a.activate_a2dp && a.resume && !a.pause);
+        }
+    }
+
+    #[test]
+    fn first_report_after_connect() {
+        let a = ear_actions(&[], &BOTH, true, false);
+        assert!(a.activate_a2dp && !a.resume);
+        let a = ear_actions(&[], &NONE, true, false);
+        assert!(a.deactivate_a2dp && !a.pause);
+    }
+
+    #[test]
+    fn in_case_or_disconnected_buds_count_as_out() {
+        // [InCase, OutOfEar] -> [Disconnected, OutOfEar]: still nothing worn.
+        assert_eq!(ear_actions(&NONE, &NONE, true, false), EarActions::default());
+    }
+}
+
+// --- PulseAudio helpers ---
+
 fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
-    let (mut mainloop, context) = match pulse_connect() {
+    let (mut mainloop, context) = match connect() {
         Some(c) => c,
         None => return vec![],
     };
@@ -929,15 +1328,18 @@ fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
         }
     });
 
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
     mainloop.quit(Retval(0));
-    Rc::try_unwrap(cards).unwrap().into_inner()
+    // Clone instead of Rc::try_unwrap(..).unwrap(): if the server goes away
+    // mid-request (pipewire-pulse restart) the callback still holds a reference,
+    // and with panic = "abort" the unwrap would kill the whole app.
+    drop(op);
+    let result = cards.borrow().clone();
+    result
 }
 
 fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
-    let (mut mainloop, context) = pulse_connect()?;
+    let (mut mainloop, context) = connect()?;
     let introspector = context.introspect();
     let sink_info: Rc<RefCell<Option<OwnedSinkInfo>>> = Rc::new(RefCell::new(None));
     let op = introspector.get_sink_info_by_name(sink_name, {
@@ -952,9 +1354,7 @@ fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
     mainloop.quit(Retval(0));
 
     let borrowed = sink_info.borrow();
@@ -968,22 +1368,8 @@ fn get_sink_volume_percent_by_name_sync(sink_name: &str) -> Option<u32> {
     Some(percent)
 }
 
-fn set_card_profile_sync(card_index: u32, profile_name: &str) -> bool {
-    let (mut mainloop, context) = match pulse_connect() {
-        Some(c) => c,
-        None => return false,
-    };
-    let mut introspector = context.introspect();
-    let op = introspector.set_card_profile_by_index(card_index, profile_name, None);
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
-    mainloop.quit(Retval(0));
-    true
-}
-
 pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
-    let (mut mainloop, context) = match pulse_connect() {
+    let (mut mainloop, context) = match connect() {
         Some(c) => c,
         None => return false,
     };
@@ -1001,9 +1387,7 @@ pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
             }
         }
     });
-    while op.get_state() == OperationState::Running {
-        mainloop.iterate(false);
-    }
+    wait_op(&mut mainloop, &op);
 
     if let Some(info) = sink_info.borrow().as_ref() {
         let channels = info.volume.len();
@@ -1013,9 +1397,7 @@ pub fn transition_sink_volume(sink_name: &str, target_volume: u32) -> bool {
         new_volumes.set(channels, Volume(raw));
 
         let op = introspector.set_sink_volume_by_name(sink_name, &new_volumes, None);
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(false);
-        }
+        wait_op(&mut mainloop, &op);
         mainloop.quit(Retval(0));
         true
     } else {
@@ -1031,7 +1413,7 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
     let mac_clone = mac.to_string();
 
     tokio::task::spawn_blocking(move || {
-        let (mut mainloop, context) = pulse_connect()?;
+        let (mut mainloop, context) = connect()?;
         let introspector = context.introspect();
         let sink_list: Rc<RefCell<Vec<OwnedSinkInfo>>> = Rc::new(RefCell::new(Vec::new()));
         let op = introspector.get_sink_info_list({
@@ -1046,9 +1428,7 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
                 }
             }
         });
-        while op.get_state() == OperationState::Running {
-            mainloop.iterate(false);
-        }
+        wait_op(&mut mainloop, &op);
         mainloop.quit(Retval(0));
 
         for sink in sink_list.borrow().iter() {

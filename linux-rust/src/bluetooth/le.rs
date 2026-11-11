@@ -194,7 +194,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                         "Already connecting to {}, skipping duplicate attempt.",
                                                         matched_airpods_mac.as_ref().unwrap()
                                                     );
-                                                    return;
+                                                    continue;
                                                 }
                                                 cm.insert(real_address);
                                                 // let adapter_clone = adapter_monitor_clone.clone();
@@ -215,6 +215,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                         .arg(matched_airpods_mac.as_ref().unwrap())
                                                         .output()
                                                         .await;
+                                                let connected = matches!(&output, Ok(o) if o.status.success());
                                                 match output {
                                                     Ok(output) => {
                                                         if output.status.success() {
@@ -224,7 +225,6 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                                     .as_ref()
                                                                     .unwrap()
                                                             );
-                                                            cm.remove(&real_address);
                                                         } else {
                                                             let stderr = String::from_utf8_lossy(
                                                                 &output.stderr,
@@ -246,7 +246,20 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                         );
                                                     }
                                                 }
-                                                info!(
+                                                if connected {
+                                                    cm.remove(&real_address);
+                                                } else {
+                                                    // Retry on a later advert, but not on
+                                                    // every one: they arrive constantly.
+                                                    drop(cm);
+                                                    let connecting = Arc::clone(&connecting_macs_clone);
+                                                    tokio::spawn(async move {
+                                                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                                                        connecting.lock().await.remove(&real_address);
+                                                    });
+                                                }
+                                            } else {
+                                                debug!(
                                                     "Auto-connect is disabled for {}, not attempting to connect.",
                                                     matched_airpods_mac.as_ref().unwrap()
                                                 );

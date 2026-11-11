@@ -25,12 +25,9 @@ impl NothingDevice {
     pub async fn new(
         mac_address: Address,
         ui_tx: mpsc::UnboundedSender<BluetoothUIMessage>,
-    ) -> Self {
+    ) -> bluer::Result<Self> {
         let mut att_manager = ATTManager::new();
-        att_manager
-            .connect(mac_address)
-            .await
-            .expect("Failed to connect");
+        att_manager.connect(mac_address).await?;
 
         let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
@@ -70,7 +67,7 @@ impl NothingDevice {
                 ],
             )
             .await
-            .expect("Failed to write");
+            .unwrap_or_else(|e| log::error!("Failed to write to Nothing device: {}", e));
 
         sleep(Duration::from_millis(100)).await;
 
@@ -81,7 +78,7 @@ impl NothingDevice {
                 &[0x55, 0x20, 0x01, 0x06, 0xC0, 0x00, 0x00, 0x13, 0x00, 0x00],
             )
             .await
-            .expect("Failed to write");
+            .unwrap_or_else(|e| log::error!("Failed to write to Nothing device: {}", e));
 
         // let ui_tx_clone = ui_tx.clone();
         let information_l = information.clone();
@@ -113,7 +110,9 @@ impl NothingDevice {
                         },
                     );
                     let json = serde_json::to_string(&new_devices).unwrap();
-                    std::fs::write(get_devices_path(), json).expect("Failed to write devices file");
+                    if let Err(e) = crate::utils::write_atomic(&get_devices_path(), json.as_bytes()) {
+                        log::error!("Failed to write devices file: {}", e);
+                    }
                 } else if data.starts_with(&[0x55, 0x20, 0x01, 0x06, 0x40]) {
                     let serial_number_start_position = data
                         .iter()
@@ -154,8 +153,11 @@ impl NothingDevice {
                             },
                         );
                         let json = serde_json::to_string(&new_devices).unwrap();
-                        std::fs::write(get_devices_path(), json)
-                            .expect("Failed to write devices file");
+                        if let Err(e) =
+                            crate::utils::write_atomic(&get_devices_path(), json.as_bytes())
+                        {
+                            log::error!("Failed to write devices file: {}", e);
+                        }
                     } else {
                         debug!(
                             "Serial number format unexpected from Nothing device {}: {:?}",
@@ -171,9 +173,9 @@ impl NothingDevice {
             }
         });
 
-        NothingDevice {
+        Ok(NothingDevice {
             att_manager,
             information,
-        }
+        })
     }
 }

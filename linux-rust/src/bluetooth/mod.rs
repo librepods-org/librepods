@@ -1,4 +1,5 @@
 pub mod aacp;
+pub mod aacp_audio;
 pub mod att;
 pub(crate) mod discovery;
 pub mod le;
