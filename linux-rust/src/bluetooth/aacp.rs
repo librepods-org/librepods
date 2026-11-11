@@ -862,7 +862,7 @@ impl AACPManager {
                         hex::encode(&value)
                     );
                 } else {
-                    error!(
+                    debug!(
                         "Unknown Control Command identifier: {:#04x}",
                         identifier_byte
                     );

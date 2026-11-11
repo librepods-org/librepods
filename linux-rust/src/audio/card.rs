@@ -322,6 +322,11 @@ pub fn move_streams_to_card(streams: &[SavedStream], card_index: u32, wait: Dura
     };
     let mut introspect = context.introspect();
     let mut moved = 0;
+    // Streams that follow the default output are usually back already.
+    let already_there = streams
+        .iter()
+        .filter(|saved| current.iter().any(|(s, on)| s == *saved && *on == sink))
+        .count();
     for saved in streams {
         let still_there = current
             .iter()
@@ -340,7 +345,13 @@ pub fn move_streams_to_card(streams: &[SavedStream], card_index: u32, wait: Dura
             moved += 1;
         }
     }
-    info!("[pw] moved {} of {} saved stream(s) back to the AirPods", moved, streams.len());
+    info!(
+        "[pw] {} saved stream(s): {} moved back to the AirPods, {} already there, {} gone",
+        streams.len(),
+        moved,
+        already_there,
+        streams.len() - moved - already_there
+    );
 }
 
 #[derive(Clone, Copy, Debug)]

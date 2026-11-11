@@ -139,6 +139,32 @@ impl AirPodsDevice {
                 .await;
         }
 
+        // When the connection ends, stop showing it: the tray would keep the
+        // last battery levels and a listening-mode menu that sends nowhere.
+        if let Some(handle) = tray_handle.clone() {
+            let aacp = aacp_manager.clone();
+            tokio::spawn(async move {
+                aacp.disconnected().await;
+                handle
+                    .update(|tray: &mut MyTray| {
+                        tray.connected = false;
+                        tray.battery_headphone = None;
+                        tray.battery_headphone_status = None;
+                        tray.battery_l = None;
+                        tray.battery_l_status = None;
+                        tray.battery_r = None;
+                        tray.battery_r_status = None;
+                        tray.battery_c = None;
+                        tray.battery_c_status = None;
+                        tray.listening_mode = None;
+                        tray.allow_off_option = None;
+                        tray.conversation_detect_enabled = None;
+                        tray.command_tx = None;
+                    })
+                    .await;
+            });
+        }
+
         let aacp_manager_clone = aacp_manager.clone();
         spawn_for_connection(&aacp_manager, async move {
             while let Some((id, value)) = command_rx.recv().await {

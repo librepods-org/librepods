@@ -185,7 +185,12 @@ async fn async_main(
     tokio::spawn(async move {
         info!("Starting LE monitor...");
         if let Err(e) = start_le_monitor(le_tray_clone).await {
-            log::error!("LE monitor error: {}", e);
+            // Not needed for connected AirPods; it only shows battery levels
+            // from advertisements while they aren't connected.
+            warn!(
+                "Bluetooth LE monitor not available ({}); battery levels are only shown while the AirPods are connected",
+                e
+            );
         }
     });
 
@@ -323,9 +328,12 @@ async fn async_main(
     info!("Checking for connected devices...");
     match find_connected_airpods(&adapter).await {
         Ok(device) => {
+            // A failed name lookup must not stop the whole backend.
             let name = device
                 .name()
-                .await?
+                .await
+                .ok()
+                .flatten()
                 .unwrap_or_else(|| "Unknown".to_string());
             info!("Found connected AirPods: {}, initializing.", name);
             ensure_device_registered(

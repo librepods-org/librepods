@@ -235,6 +235,10 @@ async fn monitor_loop(
     let mut source_missing_polls: u32 = 0;
     // When the last bud left an ear (None while worn).
     let mut out_since: Option<Instant> = None;
+    // A bud was reported in an ear on this connection. The not-worn grace only
+    // applies after that: AirPods that connect from the open case were never
+    // worn, so there is nothing to ride out.
+    let mut seen_worn = false;
     // A STOP happened with the buds out and the card stayed on: the transport is
     // in the post-STOP state, so reset it once a bud is back (unless a START does).
     let mut reset_when_worn = false;
@@ -254,21 +258,24 @@ async fn monitor_loop(
         // Taking both buds out briefly (adjusting them) must not stop the mic,
         // hide it or switch outputs.
         let worn_now = aacp.is_worn().await;
+        // Right after connecting is_worn() is only a guess until the AirPods
+        // report their ear state (they connect when the case opens, not yet
+        // worn): wait for the report, or briefly in case ear detection is off.
+        // The report also marks the end of the AACP handshake; a mic START sent
+        // before that is ignored by the AirPods (the capture then stalls and has
+        // to be restarted) and lands in the middle of A2DP setup.
+        let ear_known = aacp.ear_status_reported().await || started.elapsed() > EAR_REPORT_WAIT;
         if worn_now {
             out_since = None;
+            seen_worn |= ear_known;
         } else if out_since.is_none() {
             out_since = Some(Instant::now());
         }
-        let worn = worn_now || out_since.is_some_and(|t| t.elapsed() < NOT_WORN_GRACE);
+        let worn = worn_now
+            || (seen_worn && out_since.is_some_and(|t| t.elapsed() < NOT_WORN_GRACE));
 
-        // Bring apps back to the virtual mic as soon as a bud is back. Right
-        // after connecting is_worn() is only a guess until the AirPods report
-        // their ear state (they connect when the case opens, not yet worn):
-        // wait for the report, or briefly in case ear detection is off.
-        if worn_now
-            && !shown
-            && (aacp.ear_status_reported().await || started.elapsed() > EAR_REPORT_WAIT)
-        {
+        // Bring apps back to the virtual mic as soon as a bud is back.
+        if worn_now && !shown && ear_known {
             info!("[hires] bud back in; unparking '{}'", output::SOURCE_NAME);
             blocking(unpark_mic).await;
             shown = true;
@@ -307,6 +314,7 @@ async fn monitor_loop(
                     let name = mic_name.clone();
                     if blocking(move || recreate_mic(&name)).await.unwrap_or(false) {
                         if !shown {
+                            // No-op if the parked state was carried over.
                             blocking(park_mic).await;
                         }
                         refresh_desktop_default_source(&tokio::runtime::Handle::current());

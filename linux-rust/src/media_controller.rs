@@ -58,6 +58,13 @@ struct MediaControllerState {
     other_was_active: bool,
     /// Desktop default-device refresh done for this connection.
     default_refreshed: bool,
+    /// When the AirPods were last claimed from other devices (see
+    /// take_over_audio); None once another device uses them or their audio is
+    /// switched off here.
+    last_takeover: Option<std::time::Instant>,
+    /// The AirPods disconnected: delayed work for this connection must not act
+    /// any more (a new connection has its own controller).
+    connection_ended: bool,
 }
 
 impl MediaControllerState {
@@ -75,6 +82,8 @@ impl MediaControllerState {
             mic_was_active: false,
             other_was_active: false,
             default_refreshed: false,
+            last_takeover: None,
+            connection_ended: false,
             conv_original_volume: None,
             conv_conversation_started: false,
             playback_listener_running: false,
@@ -139,7 +148,9 @@ impl MediaController {
             tokio::select! {
                 _ = aacp_manager.disconnected() => {
                     info!("AirPods disconnected, stopping playback listener");
-                    self.state.lock().await.playback_listener_running = false;
+                    let mut state = self.state.lock().await;
+                    state.playback_listener_running = false;
+                    state.connection_ended = true;
                     return;
                 }
                 _ = tokio::time::sleep(Duration::from_millis(500)) => {}
@@ -161,6 +172,11 @@ impl MediaController {
             state.is_playing = is_playing;
             let was_mic_active = std::mem::replace(&mut state.mic_was_active, mic_active);
             let other_was_active = std::mem::replace(&mut state.other_was_active, other_active);
+            if other_active {
+                // Another device has the AirPods now: the next start here must
+                // claim them again.
+                state.last_takeover = None;
+            }
             drop(state);
 
             if !was_playing && is_playing {
@@ -211,6 +227,20 @@ impl MediaController {
             info!("{} but buds not in ear, skipping takeover", reason);
             return;
         }
+        // Players report "Playing" again on every seek, track change or new
+        // video. Claiming the AirPods each time floods them (and the other
+        // device, which shows a handover banner) with ownership and hijack
+        // packets although nothing changed since the last claim.
+        let claimed_recently = self
+            .state
+            .lock()
+            .await
+            .last_takeover
+            .is_some_and(|t| t.elapsed() < TAKEOVER_REPEAT_GUARD);
+        if claimed_recently {
+            debug!("{}; the AirPods were claimed moments ago, nothing to do", reason);
+            return;
+        }
         info!("{}, taking ownership and activating a2dp", reason);
         let _ = control_tx.send((
             crate::bluetooth::aacp::ControlCommandIdentifiers::OwnsConnection,
@@ -240,6 +270,7 @@ impl MediaController {
                 error!("Failed to send hijack request to {}: {}", device.mac, e);
             }
         }
+        self.state.lock().await.last_takeover = Some(std::time::Instant::now());
         debug!("completed takeover process");
     }
 
@@ -334,25 +365,46 @@ impl MediaController {
             let controller = self.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(AUDIO_OFF_DEBOUNCE).await;
-                // Check and switch under the routing lock: a bud going back in
-                // right now either sees the card already off (and turns it back
-                // on) or makes still_out false here. Without the lock, the bud-in
-                // path could see A2DP still on, do nothing, and then this would
-                // switch it off with a bud in.
-                let _routing = controller.routing.lock().await;
-                let still_out = !controller
-                    .state
-                    .lock()
-                    .await
-                    .old_in_ear_data
-                    .iter()
-                    .any(|&b| b);
-                if still_out {
-                    info!("No bud in ear; switching audio to another output");
-                    controller.deactivate_a2dp_profile_locked().await;
-                } else {
-                    debug!("Bud back in ear within debounce; keeping AirPods audio");
+                // Right after connecting the sound server may not have the
+                // AirPods' card yet. It appears with A2DP on (and usually as the
+                // default output), so keep trying for a while: otherwise sound
+                // would go to AirPods nobody wears.
+                for attempt in 0..CARD_OFF_ATTEMPTS {
+                    {
+                        // Check and switch under the routing lock: a bud going
+                        // back in right now either sees the card already off
+                        // (and turns it back on) or makes still_out false here.
+                        // Without the lock, the bud-in path could see A2DP still
+                        // on, do nothing, and then this would switch it off with
+                        // a bud in.
+                        let _routing = controller.routing.lock().await;
+                        let (ended, still_out) = {
+                            let state = controller.state.lock().await;
+                            (
+                                state.connection_ended,
+                                !state.old_in_ear_data.iter().any(|&b| b),
+                            )
+                        };
+                        if ended {
+                            // The card found now would belong to a new connection
+                            // (which may well have a bud in an ear).
+                            debug!("AirPods disconnected meanwhile; not switching audio");
+                            return;
+                        }
+                        if !still_out {
+                            debug!("Bud back in ear within debounce; keeping AirPods audio");
+                            return;
+                        }
+                        if attempt == 0 {
+                            info!("No bud in ear; switching audio to another output");
+                        }
+                        if controller.deactivate_a2dp_profile_locked().await {
+                            return;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
+                warn!("Could not switch the AirPods' audio off (no bud in ear)");
             });
         }
     }
@@ -685,6 +737,16 @@ impl MediaController {
             warn!("Not restarting WirePlumber during an active mic capture");
             return false;
         }
+        // A restart removes and re-adds every audio device. An app recording
+        // from any microphone is most likely in a call, which that would cut
+        // (and Discord's voice engine aborts when devices come and go).
+        let recording = tokio::task::spawn_blocking(crate::audio::output::any_recorder)
+            .await
+            .unwrap_or(true);
+        if recording {
+            warn!("Not restarting WirePlumber while an app is recording");
+            return false;
+        }
         {
             let mut last = LAST_WIREPLUMBER_RESTART
                 .lock()
@@ -743,9 +805,13 @@ impl MediaController {
         self.deactivate_a2dp_profile_locked().await;
     }
 
-    async fn deactivate_a2dp_profile_locked(&self) {
+    /// Returns false if the card profile could not be switched off (e.g. the
+    /// card doesn't exist yet).
+    async fn deactivate_a2dp_profile_locked(&self) -> bool {
         debug!("Entering deactivate_a2dp_profile");
         let mut state = self.state.lock().await;
+        // The AirPods' audio is given up here: claim them again on the next start.
+        state.last_takeover = None;
 
         // Fresh lookup: a cached index is stale once the card was recreated
         // (reconnect, PipeWire restart), and setting a profile on it fails.
@@ -755,8 +821,8 @@ impl MediaController {
             .await;
 
         if state.connected_device_mac.is_empty() || state.device_index.is_none() {
-            warn!("Connected device MAC or index is empty, cannot deactivate A2DP profile");
-            return;
+            debug!("No sound card for the AirPods (yet); cannot switch its profile off");
+            return false;
         }
         let device_index = state.device_index.unwrap();
         drop(state);
@@ -790,6 +856,7 @@ impl MediaController {
         } else {
             warn!("Failed to deactivate A2DP profile");
         }
+        success
     }
 
     pub async fn handle_conversational_awareness(&self, status: u8) {
@@ -1104,6 +1171,12 @@ fn clear_pending_conv_volume() {
         crate::utils::AppSettings::update(|s| s.conv_volume_restore = None);
     }
 }
+
+/// A takeover within this long of the previous one is skipped (unless another
+/// device used the AirPods in between, or their audio was switched off here).
+const TAKEOVER_REPEAT_GUARD: Duration = Duration::from_secs(30);
+/// 1 s attempts at switching the card off while it doesn't exist yet.
+const CARD_OFF_ATTEMPTS: u32 = 10;
 
 /// Delay before refreshing the desktop's default device after the sink appears.
 const DEFAULT_REFRESH_DELAY: Duration = Duration::from_millis(1500);
