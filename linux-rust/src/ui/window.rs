@@ -320,7 +320,21 @@ impl App {
                         //     conversation_awareness_enabled: false,
                         // }));
 
-                        let type_ = {
+                        // on the first connection the device is not in the devices file yet,
+                        // so derive the type from the registered managers first
+                        let manager_type = {
+                            let device_managers = self.device_managers.blocking_read();
+                            device_managers.get(&mac).and_then(|managers| {
+                                if managers.get_aacp().is_some() {
+                                    Some(DeviceType::AirPods)
+                                } else if managers.get_att().is_some() {
+                                    Some(DeviceType::Nothing)
+                                } else {
+                                    None
+                                }
+                            })
+                        };
+                        let type_ = manager_type.or_else(|| {
                             let devices_json = std::fs::read_to_string(get_devices_path())
                                 .unwrap_or_else(|e| {
                                     error!("Failed to read devices file: {}", e);
@@ -332,7 +346,7 @@ impl App {
                                     HashMap::new()
                                 });
                             devices_list.get(&mac).map(|d| d.type_.clone())
-                        };
+                        });
                         match type_ {
                             Some(DeviceType::AirPods) => {
                                 let device_managers = self.device_managers.blocking_read();
