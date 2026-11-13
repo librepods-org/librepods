@@ -50,7 +50,6 @@ import me.kavishdevar.librepods.core.bluetooth.aacp.types.ControlCommandIdentifi
 import me.kavishdevar.librepods.core.bluetooth.aacp.types.CustomEq
 import me.kavishdevar.librepods.core.bluetooth.aacp.types.MagicKeyType
 import me.kavishdevar.librepods.core.bluetooth.aacp.types.MessageOpcode
-import me.kavishdevar.librepods.core.bluetooth.aacp.types.RTBuddyDescriptor
 import me.kavishdevar.librepods.core.bluetooth.aacp.types.SensorDataWxBuddyPayload
 import me.kavishdevar.librepods.core.data.apple.BuddyState
 import me.kavishdevar.librepods.core.data.audio.MicrophoneFrame
@@ -75,6 +74,50 @@ class AACPManager(private val device: AppleDevice) {
 
     private val rtBuddyManager = RTBuddyManager(::sendPacket)
 
+    private val sensorFrames = SensorFrames()
+
+    @Volatile
+    private var heartRateSession: HeartRateSession? = null
+
+    private fun createHeartRateSession(expected: BluetoothSocket) = HeartRateSession(
+        sendSetting = { service, report, value, logType ->
+            socket === expected && rtBuddyManager.sendServiceSetting(service, report, value, logType)
+        },
+        requestAllDescriptors = { socket === expected && rtBuddyManager.requestAllDescriptors() },
+        sendRaw = { bytes -> writeRaw(expected, bytes) },
+        isCurrent = { socket === expected && expected.isConnected },
+        interval = { device.state.value.heartRateInterval },
+        onHeartRate = { report ->
+            device.updateState {
+                it.copy(currentHeartRate = HeartRateSample(bpm = report.bpm, timestamp = Clock.System.now()))
+            }
+        },
+        onState = { state ->
+            device.updateState {
+                it.copy(
+                    hrmState = state,
+                    currentHeartRate = if (state == BuddyState.INACTIVE) null else it.currentHeartRate
+                )
+            }
+        },
+    )
+
+    /** Writes bytes as-is, for frames such as service connects that have no typed packet yet. */
+    private fun writeRaw(expected: BluetoothSocket, bytes: ByteArray): Boolean {
+        if (socket !== expected || !expected.isConnected) return false
+        return try {
+            Log.d(TAG, "Sending raw: ${bytes.joinToString(" ") { "%02X".format(it) }}")
+            expected.outputStream.write(bytes)
+            expected.outputStream.flush()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending raw packet: ${e.message}")
+            false
+        }
+    }
+
+    fun setHeartRateEnabled(enabled: Boolean): Boolean = heartRateSession?.setEnabled(enabled) ?: false
+
     private suspend fun sendDelayedInitPackets() {
         socket?.let {
             while (!it.isConnected) {
@@ -92,6 +135,8 @@ class AACPManager(private val device: AppleDevice) {
             sendCountryCode()
             delay(200.milliseconds)
             sendRequestMagicKeys((MagicKeyType.IRK.value + MagicKeyType.ENC_KEY.value).toByte())
+            delay(200.milliseconds)
+            heartRateSession?.requestDescriptors()
         } ?: run {
             Log.e(TAG, "socket is null after creation")
         }
@@ -122,6 +167,10 @@ class AACPManager(private val device: AppleDevice) {
                 Log.i(TAG, "connected!")
             }
 
+            sensorFrames.reset()
+            heartRateSession?.close()
+            heartRateSession = createHeartRateSession(socket)
+
             CoroutineScope(Dispatchers.IO).launch {
                 sendDelayedInitPackets()
                 delay(3.seconds) // just android stuff ig
@@ -133,7 +182,8 @@ class AACPManager(private val device: AppleDevice) {
 
                 while (socket.isConnected) {
                     try {
-                        val buffer = ByteArray(1024)
+                        // Sensor descriptor announcements are larger than 1 KiB.
+                        val buffer = ByteArray(65_535)
                         val bytesRead = socket.inputStream.read(buffer)
                         var data: ByteArray
                         if (bytesRead > 0) {
@@ -202,6 +252,8 @@ class AACPManager(private val device: AppleDevice) {
 
     @OptIn(ExperimentalStdlibApi::class)
     fun processPacket(packet: ByteArray) {
+        // RTBuddy sensor records can span reads; reassemble them before the header check below.
+        for (frame in sensorFrames.feed(packet)) handleSensorFrame(frame)
         if (!packet.toHexString().startsWith("04000400")) {
             Log.w(
                 TAG, "Received packet does not start with expected header: ${
@@ -338,28 +390,7 @@ class AACPManager(private val device: AppleDevice) {
             }
 
             MessageOpcode.BUDDY_COMMAND -> {
-                val packet = RTBuddyPacket.parse(packet)
-
-                val rtBuddyPayload = packet.rtBuddyPayload
-
-                rtBuddyManager.handlePacket(packet)
-
-                when (rtBuddyPayload.descriptor) {
-                    RTBuddyDescriptor.SENSOR_DATA_WX -> {
-                        val sensorDataWxBuddyPayload = rtBuddyPayload as SensorDataWxBuddyPayload
-                        val data = sensorDataWxBuddyPayload.data
-
-                        handleSensorData(data)
-                    } else -> {
-                        Log.d(TAG, "Unhandled descriptor: ${rtBuddyPayload.descriptor}")
-                    }
-                }
-
-//                device.updateState {
-//                    it.copy(
-//                        aacpPackets = it.aacpPackets + packet
-//                    )
-//                }
+                // SensorDataWX records are reassembled and handled by handleSensorFrame().
             }
 
             MessageOpcode.MAGIC_KEYS_RESPONSE -> {
@@ -1035,6 +1066,9 @@ class AACPManager(private val device: AppleDevice) {
         }
         Log.i(TAG, "disconnected")
         socket = null
+        heartRateSession?.close()
+        heartRateSession = null
+        sensorFrames.reset()
         device.updateState {
             it.copy(
                 battery = it.battery.map { battery ->
@@ -1147,6 +1181,19 @@ class AACPManager(private val device: AppleDevice) {
         return capabilities
     }
 
+    private fun handleSensorFrame(frame: ByteArray) {
+        val packet = try {
+            RTBuddyPacket.parse(frame)
+        } catch (e: Exception) {
+            Log.w(TAG, "Ignoring malformed RTBuddy record: ${e.message}")
+            return
+        }
+        rtBuddyManager.handlePacket(packet)
+        val data = (packet.rtBuddyPayload as? SensorDataWxBuddyPayload)?.data ?: return
+        handleSensorData(data)
+        heartRateSession?.receive(data)
+    }
+
     private fun handleSensorData(data: SensorDataWX) {
         if (data.hasCommand()) {
             when (data.command.service) {
@@ -1167,50 +1214,9 @@ class AACPManager(private val device: AppleDevice) {
                 }
 
                 SensorServiceType.HEARTRATE,
-                SensorServiceType.HEARTRATEv2 -> {
-                    val payload = data.command.payload.toByteArray()
-                    val timestamp = Clock.System.now()
-                    if (payload.size == 18) {
-                        if (payload[17].toInt() != 0) {
-                            Log.i(
-                                TAG,
-                                "Skipping payload: ${payload.toHexString()}"
-                            )
-                            return
-                        }
-
-                        val heartRate = payload[1].toInt() and 0xFF
-
-                        if (device.state.value.hrmState != BuddyState.ACTIVE) {
-                            device.updateState {
-                                it.copy(
-                                    hrmState = BuddyState.ACTIVE
-                                )
-                            }
-                        }
-
-                        Log.i(
-                            TAG,
-                            "hr: $heartRate bpm"
-                        )
-
-                        val heartRateSample = HeartRateSample(
-                            bpm = heartRate,
-                            timestamp = timestamp
-                        )
-
-                        device.updateState {
-                            it.copy(
-                                currentHeartRate = heartRateSample
-                            )
-                        }
-
-                    } else {
-                        Log.w(
-                            TAG,
-                            "Unexpected payload size for HEARTRATEv2: ${payload.size}, payload: ${payload.toHexString()}"
-                        )
-                    }
+                SensorServiceType.HEARTRATEv2,
+                SensorServiceType.HEARTRATE_COMMAND -> {
+                    // Decoded and validated by HeartRateSession.
                 }
 
                 else -> {

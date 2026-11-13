@@ -38,7 +38,7 @@ message SensorDataWX {
     int32 log_type = 2;
     bytes another_sensor_stream = 3;
     RequestAllDescriptors request_all_descriptors = 4;
-    SensorDescriptor sensor_descriptor = 5;
+    repeated SensorDescriptor sensor_descriptor = 5;
 
     SensorCommand command = 7;
     SensorServiceSetting service_settings = 8;

@@ -52,9 +52,13 @@ android {
         checkDependencies = false
         checkGeneratedSources = false
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.serialization.cbor)
     implementation(libs.protobuf.kotlin)

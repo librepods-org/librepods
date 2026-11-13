@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.protobuf.ByteString
 import me.kavishdevar.librepods.core.bluetooth.aacp.packet.AACPPacket
 import me.kavishdevar.librepods.core.bluetooth.aacp.packet.RTBuddyPacket
+import me.kavishdevar.librepods.core.bluetooth.aacp.rtbuddy.proto.RequestAllDescriptors
 import me.kavishdevar.librepods.core.bluetooth.aacp.rtbuddy.proto.SensorDataWX
 import me.kavishdevar.librepods.core.bluetooth.aacp.rtbuddy.proto.SensorServiceSetting
 import me.kavishdevar.librepods.core.bluetooth.aacp.rtbuddy.proto.SensorServiceType
@@ -79,6 +80,30 @@ class RTBuddyManager(
             .build()
 
         return sendSensorData(data)
+    }
+
+    /** Ask the buds to announce every sensor service with its HID descriptor. */
+    fun requestAllDescriptors(): Boolean = sendSensorData(
+        SensorDataWX.newBuilder()
+            .setRequestAllDescriptors(RequestAllDescriptors.getDefaultInstance())
+            .build()
+    )
+
+    /**
+     * Service setting addressed by raw service number, for numbers the buds announced themselves.
+     * Configuration is `[report][u32 LE value]`; heart rate uses log type 2.
+     */
+    fun sendServiceSetting(service: Int, report: Int, value: Int, logType: Int? = null): Boolean {
+        if (service !in 1..127 || value < 0) return false
+        val setting = SensorServiceSetting.newBuilder()
+            .setServiceValue(service)
+            .setSetting(2)
+            .setConfiguration(
+                ByteString.copyFrom(byteArrayOf(report.toByte()) + ByteArray(4) { (value ushr (it * 8)).toByte() })
+            )
+        val data = SensorDataWX.newBuilder().setServiceSettings(setting)
+        if (logType != null) data.setLogType(logType)
+        return sendSensorData(data.build())
     }
 
     fun setSensorServiceReportInterval(sensorServiceType: SensorServiceType, interval: Duration): Boolean = sendSensorServiceSetting(
