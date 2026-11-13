@@ -8,6 +8,7 @@
 #include <QProcess>
 #include <QThread>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 
@@ -149,14 +150,57 @@ void MediaController::handleConversationalAwareness(const QByteArray &data) {
 }
 
 
+// Ordered list of card profiles to try when activating A2DP.
+//
+// "a2dp-sink" is PipeWire's default A2DP profile, which negotiates the best
+// codec the device supports (AAC on AirPods). The codec-specific profiles are
+// only used as fallbacks, unless the user picked a codec explicitly via the
+// "audio/preferredCodec" setting (auto | aac | sbc_xq | sbc, default auto).
+// "a2dp_sink" is the profile name used by PulseAudio's module-bluetooth.
+static QString preferredCodecSetting() {
+  QSettings settings("AirPodsTrayApp", "AirPodsTrayApp");
+  const QString codec = settings.value("audio/preferredCodec", "auto").toString().trimmed().toLower();
+  if (codec == "aac" || codec == "sbc_xq" || codec == "sbc") {
+    return codec;
+  }
+  if (!codec.isEmpty() && codec != "auto") {
+    LOG_WARN("Unknown audio/preferredCodec value '" << codec << "', using auto");
+  }
+  return "auto";
+}
+
+QStringList MediaController::a2dpProfileCandidates() const {
+  const QStringList defaults = {"a2dp-sink", "a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp_sink"};
+
+  const QString codec = preferredCodecSetting();
+  if (codec == "auto") {
+    return defaults;
+  }
+
+  QStringList profiles = {"a2dp-sink-" + codec};
+  for (const QString &profile : defaults) {
+    if (!profiles.contains(profile)) {
+      profiles << profile;
+    }
+  }
+  return profiles;
+}
+
+bool MediaController::isA2dpProfileName(const QString &profile) {
+  return profile.startsWith("a2dp-sink") || profile.startsWith("a2dp_sink");
+}
+
 bool MediaController::isA2dpProfileAvailable() {
   if (m_deviceOutputName.isEmpty()) {
     return false;
   }
 
-  return m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc_xq") || 
-         m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink-sbc") ||
-         m_pulseAudio->isProfileAvailable(m_deviceOutputName, "a2dp-sink");
+  for (const QString &profile : a2dpProfileCandidates()) {
+    if (m_pulseAudio->isProfileAvailable(m_deviceOutputName, profile)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 QString MediaController::getPreferredA2dpProfile() {
@@ -169,11 +213,9 @@ QString MediaController::getPreferredA2dpProfile() {
     return m_cachedA2dpProfile;
   }
 
-  QStringList profiles = {"a2dp-sink-sbc_xq", "a2dp-sink-sbc", "a2dp-sink"};
-
-  for (const QString &profile : profiles) {
+  for (const QString &profile : a2dpProfileCandidates()) {
     if (m_pulseAudio->isProfileAvailable(m_deviceOutputName, profile)) {
-      LOG_INFO("Selected best available A2DP profile: " << profile);
+      LOG_INFO("Selected preferred A2DP profile: " << profile);
       m_cachedA2dpProfile = profile;
       return profile;
     }
@@ -202,6 +244,20 @@ void MediaController::activateA2dpProfile() {
     return;
   }
 
+  // Don't touch a card that is already playing over A2DP. Re-selecting a
+  // profile tears down and renegotiates the transport, which causes audible
+  // dropouts and can silently replace the codec WirePlumber picked (e.g.
+  // AAC -> SBC-XQ). Only switch when the card is "off" or on a headset (HFP/HSP)
+  // profile. With an explicit audio/preferredCodec, only skip when the card is
+  // already on that exact profile.
+  const QString activeProfile = m_pulseAudio->getActiveProfile(m_deviceOutputName);
+  if (isA2dpProfileName(activeProfile)) {
+    if (preferredCodecSetting() == "auto" || activeProfile == getPreferredA2dpProfile()) {
+      LOG_INFO("A2DP profile already active (" << activeProfile << "), not switching");
+      return;
+    }
+  }
+
   if (!isA2dpProfileAvailable()) {
     LOG_WARN("A2DP profile not available, attempting to restart WirePlumber");
     if (restartWirePlumber()) {
@@ -225,6 +281,7 @@ void MediaController::activateA2dpProfile() {
   LOG_INFO("Activating A2DP profile for AirPods: " << preferredProfile);
   if (!m_pulseAudio->setCardProfile(m_deviceOutputName, preferredProfile)) {
     LOG_ERROR("Failed to activate A2DP profile: " << preferredProfile);
+    return;
   }
   LOG_INFO("A2DP profile activated successfully");
 }
