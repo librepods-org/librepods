@@ -146,7 +146,7 @@ impl App {
         } else {
             let mut settings = window::Settings::default();
             settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+            settings.icon = window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None).ok();
             let (id, open) = window::open(settings);
             (Some(id), open.map(Message::WindowOpened))
         };
@@ -292,7 +292,7 @@ impl App {
                         } else {
                             let mut settings = window::Settings::default();
                             settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+                            settings.icon = window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None).ok();
                             let (new_window_task, open_task) = window::open(settings);
                             self.window = Some(new_window_task);
                             Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
