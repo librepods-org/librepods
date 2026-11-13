@@ -54,10 +54,11 @@ pub struct AirPodsState {
     pub device_name: String,
     pub noise_control_mode: AirPodsNoiseControlMode,
     pub noise_control_state: combo_box::State<AirPodsNoiseControlMode>,
-    pub conversation_awareness_enabled: bool,
-    pub personalized_volume_enabled: bool,
-    pub allow_off_mode: bool,
+    pub conversation_awareness_enabled: Option<bool>,
+    pub personalized_volume_enabled: Option<bool>,
+    pub allow_off_mode: Option<bool>,
     pub battery: Vec<BatteryInfo>,
+    pub auto_connect: bool,
 }
 
 #[derive(Clone, Debug)]

@@ -173,17 +173,15 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                         debug!("Connection state: {}", connection_state);
                                         if connection_state == 0x00 {
                                             let pref_path = get_preferences_path();
-                                            let preferences: HashMap<
-                                                String,
-                                                HashMap<String, bool>,
-                                            > = std::fs::read_to_string(&pref_path)
-                                                .ok()
-                                                .and_then(|s| serde_json::from_str(&s).ok())
-                                                .unwrap_or_default();
+                                            let preferences: serde_json::Value =
+                                                std::fs::read_to_string(&pref_path)
+                                                    .ok()
+                                                    .and_then(|s| serde_json::from_str(&s).ok())
+                                                    .unwrap_or(serde_json::json!({}));
                                             let auto_connect = preferences
                                                 .get(matched_airpods_mac.as_ref().unwrap())
                                                 .and_then(|prefs| prefs.get("autoConnect"))
-                                                .copied()
+                                                .and_then(|b| b.as_bool())
                                                 .unwrap_or(false);
                                             debug!(
                                                 "Auto-connect preference for {}: {}",

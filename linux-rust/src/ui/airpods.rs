@@ -159,7 +159,7 @@ pub fn airpods_view<'a>(
                     selected_background: Background::Color(
                         theme.palette().primary.scale_alpha(0.3),
                     ),
-                    shadow: Default::default()
+                    shadow: Default::default(),
                 })
             }
         ]
@@ -179,6 +179,62 @@ pub fn airpods_view<'a>(
         style.border = border.rounded(16);
         style
     });
+
+    let auto_connect_toggle = {
+        let mac = mac.clone();
+        container(row![
+            column![
+                text("Auto-connect").size(16),
+                text("Automatically reconnect when AirPods become available.").size(12).style(
+                    |theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    }
+                ).width(Length::Fill)
+            ].width(Length::Fill),
+            toggler(state.auto_connect)
+                .on_toggle(move |is_enabled| {
+                    Message::AutoConnectChanged(mac.clone(), is_enabled)
+                })
+                .spacing(0)
+                .size(20)
+        ]
+            .align_y(Center)
+            .spacing(8)
+        )
+            .padding(Padding {
+                top: 5.0,
+                bottom: 5.0,
+                left: 18.0,
+                right: 18.0,
+            })
+            .style(|theme: &Theme| {
+                let mut style = container::Style::default();
+                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                let mut border = Border::default();
+                border.color = theme.palette().primary.scale_alpha(0.5);
+                style.border = border.rounded(16);
+                style
+            })
+    };
+
+    let connection_settings_col = column![
+        container(
+            text("Connection").size(18).style(|theme: &Theme| {
+                let mut style = text::Style::default();
+                style.color = Some(theme.palette().primary);
+                style
+            })
+        )
+        .padding(Padding {
+            top: 5.0,
+            bottom: 5.0,
+            left: 18.0,
+            right: 18.0,
+        }),
+        auto_connect_toggle
+    ];
 
     let mac_audio = mac.clone();
     let mac_information = mac.clone();
@@ -215,9 +271,11 @@ pub fn airpods_view<'a>(
                                 }
                             ).width(Length::Fill),
                         ].width(Length::Fill),
-                        toggler(state.personalized_volume_enabled)
-                            .on_toggle(
-                            {
+                        {
+                            let t = toggler(state.personalized_volume_enabled.unwrap_or(false))
+                                .spacing(0)
+                                .size(20);
+                            if state.personalized_volume_enabled.is_some() { t.on_toggle({
                                 let mac = mac_audio.clone();
                                 let state = state.clone();
                                 move |is_enabled| {
@@ -232,13 +290,11 @@ pub fn airpods_view<'a>(
                                         }
                                     );
                                     let mut state = state.clone();
-                                    state.personalized_volume_enabled = is_enabled;
+                                    state.personalized_volume_enabled = Some(is_enabled);
                                     Message::StateChanged(mac, DeviceState::AirPods(state))
                                 }
-                            }
-                        )
-                        .spacing(0)
-                        .size(20)
+                            }) } else { t }
+                        }
                     ]
                     .align_y(Center)
                     .spacing(8)
@@ -266,23 +322,27 @@ pub fn airpods_view<'a>(
                                 }
                             ).width(Length::Fill),
                         ].width(Length::Fill),
-                        toggler(state.conversation_awareness_enabled)
-                            .on_toggle(move |is_enabled| {
-                                let aacp_manager = aacp_manager_conv_detect.clone();
-                                run_async_in_thread(
-                                    async move {
-                                        aacp_manager.send_control_command(
-                                            ControlCommandIdentifiers::ConversationDetectConfig,
-                                            if is_enabled { &[0x01] } else { &[0x02] }
-                                        ).await.expect("Failed to send Conversation Awareness command");
-                                    }
-                                );
-                                let mut state = state.clone();
-                                state.conversation_awareness_enabled = is_enabled;
-                                Message::StateChanged(mac_audio.to_string(), DeviceState::AirPods(state))
+                        {
+                          let t = toggler(state.conversation_awareness_enabled.unwrap_or(false))
+                            .spacing(0)
+                            .size(20);
+                          if state.conversation_awareness_enabled.is_some() {
+                            t.on_toggle(move |is_enabled| {
+                              let aacp_manager = aacp_manager_conv_detect.clone();
+                              run_async_in_thread(
+                                  async move {
+                                      aacp_manager.send_control_command(
+                                          ControlCommandIdentifiers::ConversationDetectConfig,
+                                          if is_enabled { &[0x01] } else { &[0x02] }
+                                      ).await.expect("Failed to send Conversation Awareness command");
+                                  }
+                              );
+                              let mut state = state.clone();
+                              state.conversation_awareness_enabled = Some(is_enabled);
+                              Message::StateChanged(mac_audio.to_string(), DeviceState::AirPods(state))
                             })
-                        .spacing(0)
-                        .size(20)
+                          } else { t }
+                        }
                     ]
                     .align_y(Center)
                     .spacing(8)
@@ -323,8 +383,12 @@ pub fn airpods_view<'a>(
                     }
                 ).width(Length::Fill)
             ].width(Length::Fill),
-            toggler(state.allow_off_mode)
-                .on_toggle(move |is_enabled| {
+            {
+              let t = toggler(state.allow_off_mode.unwrap_or(false))
+                  .spacing(0)
+                  .size(20);
+              if state.allow_off_mode.is_some() {
+                t.on_toggle(move |is_enabled| {
                     let aacp_manager = aacp_manager_olm.clone();
                     run_async_in_thread(
                         async move {
@@ -335,11 +399,11 @@ pub fn airpods_view<'a>(
                         }
                     );
                     let mut state = state.clone();
-                    state.allow_off_mode = is_enabled;
+                    state.allow_off_mode = Some(is_enabled);
                     Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
                 })
-            .spacing(0)
-            .size(20)
+              } else { t }
+            }
         ]
             .align_y(Center)
             .spacing(8)
@@ -515,6 +579,8 @@ pub fn airpods_view<'a>(
         audio_settings_col,
         Space::new().height(Length::from(20)),
         off_listening_mode_toggle,
+        Space::new().height(Length::from(20)),
+        connection_settings_col,
         Space::new().height(Length::from(20)),
         information_col
     ])
