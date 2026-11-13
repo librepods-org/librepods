@@ -368,34 +368,10 @@ class AppleDevice(
         aacp.setCustomEq(_state.value.customEq.copy(low = low, mid = mid, high = high))
     }
 
-    // AACPManager sets hrmActive true when a valid reading is received
-    fun startHr(): Boolean {
-        val success = aacp.setSensorServiceReportInterval(
-            sensorServiceType = if (metadata.value.version3.ifBlank { "8" }.first().digitToInt() >= 9) SensorServiceType.HEARTRATE_COMMAND else SensorServiceType.HEARTRATE,
-            interval = 1.seconds
-        )
-        if (success) {
-            _state.update {
-                it.copy(
-                    hrmState = BuddyState.WAITING
-                )
-            }
-        }
-        return success
-    }
-    fun stopHr(): Boolean {
-        val success = aacp.setSensorServiceReportInterval(
-            sensorServiceType = if (metadata.value.version3.ifBlank { "8" }.first().digitToInt() >= 9) SensorServiceType.HEARTRATE_COMMAND else SensorServiceType.HEARTRATE,
-            interval = Duration.ZERO
-        )
-        if (state.value.hrmState != BuddyState.INACTIVE && success) _state.update {
-            it.copy(
-                hrmState = BuddyState.INACTIVE,
-                currentHeartRate = null
-            )
-        }
-        return success
-    }
+    /** State moves WAITING -> ACTIVE on the first valid sample; see HeartRateSession. */
+    fun startHr(): Boolean = aacp.setHeartRateEnabled(true)
+
+    fun stopHr(): Boolean = aacp.setHeartRateEnabled(false)
 
     fun sendRawPacket(data: ByteArray): Boolean = aacp.sendRawPacket(data)
 
