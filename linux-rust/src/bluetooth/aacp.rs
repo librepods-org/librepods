@@ -308,7 +308,7 @@ pub enum AACPEvent {
     StemPress(StemPressType, StemPressBudType),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AirPodsLEKeys {
     pub irk: String,
     pub enc_key: String,
@@ -792,6 +792,11 @@ impl AACPManager {
                                 type_: DeviceType::AirPods,
                                 information: None,
                             });
+                        // keys can arrive before the information packet, keep them anyway
+                        if device_data.information.is_none() {
+                            device_data.information =
+                                Some(DeviceInformation::AirPods(AirPodsInformation::default()));
+                        }
                         match kt {
                             ProximityKeyType::Irk => match device_data.information.as_mut() {
                                 Some(DeviceInformation::AirPods(info)) => {

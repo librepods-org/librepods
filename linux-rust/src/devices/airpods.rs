@@ -409,7 +409,7 @@ impl AirPodsDevice {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AirPodsInformation {
     pub name: String,
     pub model_number: String,
