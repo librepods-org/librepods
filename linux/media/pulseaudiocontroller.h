@@ -20,6 +20,7 @@ public:
     bool setCardProfile(const QString &cardName, const QString &profileName);
     QString getCardNameForDevice(const QString &macAddress);
     bool isProfileAvailable(const QString &cardName, const QString &profileName);
+    QString getActiveProfile(const QString &cardName);
 
 private:
     pa_threaded_mainloop *m_mainloop;

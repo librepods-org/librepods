@@ -284,6 +284,47 @@ bool PulseAudioController::isProfileAvailable(const QString &cardName, const QSt
     return data.available;
 }
 
+QString PulseAudioController::getActiveProfile(const QString &cardName)
+{
+    if (!m_initialized) return QString();
+
+    struct CallbackData {
+        QString activeProfile;
+        QString targetCard;
+        pa_threaded_mainloop *mainloop;
+    } data;
+    data.targetCard = cardName;
+    data.mainloop = m_mainloop;
+
+    auto callback = [](pa_context *c, const pa_card_info *info, int eol, void *userdata) {
+        CallbackData *d = static_cast<CallbackData*>(userdata);
+        if (eol > 0)
+        {
+            pa_threaded_mainloop_signal(d->mainloop, 0);
+            return;
+        }
+        if (info && QString::fromUtf8(info->name) == d->targetCard)
+        {
+            if (info->active_profile && info->active_profile->name)
+            {
+                d->activeProfile = QString::fromUtf8(info->active_profile->name);
+            }
+            pa_threaded_mainloop_signal(d->mainloop, 0);
+        }
+    };
+
+    pa_threaded_mainloop_lock(m_mainloop);
+    pa_operation *op = pa_context_get_card_info_by_name(m_context, cardName.toUtf8().constData(), callback, &data);
+    if (op)
+    {
+        waitForOperation(op);
+        pa_operation_unref(op);
+    }
+    pa_threaded_mainloop_unlock(m_mainloop);
+
+    return data.activeProfile;
+}
+
 bool PulseAudioController::waitForOperation(pa_operation *op)
 {
     if (!op) return false;

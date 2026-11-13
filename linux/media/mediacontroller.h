@@ -56,6 +56,8 @@ private:
   MediaState mediaStateFromPlayerctlOutput(const QString &output) const;
   QString getAudioDeviceName();
   QStringList getPlayingMediaPlayers();
+  QStringList a2dpProfileCandidates() const;
+  static bool isA2dpProfileName(const QString &profile);
 
   QStringList pausedByAppServices;
   int initialVolume = -1;
