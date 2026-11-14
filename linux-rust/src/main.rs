@@ -287,6 +287,24 @@ async fn async_main(
             if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceDisconnected(addr_str.clone())) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
             }
+            if let Some(handle) = tray_handle.clone() {
+                tokio::spawn(async move {
+                    handle
+                        .update(|tray: &mut MyTray| {
+                            // connected_mac stays, the LE battery updates still need it
+                            if tray.connected_mac.as_deref() != Some(addr_str.as_str()) {
+                                return;
+                            }
+                            tray.connected = false;
+                            tray.command_tx = None;
+                            tray.listening_mode = None;
+                            tray.allow_off_option = None;
+                            tray.conversation_detect_enabled = None;
+                            tray.model = None;
+                        })
+                        .await;
+                });
+            }
             return true
         }
         if managed_devices_mac.contains(&addr_str) {

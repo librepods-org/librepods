@@ -138,6 +138,18 @@ impl ksni::Tray for MyTray {
             }
             .into(),
         ];
+        if !self.connected {
+            items.push(
+                StandardItem {
+                    label: "Exit".into(),
+                    icon_name: "application-exit".into(),
+                    activate: Box::new(|_| std::process::exit(0)),
+                    ..Default::default()
+                }
+                .into(),
+            );
+            return items;
+        }
         if supports(self.model, Capability::ListeningMode) != Some(false) {
             items.push(
                 RadioGroup {
