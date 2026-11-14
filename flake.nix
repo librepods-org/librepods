@@ -61,7 +61,7 @@
 
           nativeBuildInputs = with pkgs; [
             pkg-config
-            makeWrapper
+            patchelf
           ];
 
           craneLib = crane.mkLib pkgs;
@@ -89,10 +89,11 @@
 
               doCheck = false;
 
-              # Wrap the binary after build to set runtime library path
-              postInstall = ''
-                wrapProgram $out/bin/librepods \
-                  --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath buildInputs}
+              # Set the runtime library path in the binary itself instead of wrapping it:
+              # security.wrappers (setcap) only accepts ELF files, and the dynamic loader
+              # ignores LD_LIBRARY_PATH for binaries with capabilities anyway
+              postFixup = ''
+                patchelf --add-rpath ${lib.makeLibraryPath buildInputs} $out/bin/librepods
               '';
 
               meta = {
