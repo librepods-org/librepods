@@ -149,8 +149,24 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                 let mut events = dev.events().await?;
                 let tray_handle_clone = tray_handle.clone();
                 let connecting_macs_clone = Arc::clone(&connecting_macs);
+                let seen_mac = matched_airpods_mac.clone();
                 tokio::spawn(async move {
+                    let mut last_seen_update: Option<std::time::Instant> = None;
                     while let Some(ev) = events.next().await {
+                        // any property change (e.g. RSSI) shows the AirPods are still around
+                        if last_seen_update.is_none_or(|t| t.elapsed().as_secs() >= 10)
+                            && let Some(handle) = &tray_handle_clone
+                        {
+                            last_seen_update = Some(std::time::Instant::now());
+                            let mac = seen_mac.clone();
+                            handle
+                                .update(|tray: &mut MyTray| {
+                                    if tray.connected_mac.as_deref() == mac.as_deref() {
+                                        tray.last_ble_seen = Some(std::time::Instant::now());
+                                    }
+                                })
+                                .await;
+                        }
                         match ev {
                             bluer::DeviceEvent::PropertyChanged(prop) => {
                                 if let bluer::DeviceProperty::ManufacturerData(data) = prop {

@@ -151,10 +151,18 @@ async fn async_main(
             listening_mode: None,
             allow_off_option: None,
             model: None,
+            last_ble_seen: None,
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
         let handle = tray.spawn().await.unwrap();
+        let handle_stale = handle.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                handle_stale.update(|tray: &mut MyTray| tray.clear_stale_ble()).await;
+            }
+        });
         *shared_tray_handle.write().await = Some(handle.clone());
         Some(handle)
     };
@@ -296,6 +304,8 @@ async fn async_main(
                                 return;
                             }
                             tray.connected = false;
+                            // keep the battery values for a while after disconnecting
+                            tray.last_ble_seen = Some(std::time::Instant::now());
                             tray.command_tx = None;
                             tray.listening_mode = None;
                             tray.allow_off_option = None;
