@@ -120,6 +120,27 @@ pub enum Message {
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
     AutoConnectChanged(String, bool),
+    ForgetDevice(String),
+}
+
+pub fn forget_device_button<'a>(mac: &str) -> iced::widget::Button<'a, Message> {
+    button(text("Forget This Device").size(16))
+        .padding(Padding {
+            top: 8.0,
+            bottom: 8.0,
+            left: 18.0,
+            right: 18.0,
+        })
+        .style(|theme: &Theme, _status| {
+            let mut style =
+                Style::default().with_background(theme.palette().danger.scale_alpha(0.1));
+            let mut border = Border::default();
+            border.color = theme.palette().danger.scale_alpha(0.5);
+            style.border = border.rounded(16);
+            style.text_color = theme.palette().danger;
+            style
+        })
+        .on_press(Message::ForgetDevice(mac.to_string()))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -741,6 +762,73 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ForgetDevice(mac) => {
+                debug!("Forgetting device {}", mac);
+                let devices_path = get_devices_path();
+                if let Some(mut devices_list) = std::fs::read_to_string(&devices_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<HashMap<String, DeviceData>>(&s).ok())
+                {
+                    devices_list.remove(&mac);
+                    match serde_json::to_string(&devices_list) {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(&devices_path, json) {
+                                error!("Failed to write devices file: {}", e);
+                            }
+                        }
+                        Err(e) => error!("Serialization failed: {}", e),
+                    }
+                }
+                let prefs_path = get_preferences_path();
+                if let Some(mut prefs) = std::fs::read_to_string(&prefs_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    && let Some(obj) = prefs.as_object_mut()
+                {
+                    obj.remove(&mac);
+                    if obj.get("connected_mac").and_then(|m| m.as_str()) == Some(mac.as_str()) {
+                        obj.remove("connected_mac");
+                    }
+                    if let Err(e) = std::fs::write(&prefs_path, prefs.to_string()) {
+                        error!("Failed to write preferences: {}", e);
+                    }
+                }
+                // every AACP manager keeps its own copy of the devices list and
+                // would write the device back with the next save
+                for managers in self.device_managers.blocking_read().values() {
+                    if let Some(aacp_manager) = managers.get_aacp() {
+                        aacp_manager.state.blocking_lock().devices.remove(&mac);
+                    }
+                }
+                if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac)
+                {
+                    self.selected_tab = Tab::Device("none".to_string());
+                }
+                let tray_handle = self.tray_handle.blocking_read().clone();
+                if let Some(handle) = tray_handle {
+                    return Task::future(async move {
+                        handle
+                            .update(|tray| {
+                                // a connected device keeps its tray until it disconnects
+                                if tray.connected || tray.connected_mac.as_deref() != Some(mac.as_str()) {
+                                    return;
+                                }
+                                tray.connected_mac = None;
+                                tray.battery_headphone = None;
+                                tray.battery_headphone_status = None;
+                                tray.battery_l = None;
+                                tray.battery_l_status = None;
+                                tray.battery_r = None;
+                                tray.battery_r_status = None;
+                                tray.battery_c = None;
+                                tray.battery_c_status = None;
+                            })
+                            .await;
+                    })
+                    .discard();
+                }
+                Task::none()
+            }
         }
     }
 
@@ -968,7 +1056,12 @@ impl App {
                                             }
                                         }).unwrap_or_else(|| {
                                             container(
-                                                text("Required managers or state not available for this AirPods device").size(16)
+                                                column![
+                                                    text("Required managers or state not available for this AirPods device").size(16),
+                                                    forget_device_button(id),
+                                                ]
+                                                    .spacing(16)
+                                                    .align_x(Center)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
@@ -997,7 +1090,12 @@ impl App {
                                             }
                                         } else {
                                             container(
-                                                text("No state available for this Nothing device").size(16)
+                                                column![
+                                                    text("No state available for this Nothing device").size(16),
+                                                    forget_device_button(id),
+                                                ]
+                                                    .spacing(16)
+                                                    .align_x(Center)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)

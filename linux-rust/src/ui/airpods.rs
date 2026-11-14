@@ -16,7 +16,7 @@ use tokio::runtime::Runtime;
 // use crate::bluetooth::att::ATTManager;
 use crate::devices::enums::{AirPodsState, DeviceData, DeviceInformation, DeviceState};
 use crate::devices::models::{Capability, supports};
-use crate::ui::window::Message;
+use crate::ui::window::{Message, forget_device_button};
 
 pub fn airpods_view<'a>(
     mac: &'a str,
@@ -234,7 +234,9 @@ pub fn airpods_view<'a>(
             left: 18.0,
             right: 18.0,
         }),
-        auto_connect_toggle
+        auto_connect_toggle,
+        Space::new().height(Length::from(10)),
+        forget_device_button(&mac).width(Length::Fill)
     ];
 
     let mac_audio = mac.clone();
