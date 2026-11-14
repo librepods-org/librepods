@@ -198,6 +198,26 @@ impl AirPodsDevice {
             }
         });
 
+        let (listening_mode_configs_tx, mut listening_mode_configs_rx) =
+            tokio::sync::mpsc::unbounded_channel();
+        aacp_manager
+            .subscribe_to_control_command(
+                ControlCommandIdentifiers::ListeningModeConfigs,
+                listening_mode_configs_tx,
+            )
+            .await;
+        tokio::spawn(async move {
+            while let Some(value) = listening_mode_configs_rx.recv().await {
+                let Some(&byte) = value.first() else { continue };
+                let mut modes = vec![];
+                if byte & 0x01 != 0 { modes.push("Off"); }
+                if byte & 0x02 != 0 { modes.push("ANC"); }
+                if byte & 0x04 != 0 { modes.push("Transparency"); }
+                if byte & 0x08 != 0 { modes.push("Adaptive"); }
+                debug!("Press and hold cycles through: {:?}", modes);
+            }
+        });
+
         let (conversation_detect_tx, mut conversation_detect_rx) =
             tokio::sync::mpsc::unbounded_channel();
         aacp_manager
