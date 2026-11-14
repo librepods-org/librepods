@@ -2,9 +2,11 @@
 
 use ab_glyph::{Font, ScaleFont};
 use ksni::{Icon, ToolTip};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::bluetooth::aacp::{BatteryStatus, ControlCommandIdentifiers};
+use crate::devices::models::{AirPodsModel, Capability, supports};
 use crate::ui::messages::BluetoothUIMessage;
 use crate::utils::get_app_settings_path;
 
@@ -20,10 +22,70 @@ pub struct MyTray {
     pub battery_c: Option<u8>,
     pub battery_c_status: Option<BatteryStatus>,
     pub connected: bool,
+    pub connected_mac: Option<String>,
     pub listening_mode: Option<u8>,
     pub allow_off_option: Option<u8>,
+    pub model: Option<&'static AirPodsModel>,
+    pub last_ble_seen: Option<Instant>,
     pub command_tx: Option<UnboundedSender<(ControlCommandIdentifiers, Vec<u8>)>>,
     pub ui_tx: Option<UnboundedSender<BluetoothUIMessage>>,
+}
+
+// without a BLE signal for this long the battery values count as outdated
+pub const BLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+impl MyTray {
+    fn battery_levels(&self) -> Vec<u8> {
+        let mut levels: Vec<u8> = Vec::new();
+        if let Some(h) = self.battery_headphone {
+            if self.battery_headphone_status != Some(BatteryStatus::Disconnected) {
+                levels.push(h);
+            }
+        } else {
+            if let Some(l) = self.battery_l
+                && self.battery_l_status != Some(BatteryStatus::Disconnected)
+            {
+                levels.push(l);
+            }
+            if let Some(r) = self.battery_r
+                && self.battery_r_status != Some(BatteryStatus::Disconnected)
+            {
+                levels.push(r);
+            }
+        }
+        levels
+    }
+
+    fn listening_mode_options(&self) -> Vec<(&'static str, u8)> {
+        let mut options = vec![];
+        if self.allow_off_option != Some(0x02) {
+            options.push(("Off", 0x01));
+        }
+        options.push(("Noise Cancellation", 0x02));
+        options.push(("Transparency", 0x03));
+        if supports(self.model, Capability::AdaptiveAudio) != Some(false) {
+            options.push(("Adaptive", 0x04));
+        }
+        options
+    }
+
+    pub fn clear_stale_ble(&mut self) {
+        if self.connected || self.battery_levels().is_empty() && self.battery_c.is_none() {
+            return;
+        }
+        if self.last_ble_seen.is_some_and(|seen| seen.elapsed() < BLE_TIMEOUT) {
+            return;
+        }
+        log::debug!("No BLE signal from the AirPods, clearing outdated battery values");
+        self.battery_headphone = None;
+        self.battery_headphone_status = None;
+        self.battery_l = None;
+        self.battery_l_status = None;
+        self.battery_r = None;
+        self.battery_r_status = None;
+        self.battery_c = None;
+        self.battery_c_status = None;
+    }
 }
 
 impl ksni::Tray for MyTray {
@@ -33,30 +95,33 @@ impl ksni::Tray for MyTray {
     fn title(&self) -> String {
         "AirPods".into()
     }
+    fn status(&self) -> ksni::Status {
+        // passive items end up in the hidden part of the tray
+        if self.connected || !self.battery_levels().is_empty() {
+            ksni::Status::Active
+        } else {
+            ksni::Status::Passive
+        }
+    }
+    // middle click cycles through the listening modes
+    fn secondary_activate(&mut self, _x: i32, _y: i32) {
+        if !self.connected || supports(self.model, Capability::ListeningMode) == Some(false) {
+            return;
+        }
+        let options = self.listening_mode_options();
+        let next = self
+            .listening_mode
+            .and_then(|mode| options.iter().position(|&(_, val)| val == mode))
+            .map_or(0, |i| (i + 1) % options.len());
+        if let Some(tx) = &self.command_tx {
+            let value = options[next].1;
+            let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+            self.listening_mode = Some(value);
+        }
+    }
     fn icon_pixmap(&self) -> Vec<Icon> {
         let text = {
-            let mut levels: Vec<u8> = Vec::new();
-            if let Some(h) = self.battery_headphone {
-                if self.battery_headphone_status != Some(BatteryStatus::Disconnected) {
-                    levels.push(h);
-                }
-            } else {
-                if let Some(l) = self.battery_l
-                    && self.battery_l_status != Some(BatteryStatus::Disconnected)
-                {
-                    levels.push(l);
-                }
-                if let Some(r) = self.battery_r
-                    && self.battery_r_status != Some(BatteryStatus::Disconnected)
-                {
-                    levels.push(r);
-                }
-                // if let Some(c) = self.battery_c {
-                //     if self.battery_c_status != Some(BatteryStatus::Disconnected) {
-                //         levels.push(c);
-                //     }
-                // }
-            }
+            let levels = self.battery_levels();
             let min_battery = levels.iter().min().copied();
             if let Some(b) = min_battery {
                 format!("{}", b)
@@ -108,27 +173,13 @@ impl ksni::Tray for MyTray {
     }
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::*;
-        let allow_off = self.allow_off_option == Some(0x01);
-        let options = if allow_off {
-            vec![
-                ("Off", 0x01),
-                ("Noise Cancellation", 0x02),
-                ("Transparency", 0x03),
-                ("Adaptive", 0x04),
-            ]
-        } else {
-            vec![
-                ("Noise Cancellation", 0x02),
-                ("Transparency", 0x03),
-                ("Adaptive", 0x04),
-            ]
-        };
+        let options = self.listening_mode_options();
         let selected = self
             .listening_mode
             .and_then(|mode| options.iter().position(|&(_, val)| val == mode))
             .unwrap_or(0);
         let options_clone = options.clone();
-        vec![
+        let mut items: Vec<ksni::MenuItem<Self>> = vec![
             StandardItem {
                 label: "Open Window".into(),
                 icon_name: "window-new".into(),
@@ -140,27 +191,46 @@ impl ksni::Tray for MyTray {
                 ..Default::default()
             }
             .into(),
-            RadioGroup {
-                selected,
-                select: Box::new(move |this: &mut Self, current| {
-                    if let Some(tx) = &this.command_tx {
-                        let value = options_clone
-                            .get(current)
-                            .map(|&(_, val)| val)
-                            .unwrap_or(0x02);
-                        let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
-                    }
-                }),
-                options: options
-                    .into_iter()
-                    .map(|(label, _)| RadioItem {
-                        label: label.into(),
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            }
-            .into(),
+        ];
+        if !self.connected {
+            items.push(
+                StandardItem {
+                    label: "Exit".into(),
+                    icon_name: "application-exit".into(),
+                    activate: Box::new(|_| std::process::exit(0)),
+                    ..Default::default()
+                }
+                .into(),
+            );
+            return items;
+        }
+        if supports(self.model, Capability::ListeningMode) != Some(false) {
+            items.push(
+                RadioGroup {
+                    selected,
+                    select: Box::new(move |this: &mut Self, current| {
+                        if let Some(tx) = &this.command_tx {
+                            let value = options_clone
+                                .get(current)
+                                .map(|&(_, val)| val)
+                                .unwrap_or(0x02);
+                            let _ =
+                                tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+                        }
+                    }),
+                    options: options
+                        .into_iter()
+                        .map(|(label, _)| RadioItem {
+                            label: label.into(),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items.extend([
             MenuItem::Separator,
             CheckmarkItem {
                 label: "Conversation Detection".into(),
@@ -189,7 +259,8 @@ impl ksni::Tray for MyTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        ]);
+        items
     }
 }
 

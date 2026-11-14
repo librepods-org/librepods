@@ -10,7 +10,7 @@ use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::DeviceData;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
-use crate::utils::{get_app_settings_path, get_devices_path};
+use crate::utils::{get_app_settings_path, get_devices_path, get_preferences_path};
 use bluer::{Address, InternalErrorKind};
 use clap::Parser;
 use dbus::arg::{RefArg, Variant};
@@ -81,30 +81,34 @@ fn main() -> iced::Result {
 
     let device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>> =
         Arc::new(RwLock::new(HashMap::new()));
+    let tray_handle: Arc<RwLock<Option<ksni::Handle<MyTray>>>> =
+        Arc::new(RwLock::new(None));
 
     // Load stem_control initial value from settings JSON, then apply CLI override.
     if args.no_tray {
         // Run headless without UI
         info!("Running in headless mode (no GUI)");
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async_main(ui_tx, device_managers)).unwrap();
+        rt.block_on(async_main(ui_tx, device_managers, tray_handle)).unwrap();
         Ok(())
     } else {
         // Run with UI
         let device_managers_clone = device_managers.clone();
+        let tray_handle_clone = tray_handle.clone();
         std::thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async_main(ui_tx, device_managers_clone))
+            rt.block_on(async_main(ui_tx, device_managers_clone, tray_handle_clone))
                 .unwrap();
         });
 
-        ui::window::start_ui(ui_rx, args.start_minimized, device_managers)
+        ui::window::start_ui(ui_rx, args.start_minimized, device_managers, tray_handle)
     }
 }
 
 async fn async_main(
     ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    shared_tray_handle: Arc<RwLock<Option<ksni::Handle<MyTray>>>>,
 ) -> bluer::Result<()> {
     let args = Args::parse();
 
@@ -140,12 +144,26 @@ async fn async_main(
             battery_c: None,
             battery_c_status: None,
             connected: false,
+            connected_mac: std::fs::read_to_string(get_preferences_path())
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v.get("connected_mac").and_then(|m| m.as_str().map(String::from))),
             listening_mode: None,
             allow_off_option: None,
+            model: None,
+            last_ble_seen: None,
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
         let handle = tray.spawn().await.unwrap();
+        let handle_stale = handle.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                handle_stale.update(|tray: &mut MyTray| tray.clear_stale_ble()).await;
+            }
+        });
+        *shared_tray_handle.write().await = Some(handle.clone());
         Some(handle)
     };
 
@@ -276,6 +294,26 @@ async fn async_main(
         if is_connected==0 {
             if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceDisconnected(addr_str.clone())) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
+            }
+            if let Some(handle) = tray_handle.clone() {
+                tokio::spawn(async move {
+                    handle
+                        .update(|tray: &mut MyTray| {
+                            // connected_mac stays, the LE battery updates still need it
+                            if tray.connected_mac.as_deref() != Some(addr_str.as_str()) {
+                                return;
+                            }
+                            tray.connected = false;
+                            // keep the battery values for a while after disconnecting
+                            tray.last_ble_seen = Some(std::time::Instant::now());
+                            tray.command_tx = None;
+                            tray.listening_mode = None;
+                            tray.allow_off_option = None;
+                            tray.conversation_detect_enabled = None;
+                            tray.model = None;
+                        })
+                        .await;
+                });
             }
             return true
         }

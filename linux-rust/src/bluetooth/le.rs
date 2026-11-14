@@ -58,6 +58,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
 
     let mut verified_macs: HashMap<Address, String> = HashMap::new();
     let mut failed_macs: HashSet<Address> = HashSet::new();
+    let mut listening_macs: HashSet<Address> = HashSet::new();
     let connecting_macs = Arc::new(Mutex::new(HashSet::<Address>::new()));
 
     let pattern = Pattern {
@@ -141,11 +142,31 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
             }
 
             if matched_airpods_mac.is_some() {
+                if listening_macs.contains(&addr) {
+                    continue;
+                }
+                listening_macs.insert(addr);
                 let mut events = dev.events().await?;
                 let tray_handle_clone = tray_handle.clone();
                 let connecting_macs_clone = Arc::clone(&connecting_macs);
+                let seen_mac = matched_airpods_mac.clone();
                 tokio::spawn(async move {
+                    let mut last_seen_update: Option<std::time::Instant> = None;
                     while let Some(ev) = events.next().await {
+                        // any property change (e.g. RSSI) shows the AirPods are still around
+                        if last_seen_update.is_none_or(|t| t.elapsed().as_secs() >= 10)
+                            && let Some(handle) = &tray_handle_clone
+                        {
+                            last_seen_update = Some(std::time::Instant::now());
+                            let mac = seen_mac.clone();
+                            handle
+                                .update(|tray: &mut MyTray| {
+                                    if tray.connected_mac.as_deref() == mac.as_deref() {
+                                        tray.last_ble_seen = Some(std::time::Instant::now());
+                                    }
+                                })
+                                .await;
+                        }
                         match ev {
                             bluer::DeviceEvent::PropertyChanged(prop) => {
                                 if let bluer::DeviceProperty::ManufacturerData(data) = prop {
@@ -168,18 +189,16 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                         debug!("Connection state: {}", connection_state);
                                         if connection_state == 0x00 {
                                             let pref_path = get_preferences_path();
-                                            let preferences: HashMap<
-                                                String,
-                                                HashMap<String, bool>,
-                                            > = std::fs::read_to_string(&pref_path)
-                                                .ok()
-                                                .and_then(|s| serde_json::from_str(&s).ok())
-                                                .unwrap_or_default();
+                                            let preferences: serde_json::Value =
+                                                std::fs::read_to_string(&pref_path)
+                                                    .ok()
+                                                    .and_then(|s| serde_json::from_str(&s).ok())
+                                                    .unwrap_or(serde_json::json!({}));
                                             let auto_connect = preferences
                                                 .get(matched_airpods_mac.as_ref().unwrap())
                                                 .and_then(|prefs| prefs.get("autoConnect"))
-                                                .copied()
-                                                .unwrap_or(true);
+                                                .and_then(|b| b.as_bool())
+                                                .unwrap_or(false);
                                             debug!(
                                                 "Auto-connect preference for {}: {}",
                                                 matched_airpods_mac.as_ref().unwrap(),
@@ -246,6 +265,7 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                                         );
                                                     }
                                                 }
+                                            } else {
                                                 info!(
                                                     "Auto-connect is disabled for {}, not attempting to connect.",
                                                     matched_airpods_mac.as_ref().unwrap()
@@ -294,8 +314,12 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
                                         };
 
                                         if let Some(handle) = &tray_handle_clone {
+                                            let mac_clone = matched_airpods_mac.clone();
                                             handle
                                                 .update(|tray: &mut MyTray| {
+                                                    if tray.connected_mac.as_deref() != mac_clone.as_deref() {
+                                                        return;
+                                                    }
                                                     tray.battery_l = if left_byte == 0xff {
                                                         None
                                                     } else {

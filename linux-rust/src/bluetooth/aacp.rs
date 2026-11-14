@@ -306,9 +306,10 @@ pub enum AACPEvent {
     ConnectedDevices(Vec<ConnectedDevice>, Vec<ConnectedDevice>),
     OwnershipToFalseRequest,
     StemPress(StemPressType, StemPressBudType),
+    Information(AirPodsInformation),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AirPodsLEKeys {
     pub irk: String,
     pub enc_key: String,
@@ -717,8 +718,18 @@ impl AACPManager {
                 if let Some(mac) = state.airpods_mac
                     && let Some(device_data) = state.devices.get_mut(&mac.to_string())
                 {
+                    let existing_le_keys = match &device_data.information {
+                        Some(DeviceInformation::AirPods(existing)) => existing.le_keys.clone(),
+                        _ => AirPodsLEKeys { irk: String::new(), enc_key: String::new() },
+                    };
                     device_data.name = info.name.clone();
-                    device_data.information = Some(DeviceInformation::AirPods(info.clone()));
+                    device_data.information = Some(DeviceInformation::AirPods(AirPodsInformation {
+                        le_keys: existing_le_keys,
+                        ..info.clone()
+                    }));
+                }
+                if let Some(ref tx) = state.event_tx {
+                    let _ = tx.send(AACPEvent::Information(info.clone()));
                 }
                 let json = serde_json::to_string(&state.devices).unwrap();
                 if let Some(parent) = get_devices_path().parent()
@@ -785,6 +796,11 @@ impl AACPManager {
                                 type_: DeviceType::AirPods,
                                 information: None,
                             });
+                        // keys can arrive before the information packet, keep them anyway
+                        if device_data.information.is_none() {
+                            device_data.information =
+                                Some(DeviceInformation::AirPods(AirPodsInformation::default()));
+                        }
                         match kt {
                             ProximityKeyType::Irk => match device_data.information.as_mut() {
                                 Some(DeviceInformation::AirPods(info)) => {
@@ -1236,20 +1252,20 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
     while let Some(data) = rx.recv().await {
         let mut attempts = 0;
         loop {
-          match sp.send(&data).await {
-            Ok(_) => {
-              debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
-              break;
+            match sp.send(&data).await {
+                Ok(_) => {
+                    debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
+                    break;
+                }
+                Err(e) if e.raw_os_error() == Some(107) && attempts < 10 => {
+                    attempts += 1;
+                    sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => {
+                    error!("Failed to send data: {}", e);
+                    return;
+                }
             }
-            Err(e) if e.raw_os_error() == Some(107) && attempts < 10 => {
-              attempts += 1;
-              sleep(Duration::from_millis(100)).await;
-            }
-            Err(e) => {
-              error!("Failed to send data: {}", e);
-              return;
-            }
-          }
         }
     }
     info!("Send thread finished.");

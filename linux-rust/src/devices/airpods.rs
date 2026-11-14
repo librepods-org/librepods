@@ -1,5 +1,6 @@
 use crate::bluetooth::aacp::ControlCommandIdentifiers;
 use crate::bluetooth::aacp::{AACPEvent, AACPManager, AirPodsLEKeys, ProximityKeyType};
+use crate::devices::models::AirPodsModel;
 use crate::media_controller::MediaController;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
-use crate::utils::get_app_settings_path;
+use crate::utils::{get_app_settings_path, get_preferences_path, get_stored_press_hold_modes};
 
 pub struct AirPodsDevice {
     pub mac_address: Address,
@@ -34,9 +35,21 @@ impl AirPodsDevice {
         // att_manager.connect(mac_address).await.expect("Failed to connect ATT");
 
         if let Some(handle) = &tray_handle {
+            let mac_str = mac_address.to_string();
+            let prefs_path = get_preferences_path();
+            let mut prefs = std::fs::read_to_string(&prefs_path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            prefs["connected_mac"] = serde_json::json!(mac_str);
+            if let Some(parent) = prefs_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&prefs_path, prefs.to_string());
             handle
                 .update(|tray: &mut MyTray| {
                     tray.connected = true;
+                    tray.connected_mac = Some(mac_str.clone());
                     tray.battery_headphone = None;
                     tray.battery_headphone_status = None;
                     tray.battery_l = None;
@@ -128,10 +141,48 @@ impl AirPodsDevice {
 
         aacp_manager.set_event_channel(tx).await;
         if let Some(handle) = &tray_handle {
+            // the information packet can arrive before the event channel is set,
+            // so take the model from the stored device data first
+            let model = aacp_manager
+                .state
+                .lock()
+                .await
+                .devices
+                .get(&mac_address.to_string())
+                .and_then(|device| device.airpods_model());
             handle
-                .update(|tray: &mut MyTray| tray.command_tx = Some(command_tx.clone()))
+                .update(|tray: &mut MyTray| {
+                    tray.command_tx = Some(command_tx.clone());
+                    tray.model = model;
+                })
                 .await;
         }
+
+        // some AirPods (e.g. Pro 1) never report the press and hold modes, so send the
+        // stored ones again to make sure the UI shows what is actually set
+        let aacp_manager_clone = aacp_manager.clone();
+        tokio::spawn(async move {
+            sleep(Duration::from_secs(3)).await;
+            let reported = aacp_manager_clone
+                .state
+                .lock()
+                .await
+                .control_command_status_list
+                .iter()
+                .any(|status| status.identifier == ControlCommandIdentifiers::ListeningModeConfigs);
+            if reported {
+                return;
+            }
+            if let Some(mask) = get_stored_press_hold_modes(&mac_address.to_string()) {
+                debug!("Press and hold modes not reported, sending stored value {:#04x}", mask);
+                if let Err(e) = aacp_manager_clone
+                    .send_control_command(ControlCommandIdentifiers::ListeningModeConfigs, &[mask])
+                    .await
+                {
+                    error!("Failed to send press and hold modes: {}", e);
+                }
+            }
+        });
 
         let aacp_manager_clone = aacp_manager.clone();
         tokio::spawn(async move {
@@ -183,6 +234,26 @@ impl AirPodsDevice {
                         })
                         .await;
                 }
+            }
+        });
+
+        let (listening_mode_configs_tx, mut listening_mode_configs_rx) =
+            tokio::sync::mpsc::unbounded_channel();
+        aacp_manager
+            .subscribe_to_control_command(
+                ControlCommandIdentifiers::ListeningModeConfigs,
+                listening_mode_configs_tx,
+            )
+            .await;
+        tokio::spawn(async move {
+            while let Some(value) = listening_mode_configs_rx.recv().await {
+                let Some(&byte) = value.first() else { continue };
+                let mut modes = vec![];
+                if byte & 0x01 != 0 { modes.push("Off"); }
+                if byte & 0x02 != 0 { modes.push("ANC"); }
+                if byte & 0x04 != 0 { modes.push("Transparency"); }
+                if byte & 0x08 != 0 { modes.push("Adaptive"); }
+                debug!("Press and hold cycles through: {:?}", modes);
             }
         });
 
@@ -294,6 +365,19 @@ impl AirPodsDevice {
                         ));
                         debug!("Sent ControlCommand event to UI");
                     }
+                    AACPEvent::Information(info) => {
+                        let model = AirPodsModel::from_model_number(&info.model_number);
+                        debug!("Received Information event, model: {:?}", model.map(|m| m.name));
+                        if let Some(handle) = &tray_handle {
+                            handle
+                                .update(|tray: &mut MyTray| tray.model = model)
+                                .await;
+                        }
+                        let _ = ui_tx_clone.send(BluetoothUIMessage::AACPUIEvent(
+                            mac_address.to_string(),
+                            event_clone,
+                        ));
+                    }
                     AACPEvent::ConversationalAwareness(status) => {
                         debug!("Received ConversationalAwareness event: {}", status);
                         let controller = mc_clone.lock().await;
@@ -397,7 +481,7 @@ impl AirPodsDevice {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AirPodsInformation {
     pub name: String,
     pub model_number: String,

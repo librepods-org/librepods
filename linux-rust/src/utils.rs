@@ -21,6 +21,16 @@ pub fn get_preferences_path() -> PathBuf {
         .join("preferences.json")
 }
 
+// press and hold listening modes last set from this app, some AirPods never report them
+pub fn get_stored_press_hold_modes(mac: &str) -> Option<u8> {
+    std::fs::read_to_string(get_preferences_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get(mac)?.get("pressHoldModes")?.as_u64())
+        .and_then(|mask| u8::try_from(mask).ok())
+        .filter(|mask| mask.count_ones() >= 2)
+}
+
 pub fn get_app_settings_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
 

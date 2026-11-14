@@ -6,24 +6,33 @@ use crate::devices::enums::{
     AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceState, DeviceType, NothingAncMode,
     NothingState,
 };
+use crate::devices::models::AirPodsModel;
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path};
-use bluer::{Address};
+use crate::utils::{
+    MyTheme, get_app_settings_path, get_devices_path, get_preferences_path,
+    get_stored_press_hold_modes,
+};
+use bluer::Address;
 use iced::border::Radius;
 use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
     Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
-    text_input, toggler
+    text_input, toggler,
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
+use iced::{
+    Background, Border, Center, Element, Font, Length, Padding, Program, Settings, Size,
+    Subscription, Task, Theme, daemon, window,
+};
 use log::{debug, error};
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::SystemTime;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{Mutex, RwLock};
 
@@ -31,6 +40,7 @@ pub fn start_ui(
     ui_rx: UnboundedReceiver<BluetoothUIMessage>,
     start_minimized: bool,
     device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    tray_handle: Arc<RwLock<Option<ksni::Handle<crate::ui::tray::MyTray>>>>,
     // stem_control: Arc<AtomicBool>,
 ) -> iced::Result {
     let ui_rx = Arc::new(Mutex::new(ui_rx));
@@ -42,6 +52,7 @@ pub fn start_ui(
                 Arc::clone(&ui_rx),
                 start_minimized,
                 Arc::clone(&device_managers),
+                Arc::clone(&tray_handle),
                 // Arc::clone(&stem_control),
             )
         },
@@ -53,7 +64,11 @@ pub fn start_ui(
     .title(App::title)
     .settings(Settings {
         id: Some("librepods".to_string()),
-        fonts: vec![include_bytes!("../../assets/font/sf_pro.otf").as_slice().into()],
+        fonts: vec![
+            include_bytes!("../../assets/font/sf_pro.otf")
+                .as_slice()
+                .into(),
+        ],
         default_font: Font::with_name("SF Pro Text"),
         ..Settings::default()
     })
@@ -61,6 +76,8 @@ pub fn start_ui(
 }
 
 pub struct App {
+    // devices file, parsed again only when it changed on disk (view runs very often)
+    devices_cache: RefCell<(Option<SystemTime>, HashMap<String, DeviceData>)>,
     window: Option<window::Id>,
     panes: pane_grid::State<Pane>,
     selected_tab: Tab,
@@ -76,6 +93,7 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    tray_handle: Arc<RwLock<Option<ksni::Handle<crate::ui::tray::MyTray>>>>,
 }
 
 pub struct BluetoothState {
@@ -108,6 +126,29 @@ pub enum Message {
     StateChanged(String, DeviceState),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    AutoConnectChanged(String, bool),
+    ForgetDevice(String),
+    PressHoldModesChanged(String, u8),
+}
+
+pub fn forget_device_button<'a>(mac: &str) -> iced::widget::Button<'a, Message> {
+    button(text("Forget This Device").size(16))
+        .padding(Padding {
+            top: 8.0,
+            bottom: 8.0,
+            left: 18.0,
+            right: 18.0,
+        })
+        .style(|theme: &Theme, _status| {
+            let mut style =
+                Style::default().with_background(theme.palette().danger.scale_alpha(0.1));
+            let mut border = Border::default();
+            border.color = theme.palette().danger.scale_alpha(0.5);
+            style.border = border.rounded(16);
+            style.text_color = theme.palette().danger;
+            style
+        })
+        .on_press(Message::ForgetDevice(mac.to_string()))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -128,12 +169,12 @@ impl App {
         ui_rx: Arc<Mutex<UnboundedReceiver<BluetoothUIMessage>>>,
         start_minimized: bool,
         device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+        tray_handle: Arc<RwLock<Option<ksni::Handle<crate::ui::tray::MyTray>>>>,
         // stem_control: Arc<AtomicBool>,
     ) -> (Self, Task<Message>) {
         let (mut panes, first_pane) = pane_grid::State::new(Pane::Sidebar);
         let split = panes.split(pane_grid::Axis::Vertical, first_pane, Pane::Content);
         panes.resize(split.unwrap().1, 0.2);
-
 
         let wait_task = Task::perform(wait_for_message(Arc::clone(&ui_rx)), |msg| msg);
 
@@ -142,7 +183,7 @@ impl App {
         } else {
             let mut settings = window::Settings::default();
             settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+            settings.icon = window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None).ok();
             let (id, open) = window::open(settings);
             (Some(id), open.map(Message::WindowOpened))
         };
@@ -217,6 +258,8 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                tray_handle,
+                devices_cache: RefCell::new((None, HashMap::new())),
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -259,7 +302,19 @@ impl App {
                     app_settings_path.to_str().unwrap(),
                     settings
                 );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                if let Some(parent) = app_settings_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    error!("Failed to create settings directory: {}", e);
+                    return Task::none();
+                }
+                if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
+                    error!(
+                        "Failed to write settings to {}: {}",
+                        app_settings_path.display(),
+                        e
+                    );
+                }
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
@@ -279,7 +334,7 @@ impl App {
                         } else {
                             let mut settings = window::Settings::default();
                             settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+                            settings.icon = window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None).ok();
                             let (new_window_task, open_task) = window::open(settings);
                             self.window = Some(new_window_task);
                             Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
@@ -307,7 +362,21 @@ impl App {
                         //     conversation_awareness_enabled: false,
                         // }));
 
-                        let type_ = {
+                        // on the first connection the device is not in the devices file yet,
+                        // so derive the type from the registered managers first
+                        let manager_type = {
+                            let device_managers = self.device_managers.blocking_read();
+                            device_managers.get(&mac).and_then(|managers| {
+                                if managers.get_aacp().is_some() {
+                                    Some(DeviceType::AirPods)
+                                } else if managers.get_att().is_some() {
+                                    Some(DeviceType::Nothing)
+                                } else {
+                                    None
+                                }
+                            })
+                        };
+                        let type_ = manager_type.or_else(|| {
                             let devices_json = std::fs::read_to_string(get_devices_path())
                                 .unwrap_or_else(|e| {
                                     error!("Failed to read devices file: {}", e);
@@ -319,7 +388,7 @@ impl App {
                                     HashMap::new()
                                 });
                             devices_list.get(&mac).map(|d| d.type_.clone())
-                        };
+                        });
                         match type_ {
                             Some(DeviceType::AirPods) => {
                                 let device_managers = self.device_managers.blocking_read();
@@ -344,9 +413,29 @@ impl App {
                                         .map(|d| d.name.clone())
                                         .unwrap_or_else(|| "Unknown Device".to_string())
                                 };
+                                let auto_connect = {
+                                    let prefs_path = get_preferences_path();
+                                    std::fs::read_to_string(&prefs_path)
+                                        .ok()
+                                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                                        .and_then(|v| v.get(&mac).and_then(|d| d.get("autoConnect")).and_then(|b| b.as_bool()))
+                                        .unwrap_or(false)
+                                };
+                                let model = state.devices.get(&mac).and_then(|d| d.airpods_model());
+                                // the device value wins, the stored one is for AirPods that never report it
+                                let press_hold_modes = state.control_command_status_list.iter().find(|status| {
+                                    status.identifier == ControlCommandIdentifiers::ListeningModeConfigs
+                                }).and_then(|status| status.value.first().copied())
+                                    .or_else(|| get_stored_press_hold_modes(&mac));
+                                let allow_off = state.control_command_status_list.iter().find(|status| {
+                                    status.identifier == ControlCommandIdentifiers::AllowOffOption
+                                }).map(|status| matches!(status.value.as_slice(), [0x01]));
                                 self.device_states.insert(mac.clone(), DeviceState::AirPods(AirPodsState {
                                     device_name,
+                                    model,
+                                    press_hold_modes,
                                     battery: state.battery_info.clone(),
+                                    auto_connect,
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
                                         if status.identifier == ControlCommandIdentifiers::ListeningMode {
                                             status.value.first().map(AirPodsNoiseControlMode::from_byte)
@@ -355,33 +444,18 @@ impl App {
                                         }
                                     }).unwrap_or(AirPodsNoiseControlMode::Transparency),
                                     noise_control_state: combo_box::State::new(
-                                        {
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive
-                                            ];
-                                            if state.control_command_status_list.iter().any(|status| {
-                                                status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                                matches!(status.value.as_slice(), [0x01])
-                                            }) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        }
+                                        AirPodsNoiseControlMode::available(allow_off, model),
                                     ),
-                                    conversation_awareness_enabled: state.control_command_status_list.iter().any(|status| {
-                                        status.identifier == ControlCommandIdentifiers::ConversationDetectConfig &&
-                                        matches!(status.value.as_slice(), [0x01])
-                                    }),
-                                    personalized_volume_enabled: state.control_command_status_list.iter().any(|status| {
-                                        status.identifier == ControlCommandIdentifiers::AdaptiveVolumeConfig &&
-                                        matches!(status.value.as_slice(), [0x01])
-                                    }),
-                                    allow_off_mode: state.control_command_status_list.iter().any(|status| {
-                                        status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                        matches!(status.value.as_slice(), [0x01])
-                                    }),
+                                    one_bud_anc_enabled: state.control_command_status_list.iter().find(|status| {
+                                        status.identifier == ControlCommandIdentifiers::OneBudAncMode
+                                    }).map(|status| matches!(status.value.as_slice(), [0x01])),
+                                    conversation_awareness_enabled: state.control_command_status_list.iter().find(|status| {
+                                        status.identifier == ControlCommandIdentifiers::ConversationDetectConfig
+                                    }).map(|status| matches!(status.value.as_slice(), [0x01])),
+                                    personalized_volume_enabled: state.control_command_status_list.iter().find(|status| {
+                                        status.identifier == ControlCommandIdentifiers::AdaptiveVolumeConfig
+                                    }).map(|status| matches!(status.value.as_slice(), [0x01])),
+                                    allow_off_mode: allow_off,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -416,7 +490,8 @@ impl App {
 
                         self.device_states.remove(&mac);
 
-                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac) {
+                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac)
+                        {
                             self.selected_tab = Tab::Device("none".to_string());
                         }
 
@@ -440,16 +515,34 @@ impl App {
                                         state.noise_control_mode = mode;
                                     }
                                 }
+                                ControlCommandIdentifiers::OneBudAncMode => {
+                                    let is_enabled = match status.value.as_slice() {
+                                        [0x01] => Some(true),
+                                        [0x02] => Some(false),
+                                        _ => {
+                                            error!(
+                                                "Unknown One Bud ANC Mode value: {:?}",
+                                                status.value
+                                            );
+                                            None
+                                        }
+                                    };
+                                    if let Some(DeviceState::AirPods(state)) =
+                                        self.device_states.get_mut(&mac)
+                                    {
+                                        state.one_bud_anc_enabled = is_enabled;
+                                    }
+                                }
                                 ControlCommandIdentifiers::ConversationDetectConfig => {
                                     let is_enabled = match status.value.as_slice() {
-                                        [0x01] => true,
-                                        [0x02] => false,
+                                        [0x01] => Some(true),
+                                        [0x02] => Some(false),
                                         _ => {
                                             error!(
                                                 "Unknown Conversation Detect Config value: {:?}",
                                                 status.value
                                             );
-                                            false
+                                            None
                                         }
                                     };
                                     if let Some(DeviceState::AirPods(state)) =
@@ -460,14 +553,14 @@ impl App {
                                 }
                                 ControlCommandIdentifiers::AdaptiveVolumeConfig => {
                                     let is_enabled = match status.value.as_slice() {
-                                        [0x01] => true,
-                                        [0x02] => false,
+                                        [0x01] => Some(true),
+                                        [0x02] => Some(false),
                                         _ => {
                                             error!(
                                                 "Unknown Adaptive Volume Config value: {:?}",
                                                 status.value
                                             );
-                                            false
+                                            None
                                         }
                                     };
                                     if let Some(DeviceState::AirPods(state)) =
@@ -476,33 +569,36 @@ impl App {
                                         state.personalized_volume_enabled = is_enabled;
                                     }
                                 }
+                                ControlCommandIdentifiers::ListeningModeConfigs => {
+                                    if let Some(DeviceState::AirPods(state)) =
+                                        self.device_states.get_mut(&mac)
+                                        && let Some(&mask) = status.value.first()
+                                    {
+                                        state.press_hold_modes = Some(mask);
+                                    }
+                                }
                                 ControlCommandIdentifiers::AllowOffOption => {
                                     let is_enabled = match status.value.as_slice() {
-                                        [0x01] => true,
-                                        [0x02] => false,
+                                        [0x01] => Some(true),
+                                        [0x02] => Some(false),
                                         _ => {
                                             error!(
                                                 "Unknown Allow Off Option value: {:?}",
                                                 status.value
                                             );
-                                            false
+                                            None
                                         }
                                     };
                                     if let Some(DeviceState::AirPods(state)) =
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.allow_off_mode = is_enabled;
-                                        state.noise_control_state = combo_box::State::new({
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive,
-                                            ];
-                                            if is_enabled {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        });
+                                        state.noise_control_state = combo_box::State::new(
+                                            AirPodsNoiseControlMode::available(
+                                                is_enabled,
+                                                state.model,
+                                            ),
+                                        );
                                     }
                                 }
                                 _ => {
@@ -515,6 +611,20 @@ impl App {
                                 {
                                     state.battery = battery_info;
                                     debug!("Updated battery info for {}: {:?}", mac, state.battery);
+                                }
+                            }
+                            AACPEvent::Information(info) => {
+                                if let Some(DeviceState::AirPods(state)) =
+                                    self.device_states.get_mut(&mac)
+                                {
+                                    state.model =
+                                        AirPodsModel::from_model_number(&info.model_number);
+                                    state.noise_control_state = combo_box::State::new(
+                                        AirPodsNoiseControlMode::available(
+                                            state.allow_off_mode,
+                                            state.model,
+                                        ),
+                                    );
                                 }
                             }
                             _ => {}
@@ -610,17 +720,9 @@ impl App {
                 if let Some(DeviceType::AirPods) = type_
                     && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
                 {
-                    state.noise_control_state = combo_box::State::new({
-                        let mut modes = vec![
-                            AirPodsNoiseControlMode::Transparency,
-                            AirPodsNoiseControlMode::NoiseCancellation,
-                            AirPodsNoiseControlMode::Adaptive,
-                        ];
-                        if state.allow_off_mode {
-                            modes.insert(0, AirPodsNoiseControlMode::Off);
-                        }
-                        modes
-                    });
+                    state.noise_control_state = combo_box::State::new(
+                        AirPodsNoiseControlMode::available(state.allow_off_mode, state.model),
+                    );
                 }
                 Task::none()
             }
@@ -637,7 +739,25 @@ impl App {
                     app_settings_path.to_str().unwrap(),
                     settings
                 );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                if let Some(parent) = app_settings_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    error!("Failed to create settings directory: {}", e);
+                    return Task::none();
+                }
+                if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
+                    error!(
+                        "Failed to write settings to {}: {}",
+                        app_settings_path.display(),
+                        e
+                    );
+                }
+                if let Some(handle) = self.tray_handle.blocking_read().as_ref() {
+                    let handle = handle.clone();
+                    tokio::spawn(async move {
+                        handle.update(|_| {}).await;
+                    });
+                }
                 Task::none()
             }
             Message::StemControlChanged(is_enabled) => {
@@ -653,22 +773,150 @@ impl App {
                     app_settings_path.to_str().unwrap(),
                     settings
                 );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                if let Some(parent) = app_settings_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    error!("Failed to create settings directory: {}", e);
+                    return Task::none();
+                }
+                if let Err(e) = std::fs::write(&app_settings_path, settings.to_string()) {
+                    error!(
+                        "Failed to write settings to {}: {}",
+                        app_settings_path.display(),
+                        e
+                    );
+                }
+                Task::none()
+            }
+            Message::AutoConnectChanged(mac, is_enabled) => {
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    state.auto_connect = is_enabled;
+                }
+                let prefs_path = get_preferences_path();
+                let mut prefs = std::fs::read_to_string(&prefs_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .unwrap_or_else(|| serde_json::json!({}));
+                prefs[&mac]["autoConnect"] = serde_json::json!(is_enabled);
+                if let Some(parent) = prefs_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(e) = std::fs::write(&prefs_path, prefs.to_string()) {
+                    error!("Failed to write preferences: {}", e);
+                }
+                Task::none()
+            }
+            Message::PressHoldModesChanged(mac, mask) => {
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    state.press_hold_modes = Some(mask);
+                }
+                // fewer than two modes is only a draft, it was not sent to the AirPods
+                if mask.count_ones() >= 2 {
+                    let prefs_path = get_preferences_path();
+                    let mut prefs = std::fs::read_to_string(&prefs_path)
+                        .ok()
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    prefs[&mac]["pressHoldModes"] = serde_json::json!(mask);
+                    if let Some(parent) = prefs_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(e) = std::fs::write(&prefs_path, prefs.to_string()) {
+                        error!("Failed to write preferences: {}", e);
+                    }
+                }
+                Task::none()
+            }
+            Message::ForgetDevice(mac) => {
+                debug!("Forgetting device {}", mac);
+                let devices_path = get_devices_path();
+                if let Some(mut devices_list) = std::fs::read_to_string(&devices_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<HashMap<String, DeviceData>>(&s).ok())
+                {
+                    devices_list.remove(&mac);
+                    match serde_json::to_string(&devices_list) {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(&devices_path, json) {
+                                error!("Failed to write devices file: {}", e);
+                            }
+                        }
+                        Err(e) => error!("Serialization failed: {}", e),
+                    }
+                }
+                let prefs_path = get_preferences_path();
+                if let Some(mut prefs) = std::fs::read_to_string(&prefs_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    && let Some(obj) = prefs.as_object_mut()
+                {
+                    obj.remove(&mac);
+                    if obj.get("connected_mac").and_then(|m| m.as_str()) == Some(mac.as_str()) {
+                        obj.remove("connected_mac");
+                    }
+                    if let Err(e) = std::fs::write(&prefs_path, prefs.to_string()) {
+                        error!("Failed to write preferences: {}", e);
+                    }
+                }
+                // every AACP manager keeps its own copy of the devices list and
+                // would write the device back with the next save
+                for managers in self.device_managers.blocking_read().values() {
+                    if let Some(aacp_manager) = managers.get_aacp() {
+                        aacp_manager.state.blocking_lock().devices.remove(&mac);
+                    }
+                }
+                if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac)
+                {
+                    self.selected_tab = Tab::Device("none".to_string());
+                }
+                let tray_handle = self.tray_handle.blocking_read().clone();
+                if let Some(handle) = tray_handle {
+                    return Task::future(async move {
+                        handle
+                            .update(|tray| {
+                                // a connected device keeps its tray until it disconnects
+                                if tray.connected || tray.connected_mac.as_deref() != Some(mac.as_str()) {
+                                    return;
+                                }
+                                tray.connected_mac = None;
+                                tray.battery_headphone = None;
+                                tray.battery_headphone_status = None;
+                                tray.battery_l = None;
+                                tray.battery_l_status = None;
+                                tray.battery_r = None;
+                                tray.battery_r_status = None;
+                                tray.battery_c = None;
+                                tray.battery_c_status = None;
+                            })
+                            .await;
+                    })
+                    .discard();
+                }
                 Task::none()
             }
         }
     }
 
-    fn view(&self, _id: window::Id) -> Element<'_, Message> {
-        let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-            error!("Failed to read devices file: {}", e);
-            "{}".to_string()
-        });
-        let devices_list: HashMap<String, DeviceData> = serde_json::from_str(&devices_json)
-            .unwrap_or_else(|e| {
+    fn devices_list(&self) -> HashMap<String, DeviceData> {
+        let path = get_devices_path();
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let mut cache = self.devices_cache.borrow_mut();
+        if modified.is_none() || cache.0 != modified {
+            let devices_json = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                error!("Failed to read devices file: {}", e);
+                "{}".to_string()
+            });
+            cache.1 = serde_json::from_str(&devices_json).unwrap_or_else(|e| {
                 error!("Deserialization failed: {}", e);
                 HashMap::new()
             });
+            cache.0 = modified;
+        }
+        cache.1.clone()
+    }
+
+    fn view(&self, _id: window::Id) -> Element<'_, Message> {
+        let devices_list = self.devices_list();
         let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_pane_id, pane, _is_maximized| {
             match pane {
                 Pane::Sidebar => {
@@ -863,7 +1111,7 @@ impl App {
                             } else {
                                 let device_type = devices_list.get(id).map(|d| d.type_.clone());
                                 let device_state = self.device_states.get(id);
-                                debug!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
+                                log::trace!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
                                 match device_type {
                                     Some(DeviceType::AirPods) => {
 
@@ -883,7 +1131,12 @@ impl App {
                                             }
                                         }).unwrap_or_else(|| {
                                             container(
-                                                text("Required managers or state not available for this AirPods device").size(16)
+                                                column![
+                                                    text("Required managers or state not available for this AirPods device").size(16),
+                                                    forget_device_button(id),
+                                                ]
+                                                    .spacing(16)
+                                                    .align_x(Center)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
@@ -912,7 +1165,12 @@ impl App {
                                             }
                                         } else {
                                             container(
-                                                text("No state available for this Nothing device").size(16)
+                                                column![
+                                                    text("No state available for this Nothing device").size(16),
+                                                    forget_device_button(id),
+                                                ]
+                                                    .spacing(16)
+                                                    .align_x(Center)
                                             )
                                                 .center_x(Length::Fill)
                                                 .center_y(Length::Fill)
