@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
-use crate::utils::{get_app_settings_path, get_preferences_path};
+use crate::utils::{get_app_settings_path, get_preferences_path, get_stored_press_hold_modes};
 
 pub struct AirPodsDevice {
     pub mac_address: Address,
@@ -157,6 +157,32 @@ impl AirPodsDevice {
                 })
                 .await;
         }
+
+        // some AirPods (e.g. Pro 1) never report the press and hold modes, so send the
+        // stored ones again to make sure the UI shows what is actually set
+        let aacp_manager_clone = aacp_manager.clone();
+        tokio::spawn(async move {
+            sleep(Duration::from_secs(3)).await;
+            let reported = aacp_manager_clone
+                .state
+                .lock()
+                .await
+                .control_command_status_list
+                .iter()
+                .any(|status| status.identifier == ControlCommandIdentifiers::ListeningModeConfigs);
+            if reported {
+                return;
+            }
+            if let Some(mask) = get_stored_press_hold_modes(&mac_address.to_string()) {
+                debug!("Press and hold modes not reported, sending stored value {:#04x}", mask);
+                if let Err(e) = aacp_manager_clone
+                    .send_control_command(ControlCommandIdentifiers::ListeningModeConfigs, &[mask])
+                    .await
+                {
+                    error!("Failed to send press and hold modes: {}", e);
+                }
+            }
+        });
 
         let aacp_manager_clone = aacp_manager.clone();
         tokio::spawn(async move {

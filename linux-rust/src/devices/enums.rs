@@ -72,6 +72,8 @@ pub struct AirPodsState {
     pub battery: Vec<BatteryInfo>,
     pub auto_connect: bool,
     pub model: Option<&'static AirPodsModel>,
+    // listening modes the long press cycles through, None if unknown
+    pub press_hold_modes: Option<u8>,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +108,22 @@ impl AirPodsNoiseControlMode {
             modes.push(AirPodsNoiseControlMode::Adaptive);
         }
         modes
+    }
+    // bit of this mode in the ListeningModeConfigs control command
+    pub fn config_bit(&self) -> u8 {
+        match self {
+            AirPodsNoiseControlMode::Off => 0x01,
+            AirPodsNoiseControlMode::NoiseCancellation => 0x02,
+            AirPodsNoiseControlMode::Transparency => 0x04,
+            AirPodsNoiseControlMode::Adaptive => 0x08,
+        }
+    }
+    pub fn toggle_press_hold(mask: u8, mode: &Self, enabled: bool) -> u8 {
+        if enabled {
+            mask | mode.config_bit()
+        } else {
+            mask & !mode.config_bit()
+        }
     }
     pub fn from_byte(value: &u8) -> Self {
         match value {
@@ -175,5 +193,30 @@ impl NothingAncMode {
             NothingAncMode::Transparency => 0x07,
             NothingAncMode::Off => 0x05,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn press_hold_mask() {
+        let mask = AirPodsNoiseControlMode::NoiseCancellation.config_bit()
+            | AirPodsNoiseControlMode::Transparency.config_bit();
+        assert_eq!(mask, 0x06);
+        let with_off =
+            AirPodsNoiseControlMode::toggle_press_hold(mask, &AirPodsNoiseControlMode::Off, true);
+        assert_eq!(with_off, 0x07);
+        let without_anc = AirPodsNoiseControlMode::toggle_press_hold(
+            with_off,
+            &AirPodsNoiseControlMode::NoiseCancellation,
+            false,
+        );
+        assert_eq!(without_anc, 0x05);
+        assert_eq!(
+            AirPodsNoiseControlMode::toggle_press_hold(0, &AirPodsNoiseControlMode::Adaptive, true),
+            0x08
+        );
     }
 }

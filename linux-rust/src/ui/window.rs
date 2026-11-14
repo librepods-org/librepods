@@ -10,7 +10,10 @@ use crate::devices::models::AirPodsModel;
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path, get_preferences_path};
+use crate::utils::{
+    MyTheme, get_app_settings_path, get_devices_path, get_preferences_path,
+    get_stored_press_hold_modes,
+};
 use bluer::Address;
 use iced::border::Radius;
 use iced::overlay::menu;
@@ -121,6 +124,7 @@ pub enum Message {
     StemControlChanged(bool),
     AutoConnectChanged(String, bool),
     ForgetDevice(String),
+    PressHoldModesChanged(String, u8),
 }
 
 pub fn forget_device_button<'a>(mac: &str) -> iced::widget::Button<'a, Message> {
@@ -413,12 +417,18 @@ impl App {
                                         .unwrap_or(false)
                                 };
                                 let model = state.devices.get(&mac).and_then(|d| d.airpods_model());
+                                // the device value wins, the stored one is for AirPods that never report it
+                                let press_hold_modes = state.control_command_status_list.iter().find(|status| {
+                                    status.identifier == ControlCommandIdentifiers::ListeningModeConfigs
+                                }).and_then(|status| status.value.first().copied())
+                                    .or_else(|| get_stored_press_hold_modes(&mac));
                                 let allow_off = state.control_command_status_list.iter().find(|status| {
                                     status.identifier == ControlCommandIdentifiers::AllowOffOption
                                 }).map(|status| matches!(status.value.as_slice(), [0x01]));
                                 self.device_states.insert(mac.clone(), DeviceState::AirPods(AirPodsState {
                                     device_name,
                                     model,
+                                    press_hold_modes,
                                     battery: state.battery_info.clone(),
                                     auto_connect,
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
@@ -531,6 +541,14 @@ impl App {
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.personalized_volume_enabled = is_enabled;
+                                    }
+                                }
+                                ControlCommandIdentifiers::ListeningModeConfigs => {
+                                    if let Some(DeviceState::AirPods(state)) =
+                                        self.device_states.get_mut(&mac)
+                                        && let Some(&mask) = status.value.first()
+                                    {
+                                        state.press_hold_modes = Some(mask);
                                     }
                                 }
                                 ControlCommandIdentifiers::AllowOffOption => {
@@ -759,6 +777,27 @@ impl App {
                 }
                 if let Err(e) = std::fs::write(&prefs_path, prefs.to_string()) {
                     error!("Failed to write preferences: {}", e);
+                }
+                Task::none()
+            }
+            Message::PressHoldModesChanged(mac, mask) => {
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    state.press_hold_modes = Some(mask);
+                }
+                // fewer than two modes is only a draft, it was not sent to the AirPods
+                if mask.count_ones() >= 2 {
+                    let prefs_path = get_preferences_path();
+                    let mut prefs = std::fs::read_to_string(&prefs_path)
+                        .ok()
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    prefs[&mac]["pressHoldModes"] = serde_json::json!(mask);
+                    if let Some(parent) = prefs_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Err(e) = std::fs::write(&prefs_path, prefs.to_string()) {
+                        error!("Failed to write preferences: {}", e);
+                    }
                 }
                 Task::none()
             }

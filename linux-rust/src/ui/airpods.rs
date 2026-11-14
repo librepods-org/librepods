@@ -5,16 +5,19 @@ use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
-    Space, button, column, combo_box, container, row, rule, text, text_input, toggler,
+    Space, button, column, combo_box, container, row, rule, scrollable, text, text_input,
+    toggler,
 };
-use iced::{Background, Border, Center, Color, Length, Padding, Theme};
+use iced::{Background, Border, Center, Color, Element, Length, Padding, Theme};
 use log::error;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
 // use crate::bluetooth::att::ATTManager;
-use crate::devices::enums::{AirPodsState, DeviceData, DeviceInformation, DeviceState};
+use crate::devices::enums::{
+    AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceInformation, DeviceState,
+};
 use crate::devices::models::{Capability, supports};
 use crate::ui::window::{Message, forget_device_button};
 
@@ -27,6 +30,9 @@ pub fn airpods_view<'a>(
 ) -> iced::widget::Container<'a, Message> {
     let mac = mac.to_string();
     // order: name, noise control, press and hold config, call controls (not sure if why it might be needed, adding it just in case), audio (personalized volume, conversational awareness, adaptive audio slider), connection settings, microphone, head gestures (not adding this), off listening mode, device information
+
+    // listening mode settings are disabled if the model is known not to have them
+    let has_listening_mode = supports(state.model, Capability::ListeningMode) != Some(false);
 
     let aacp_manager_for_rename = aacp_manager.clone();
     let rename_input = container(
@@ -101,11 +107,35 @@ pub fn airpods_view<'a>(
                 style
             }),
             Space::new().width(Length::Fill),
-            {
+            if !has_listening_mode {
+                // a combo_box can't be disabled, a text_input without on_input is
+                let disabled: Element<'a, Message> = text_input("Not supported", "")
+                    .width(Length::from(200))
+                    .padding(Padding {
+                        top: 5.0,
+                        bottom: 5.0,
+                        left: 10.0,
+                        right: 10.0,
+                    })
+                    .style(|theme: &Theme, _status| text_input::Style {
+                        background: Background::Color(theme.palette().primary.scale_alpha(0.05)),
+                        border: Border {
+                            width: 1.0,
+                            color: theme.palette().text.scale_alpha(0.1),
+                            radius: Radius::from(4.0),
+                        },
+                        icon: Default::default(),
+                        placeholder: theme.palette().text.scale_alpha(0.4),
+                        value: theme.palette().text.scale_alpha(0.4),
+                        selection: Default::default(),
+                    })
+                    .into();
+                disabled
+            } else {
                 let state_clone = state.clone();
                 let mac = mac.clone();
                 // this combo_box doesn't go really well with the design, but I am not writing my own dropdown menu for this
-                combo_box(
+                let enabled: Element<'a, Message> = combo_box(
                     &state.noise_control_state,
                     "Select Listening Mode",
                     Some(&state.noise_control_mode.clone()),
@@ -162,6 +192,8 @@ pub fn airpods_view<'a>(
                     ),
                     shadow: Default::default(),
                 })
+                .into();
+                enabled
             }
         ]
         .align_y(Center),
@@ -390,7 +422,7 @@ pub fn airpods_view<'a>(
               let t = toggler(state.allow_off_mode.unwrap_or(false))
                   .spacing(0)
                   .size(20);
-              if state.allow_off_mode.is_some() {
+              if state.allow_off_mode.is_some() && has_listening_mode {
                 t.on_toggle(move |is_enabled| {
                     let aacp_manager = aacp_manager_olm.clone();
                     run_async_in_thread(
@@ -427,6 +459,119 @@ pub fn airpods_view<'a>(
                     style
                 }
             )
+    };
+
+    let press_hold_col = {
+        let mask = state.press_hold_modes.unwrap_or(0);
+        let selected = mask.count_ones();
+        let mut modes_row = row![].spacing(8);
+        for mode in AirPodsNoiseControlMode::available(state.allow_off_mode, state.model) {
+            let is_on = mask & mode.config_bit() != 0;
+            let enabled = has_listening_mode;
+            let mut mode_button = button(text(mode.to_string()).size(14))
+                .padding(Padding {
+                    top: 6.0,
+                    bottom: 6.0,
+                    left: 14.0,
+                    right: 14.0,
+                })
+                .style(move |theme: &Theme, _status| {
+                    let palette = theme.palette();
+                    let alpha = if enabled { 1.0 } else { 0.4 };
+                    let mut style = Style::default();
+                    let mut border = Border::default();
+                    if is_on {
+                        style.background =
+                            Some(Background::Color(palette.primary.scale_alpha(alpha)));
+                        border.color = palette.text.scale_alpha(alpha);
+                    } else {
+                        style.background =
+                            Some(Background::Color(palette.primary.scale_alpha(0.1 * alpha)));
+                        border.color = palette.primary.scale_alpha(0.3 * alpha);
+                    }
+                    border.width = 1.0;
+                    style.border = border.rounded(12);
+                    style.text_color = palette.text.scale_alpha(alpha);
+                    style
+                });
+            // like on iOS, the last two modes can't be deselected
+            let locked = !enabled || (is_on && selected == 2);
+            if !locked {
+                let aacp_manager = aacp_manager.clone();
+                let new_mask = AirPodsNoiseControlMode::toggle_press_hold(mask, &mode, !is_on);
+                // a cycle needs at least two modes, until then it is only a draft
+                if new_mask.count_ones() >= 2 {
+                    mode_button = mode_button.on_press_with({
+                        let mac = mac.clone();
+                        move || {
+                            let aacp_manager = aacp_manager.clone();
+                            run_async_in_thread(async move {
+                                aacp_manager
+                                    .send_control_command(
+                                        ControlCommandIdentifiers::ListeningModeConfigs,
+                                        &[new_mask],
+                                    )
+                                    .await
+                                    .expect("Failed to send Listening Mode Configs command");
+                            });
+                            Message::PressHoldModesChanged(mac.to_string(), new_mask)
+                        }
+                    });
+                } else {
+                    mode_button = mode_button
+                        .on_press(Message::PressHoldModesChanged(mac.to_string(), new_mask));
+                }
+            }
+            modes_row = modes_row.push(mode_button);
+        }
+        let modes_col = modes_row.wrap();
+        let description = if has_listening_mode && selected < 2 {
+            "These AirPods do not report this setting. Select at least two modes to set it."
+        } else {
+            "Listening modes that pressing and holding the stem switches between."
+        };
+        column![
+            container(
+                text("Press and Hold").size(18).style(|theme: &Theme| {
+                    let mut style = text::Style::default();
+                    style.color = Some(theme.palette().primary);
+                    style
+                })
+            )
+            .padding(Padding {
+                top: 5.0,
+                bottom: 5.0,
+                left: 18.0,
+                right: 18.0,
+            }),
+            container(
+                column![
+                    text(description).size(12).style(|theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    }),
+                    modes_col
+                ]
+                .spacing(8)
+            )
+            .padding(Padding {
+                top: 10.0,
+                bottom: 10.0,
+                left: 18.0,
+                right: 18.0,
+            })
+            .width(Length::Fill)
+            .style(|theme: &Theme| {
+                let mut style = container::Style::default();
+                style.background =
+                    Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                let mut border = Border::default();
+                border.color = theme.palette().primary.scale_alpha(0.5);
+                style.border = border.rounded(16);
+                style
+            })
+        ]
     };
 
     let mut information_col = column![];
@@ -574,30 +719,24 @@ pub fn airpods_view<'a>(
         }
     }
 
-    // only hide the listening mode settings if the model is known not to have them
-    let has_listening_mode = supports(state.model, Capability::ListeningMode) != Some(false);
+    let content = column![
+        rename_input,
+        Space::new().height(Length::from(20)),
+        listening_mode,
+        Space::new().height(Length::from(20)),
+        press_hold_col,
+        Space::new().height(Length::from(20)),
+        audio_settings_col,
+        Space::new().height(Length::from(20)),
+        off_listening_mode_toggle,
+        Space::new().height(Length::from(20)),
+        connection_settings_col,
+        Space::new().height(Length::from(20)),
+        information_col
+    ];
 
-    let mut content = column![rename_input, Space::new().height(Length::from(20))];
-    if has_listening_mode {
-        content = content
-            .push(listening_mode)
-            .push(Space::new().height(Length::from(20)));
-    }
-    content = content
-        .push(audio_settings_col)
-        .push(Space::new().height(Length::from(20)));
-    if has_listening_mode {
-        content = content
-            .push(off_listening_mode_toggle)
-            .push(Space::new().height(Length::from(20)));
-    }
-    content = content
-        .push(connection_settings_col)
-        .push(Space::new().height(Length::from(20)))
-        .push(information_col);
-
-    container(content)
-    .padding(20)
+    // the page is longer than the default window
+    container(scrollable(content.padding(20)))
     .center_x(Length::Fill)
     .height(Length::Fill)
 }
