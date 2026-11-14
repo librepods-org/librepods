@@ -6,6 +6,7 @@ use crate::devices::enums::{
     AirPodsNoiseControlMode, AirPodsState, DeviceData, DeviceState, DeviceType, NothingAncMode,
     NothingState,
 };
+use crate::devices::models::AirPodsModel;
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
@@ -390,8 +391,13 @@ impl App {
                                         .and_then(|v| v.get(&mac).and_then(|d| d.get("autoConnect")).and_then(|b| b.as_bool()))
                                         .unwrap_or(false)
                                 };
+                                let model = state.devices.get(&mac).and_then(|d| d.airpods_model());
+                                let allow_off = state.control_command_status_list.iter().find(|status| {
+                                    status.identifier == ControlCommandIdentifiers::AllowOffOption
+                                }).map(|status| matches!(status.value.as_slice(), [0x01]));
                                 self.device_states.insert(mac.clone(), DeviceState::AirPods(AirPodsState {
                                     device_name,
+                                    model,
                                     battery: state.battery_info.clone(),
                                     auto_connect,
                                     noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
@@ -402,20 +408,7 @@ impl App {
                                         }
                                     }).unwrap_or(AirPodsNoiseControlMode::Transparency),
                                     noise_control_state: combo_box::State::new(
-                                        {
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive
-                                            ];
-                                            let allow_off = state.control_command_status_list.iter().find(|status| {
-                                                status.identifier == ControlCommandIdentifiers::AllowOffOption
-                                            }).map(|status| matches!(status.value.as_slice(), [0x01]));
-                                            if allow_off != Some(false) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        }
+                                        AirPodsNoiseControlMode::available(allow_off, model),
                                     ),
                                     conversation_awareness_enabled: state.control_command_status_list.iter().find(|status| {
                                         status.identifier == ControlCommandIdentifiers::ConversationDetectConfig
@@ -423,9 +416,7 @@ impl App {
                                     personalized_volume_enabled: state.control_command_status_list.iter().find(|status| {
                                         status.identifier == ControlCommandIdentifiers::AdaptiveVolumeConfig
                                     }).map(|status| matches!(status.value.as_slice(), [0x01])),
-                                    allow_off_mode: state.control_command_status_list.iter().find(|status| {
-                                        status.identifier == ControlCommandIdentifiers::AllowOffOption
-                                    }).map(|status| matches!(status.value.as_slice(), [0x01])),
+                                    allow_off_mode: allow_off,
                                 }));
                             }
                             Some(DeviceType::Nothing) => {
@@ -537,17 +528,12 @@ impl App {
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.allow_off_mode = is_enabled;
-                                        state.noise_control_state = combo_box::State::new({
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive,
-                                            ];
-                                            if is_enabled != Some(false) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        });
+                                        state.noise_control_state = combo_box::State::new(
+                                            AirPodsNoiseControlMode::available(
+                                                is_enabled,
+                                                state.model,
+                                            ),
+                                        );
                                     }
                                 }
                                 _ => {
@@ -560,6 +546,20 @@ impl App {
                                 {
                                     state.battery = battery_info;
                                     debug!("Updated battery info for {}: {:?}", mac, state.battery);
+                                }
+                            }
+                            AACPEvent::Information(info) => {
+                                if let Some(DeviceState::AirPods(state)) =
+                                    self.device_states.get_mut(&mac)
+                                {
+                                    state.model =
+                                        AirPodsModel::from_model_number(&info.model_number);
+                                    state.noise_control_state = combo_box::State::new(
+                                        AirPodsNoiseControlMode::available(
+                                            state.allow_off_mode,
+                                            state.model,
+                                        ),
+                                    );
                                 }
                             }
                             _ => {}
@@ -655,17 +655,9 @@ impl App {
                 if let Some(DeviceType::AirPods) = type_
                     && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
                 {
-                    state.noise_control_state = combo_box::State::new({
-                        let mut modes = vec![
-                            AirPodsNoiseControlMode::Transparency,
-                            AirPodsNoiseControlMode::NoiseCancellation,
-                            AirPodsNoiseControlMode::Adaptive,
-                        ];
-                        if state.allow_off_mode != Some(false) {
-                            modes.insert(0, AirPodsNoiseControlMode::Off);
-                        }
-                        modes
-                    });
+                    state.noise_control_state = combo_box::State::new(
+                        AirPodsNoiseControlMode::available(state.allow_off_mode, state.model),
+                    );
                 }
                 Task::none()
             }

@@ -5,6 +5,7 @@ use ksni::{Icon, ToolTip};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::bluetooth::aacp::{BatteryStatus, ControlCommandIdentifiers};
+use crate::devices::models::{AirPodsModel, Capability, supports};
 use crate::ui::messages::BluetoothUIMessage;
 use crate::utils::get_app_settings_path;
 
@@ -23,6 +24,7 @@ pub struct MyTray {
     pub connected_mac: Option<String>,
     pub listening_mode: Option<u8>,
     pub allow_off_option: Option<u8>,
+    pub model: Option<&'static AirPodsModel>,
     pub command_tx: Option<UnboundedSender<(ControlCommandIdentifiers, Vec<u8>)>>,
     pub ui_tx: Option<UnboundedSender<BluetoothUIMessage>>,
 }
@@ -109,27 +111,21 @@ impl ksni::Tray for MyTray {
     }
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::*;
-        let allow_off = self.allow_off_option != Some(0x02);
-        let options = if allow_off {
-            vec![
-                ("Off", 0x01),
-                ("Noise Cancellation", 0x02),
-                ("Transparency", 0x03),
-                ("Adaptive", 0x04),
-            ]
-        } else {
-            vec![
-                ("Noise Cancellation", 0x02),
-                ("Transparency", 0x03),
-                ("Adaptive", 0x04),
-            ]
-        };
+        let mut options = vec![];
+        if self.allow_off_option != Some(0x02) {
+            options.push(("Off", 0x01));
+        }
+        options.push(("Noise Cancellation", 0x02));
+        options.push(("Transparency", 0x03));
+        if supports(self.model, Capability::AdaptiveAudio) != Some(false) {
+            options.push(("Adaptive", 0x04));
+        }
         let selected = self
             .listening_mode
             .and_then(|mode| options.iter().position(|&(_, val)| val == mode))
             .unwrap_or(0);
         let options_clone = options.clone();
-        vec![
+        let mut items: Vec<ksni::MenuItem<Self>> = vec![
             StandardItem {
                 label: "Open Window".into(),
                 icon_name: "window-new".into(),
@@ -141,27 +137,34 @@ impl ksni::Tray for MyTray {
                 ..Default::default()
             }
             .into(),
-            RadioGroup {
-                selected,
-                select: Box::new(move |this: &mut Self, current| {
-                    if let Some(tx) = &this.command_tx {
-                        let value = options_clone
-                            .get(current)
-                            .map(|&(_, val)| val)
-                            .unwrap_or(0x02);
-                        let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
-                    }
-                }),
-                options: options
-                    .into_iter()
-                    .map(|(label, _)| RadioItem {
-                        label: label.into(),
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            }
-            .into(),
+        ];
+        if supports(self.model, Capability::ListeningMode) != Some(false) {
+            items.push(
+                RadioGroup {
+                    selected,
+                    select: Box::new(move |this: &mut Self, current| {
+                        if let Some(tx) = &this.command_tx {
+                            let value = options_clone
+                                .get(current)
+                                .map(|&(_, val)| val)
+                                .unwrap_or(0x02);
+                            let _ =
+                                tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+                        }
+                    }),
+                    options: options
+                        .into_iter()
+                        .map(|(label, _)| RadioItem {
+                            label: label.into(),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items.extend([
             MenuItem::Separator,
             CheckmarkItem {
                 label: "Conversation Detection".into(),
@@ -190,7 +193,8 @@ impl ksni::Tray for MyTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        ]);
+        items
     }
 }
 

@@ -15,6 +15,7 @@ use std::thread;
 use tokio::runtime::Runtime;
 // use crate::bluetooth::att::ATTManager;
 use crate::devices::enums::{AirPodsState, DeviceData, DeviceInformation, DeviceState};
+use crate::devices::models::{Capability, supports};
 use crate::ui::window::Message;
 
 pub fn airpods_view<'a>(
@@ -571,19 +572,29 @@ pub fn airpods_view<'a>(
         }
     }
 
-    container(column![
-        rename_input,
-        Space::new().height(Length::from(20)),
-        listening_mode,
-        Space::new().height(Length::from(20)),
-        audio_settings_col,
-        Space::new().height(Length::from(20)),
-        off_listening_mode_toggle,
-        Space::new().height(Length::from(20)),
-        connection_settings_col,
-        Space::new().height(Length::from(20)),
-        information_col
-    ])
+    // only hide the listening mode settings if the model is known not to have them
+    let has_listening_mode = supports(state.model, Capability::ListeningMode) != Some(false);
+
+    let mut content = column![rename_input, Space::new().height(Length::from(20))];
+    if has_listening_mode {
+        content = content
+            .push(listening_mode)
+            .push(Space::new().height(Length::from(20)));
+    }
+    content = content
+        .push(audio_settings_col)
+        .push(Space::new().height(Length::from(20)));
+    if has_listening_mode {
+        content = content
+            .push(off_listening_mode_toggle)
+            .push(Space::new().height(Length::from(20)));
+    }
+    content = content
+        .push(connection_settings_col)
+        .push(Space::new().height(Length::from(20)))
+        .push(information_col);
+
+    container(content)
     .padding(20)
     .center_x(Length::Fill)
     .height(Length::Fill)

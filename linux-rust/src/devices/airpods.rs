@@ -1,5 +1,6 @@
 use crate::bluetooth::aacp::ControlCommandIdentifiers;
 use crate::bluetooth::aacp::{AACPEvent, AACPManager, AirPodsLEKeys, ProximityKeyType};
+use crate::devices::models::AirPodsModel;
 use crate::media_controller::MediaController;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
@@ -140,8 +141,20 @@ impl AirPodsDevice {
 
         aacp_manager.set_event_channel(tx).await;
         if let Some(handle) = &tray_handle {
+            // the information packet can arrive before the event channel is set,
+            // so take the model from the stored device data first
+            let model = aacp_manager
+                .state
+                .lock()
+                .await
+                .devices
+                .get(&mac_address.to_string())
+                .and_then(|device| device.airpods_model());
             handle
-                .update(|tray: &mut MyTray| tray.command_tx = Some(command_tx.clone()))
+                .update(|tray: &mut MyTray| {
+                    tray.command_tx = Some(command_tx.clone());
+                    tray.model = model;
+                })
                 .await;
         }
 
@@ -325,6 +338,19 @@ impl AirPodsDevice {
                             event_clone,
                         ));
                         debug!("Sent ControlCommand event to UI");
+                    }
+                    AACPEvent::Information(info) => {
+                        let model = AirPodsModel::from_model_number(&info.model_number);
+                        debug!("Received Information event, model: {:?}", model.map(|m| m.name));
+                        if let Some(handle) = &tray_handle {
+                            handle
+                                .update(|tray: &mut MyTray| tray.model = model)
+                                .await;
+                        }
+                        let _ = ui_tx_clone.send(BluetoothUIMessage::AACPUIEvent(
+                            mac_address.to_string(),
+                            event_clone,
+                        ));
                     }
                     AACPEvent::ConversationalAwareness(status) => {
                         debug!("Received ConversationalAwareness event: {}", status);

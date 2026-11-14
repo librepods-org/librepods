@@ -1,5 +1,6 @@
 use crate::bluetooth::aacp::BatteryInfo;
 use crate::devices::airpods::AirPodsInformation;
+use crate::devices::models::{AirPodsModel, Capability, supports};
 use crate::devices::nothing::NothingInformation;
 use iced::widget::combo_box;
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,17 @@ pub struct DeviceData {
     pub information: Option<DeviceInformation>,
 }
 
+impl DeviceData {
+    pub fn airpods_model(&self) -> Option<&'static AirPodsModel> {
+        match &self.information {
+            Some(DeviceInformation::AirPods(info)) => {
+                AirPodsModel::from_model_number(&info.model_number)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum DeviceState {
     AirPods(AirPodsState),
@@ -59,6 +71,7 @@ pub struct AirPodsState {
     pub allow_off_mode: Option<bool>,
     pub battery: Vec<BatteryInfo>,
     pub auto_connect: bool,
+    pub model: Option<&'static AirPodsModel>,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +94,19 @@ impl Display for AirPodsNoiseControlMode {
 }
 
 impl AirPodsNoiseControlMode {
+    // modes to offer in the UI, unknown values (None) keep the mode visible
+    pub fn available(allow_off: Option<bool>, model: Option<&AirPodsModel>) -> Vec<Self> {
+        let mut modes = vec![];
+        if allow_off != Some(false) {
+            modes.push(AirPodsNoiseControlMode::Off);
+        }
+        modes.push(AirPodsNoiseControlMode::Transparency);
+        modes.push(AirPodsNoiseControlMode::NoiseCancellation);
+        if supports(model, Capability::AdaptiveAudio) != Some(false) {
+            modes.push(AirPodsNoiseControlMode::Adaptive);
+        }
+        modes
+    }
     pub fn from_byte(value: &u8) -> Self {
         match value {
             0x01 => AirPodsNoiseControlMode::Off,

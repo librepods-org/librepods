@@ -306,6 +306,7 @@ pub enum AACPEvent {
     ConnectedDevices(Vec<ConnectedDevice>, Vec<ConnectedDevice>),
     OwnershipToFalseRequest,
     StemPress(StemPressType, StemPressBudType),
+    Information(AirPodsInformation),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -726,6 +727,9 @@ impl AACPManager {
                         le_keys: existing_le_keys,
                         ..info.clone()
                     }));
+                }
+                if let Some(ref tx) = state.event_tx {
+                    let _ = tx.send(AACPEvent::Information(info.clone()));
                 }
                 let json = serde_json::to_string(&state.devices).unwrap();
                 if let Some(parent) = get_devices_path().parent()

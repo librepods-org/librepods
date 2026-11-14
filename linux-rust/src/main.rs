@@ -150,6 +150,7 @@ async fn async_main(
                 .and_then(|v| v.get("connected_mac").and_then(|m| m.as_str().map(String::from))),
             listening_mode: None,
             allow_off_option: None,
+            model: None,
             command_tx: None,
             ui_tx: Some(ui_tx.clone()),
         };
