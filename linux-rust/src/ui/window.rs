@@ -28,7 +28,9 @@ use iced::{
     Subscription, Task, Theme, daemon, window,
 };
 use log::{debug, error};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::time::SystemTime;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -74,6 +76,8 @@ pub fn start_ui(
 }
 
 pub struct App {
+    // devices file, parsed again only when it changed on disk (view runs very often)
+    devices_cache: RefCell<(Option<SystemTime>, HashMap<String, DeviceData>)>,
     window: Option<window::Id>,
     panes: pane_grid::State<Pane>,
     selected_tab: Tab,
@@ -255,6 +259,7 @@ impl App {
                 tray_text_mode,
                 stem_control,
                 tray_handle,
+                devices_cache: RefCell::new((None, HashMap::new())),
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -892,16 +897,26 @@ impl App {
         }
     }
 
-    fn view(&self, _id: window::Id) -> Element<'_, Message> {
-        let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-            error!("Failed to read devices file: {}", e);
-            "{}".to_string()
-        });
-        let devices_list: HashMap<String, DeviceData> = serde_json::from_str(&devices_json)
-            .unwrap_or_else(|e| {
+    fn devices_list(&self) -> HashMap<String, DeviceData> {
+        let path = get_devices_path();
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let mut cache = self.devices_cache.borrow_mut();
+        if modified.is_none() || cache.0 != modified {
+            let devices_json = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+                error!("Failed to read devices file: {}", e);
+                "{}".to_string()
+            });
+            cache.1 = serde_json::from_str(&devices_json).unwrap_or_else(|e| {
                 error!("Deserialization failed: {}", e);
                 HashMap::new()
             });
+            cache.0 = modified;
+        }
+        cache.1.clone()
+    }
+
+    fn view(&self, _id: window::Id) -> Element<'_, Message> {
+        let devices_list = self.devices_list();
         let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_pane_id, pane, _is_maximized| {
             match pane {
                 Pane::Sidebar => {
@@ -1096,7 +1111,7 @@ impl App {
                             } else {
                                 let device_type = devices_list.get(id).map(|d| d.type_.clone());
                                 let device_state = self.device_states.get(id);
-                                debug!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
+                                log::trace!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
                                 match device_type {
                                     Some(DeviceType::AirPods) => {
 
