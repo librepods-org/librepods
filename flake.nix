@@ -71,7 +71,7 @@
             fileset = lib.fileset.unions [
               # Default files from crane (Rust and cargo files)
               (craneLib.fileset.commonCargoSources unfilteredRoot)
-              (lib.fileset.maybeMissing ./linux-rust/assets/font)
+              (lib.fileset.maybeMissing ./linux-rust/assets)
             ];
           };
 
