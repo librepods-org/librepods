@@ -441,6 +441,9 @@ impl App {
                                     noise_control_state: combo_box::State::new(
                                         AirPodsNoiseControlMode::available(allow_off, model),
                                     ),
+                                    one_bud_anc_enabled: state.control_command_status_list.iter().find(|status| {
+                                        status.identifier == ControlCommandIdentifiers::OneBudAncMode
+                                    }).map(|status| matches!(status.value.as_slice(), [0x01])),
                                     conversation_awareness_enabled: state.control_command_status_list.iter().find(|status| {
                                         status.identifier == ControlCommandIdentifiers::ConversationDetectConfig
                                     }).map(|status| matches!(status.value.as_slice(), [0x01])),
@@ -505,6 +508,24 @@ impl App {
                                         self.device_states.get_mut(&mac)
                                     {
                                         state.noise_control_mode = mode;
+                                    }
+                                }
+                                ControlCommandIdentifiers::OneBudAncMode => {
+                                    let is_enabled = match status.value.as_slice() {
+                                        [0x01] => Some(true),
+                                        [0x02] => Some(false),
+                                        _ => {
+                                            error!(
+                                                "Unknown One Bud ANC Mode value: {:?}",
+                                                status.value
+                                            );
+                                            None
+                                        }
+                                    };
+                                    if let Some(DeviceState::AirPods(state)) =
+                                        self.device_states.get_mut(&mac)
+                                    {
+                                        state.one_bud_anc_enabled = is_enabled;
                                     }
                                 }
                                 ControlCommandIdentifiers::ConversationDetectConfig => {

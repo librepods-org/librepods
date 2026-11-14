@@ -69,6 +69,7 @@ pub struct AirPodsState {
     pub conversation_awareness_enabled: Option<bool>,
     pub personalized_volume_enabled: Option<bool>,
     pub allow_off_mode: Option<bool>,
+    pub one_bud_anc_enabled: Option<bool>,
     pub battery: Vec<BatteryInfo>,
     pub auto_connect: bool,
     pub model: Option<&'static AirPodsModel>,

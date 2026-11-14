@@ -461,6 +461,63 @@ pub fn airpods_view<'a>(
             )
     };
 
+    let one_bud_anc_toggle = {
+        let aacp_manager_oba = aacp_manager.clone();
+        let mac = mac.clone();
+        container(row![
+            column![
+                text("Noise Cancellation with One AirPod").size(16),
+                text("Allow noise cancellation when only one AirPod is in your ear.").size(12).style(
+                    |theme: &Theme| {
+                        let mut style = text::Style::default();
+                        style.color = Some(theme.palette().text.scale_alpha(0.7));
+                        style
+                    }
+                ).width(Length::Fill)
+            ].width(Length::Fill),
+            {
+              let t = toggler(state.one_bud_anc_enabled.unwrap_or(false))
+                  .spacing(0)
+                  .size(20);
+              if state.one_bud_anc_enabled.is_some() && has_listening_mode {
+                t.on_toggle(move |is_enabled| {
+                    let aacp_manager = aacp_manager_oba.clone();
+                    run_async_in_thread(
+                        async move {
+                            aacp_manager.send_control_command(
+                                ControlCommandIdentifiers::OneBudAncMode,
+                                if is_enabled { &[0x01] } else { &[0x02] }
+                            ).await.expect("Failed to send One Bud ANC Mode command");
+                        }
+                    );
+                    let mut state = state.clone();
+                    state.one_bud_anc_enabled = Some(is_enabled);
+                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                })
+              } else { t }
+            }
+        ]
+            .align_y(Center)
+            .spacing(8)
+        )
+            .padding(Padding{
+                top: 5.0,
+                bottom: 5.0,
+                left: 18.0,
+                right: 18.0,
+            })
+            .style(
+                |theme: &Theme| {
+                    let mut style = container::Style::default();
+                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                    let mut border = Border::default();
+                    border.color = theme.palette().primary.scale_alpha(0.5);
+                    style.border = border.rounded(16);
+                    style
+                }
+            )
+    };
+
     let press_hold_col = {
         let mask = state.press_hold_modes.unwrap_or(0);
         let selected = mask.count_ones();
@@ -725,6 +782,8 @@ pub fn airpods_view<'a>(
         listening_mode,
         Space::new().height(Length::from(20)),
         press_hold_col,
+        Space::new().height(Length::from(20)),
+        one_bud_anc_toggle,
         Space::new().height(Length::from(20)),
         audio_settings_col,
         Space::new().height(Length::from(20)),
