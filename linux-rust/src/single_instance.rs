@@ -33,8 +33,11 @@ pub enum Instance {
 }
 
 pub fn acquire() -> Instance {
-    let path = socket_path();
-    match UnixListener::bind(&path) {
+    acquire_at(&socket_path())
+}
+
+fn acquire_at(path: &std::path::Path) -> Instance {
+    match UnixListener::bind(path) {
         Ok(listener) => return Instance::Primary(Some(listener)),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {}
         Err(e) => {
@@ -45,17 +48,54 @@ pub fn acquire() -> Instance {
     }
 
     // The socket exists: either another instance is listening, or it is stale.
-    if let Ok(mut stream) = UnixStream::connect(&path) {
+    if let Ok(mut stream) = UnixStream::connect(path) {
         let _ = stream.write_all(OPEN_WINDOW);
         return Instance::Secondary;
     }
     debug!("Removing stale socket {}", path.display());
-    let _ = std::fs::remove_file(&path);
-    match UnixListener::bind(&path) {
+    let _ = std::fs::remove_file(path);
+    match UnixListener::bind(path) {
         Ok(listener) => Instance::Primary(Some(listener)),
         Err(e) => {
             warn!("Failed to bind single-instance socket: {}", e);
             Instance::Secondary
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    fn temp_socket(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("librepods-test-{}-{}", name, std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("librepods.sock");
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    #[test]
+    fn second_instance_asks_first_to_open_window() {
+        let path = temp_socket("second");
+        let Instance::Primary(Some(listener)) = acquire_at(&path) else {
+            panic!("first launch should be primary");
+        };
+        assert!(matches!(acquire_at(&path), Instance::Secondary));
+        let (mut conn, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 5];
+        conn.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, OPEN_WINDOW);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn stale_socket_is_replaced() {
+        let path = temp_socket("stale");
+        drop(UnixListener::bind(&path).unwrap()); // leaves the file, nobody listening
+        assert!(path.exists());
+        assert!(matches!(acquire_at(&path), Instance::Primary(Some(_))));
+        let _ = std::fs::remove_file(&path);
     }
 }

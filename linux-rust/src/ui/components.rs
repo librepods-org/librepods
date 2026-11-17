@@ -106,6 +106,20 @@ pub fn setting_row<'a, M: 'a>(
         .into()
 }
 
+/// Like [`setting_row`], but with the control under the labels; used for wide
+/// controls in narrow windows.
+pub fn stacked_row<'a, M: 'a>(
+    title: impl text::IntoFragment<'a>,
+    subtitle: Option<String>,
+    control: impl Into<Element<'a, M>>,
+) -> Element<'a, M> {
+    let mut col = column![text(title).size(15)].spacing(2).width(Length::Fill);
+    if let Some(sub) = subtitle {
+        col = col.push(text(sub).size(12).style(muted_text));
+    }
+    col.push(Space::new().height(6)).push(control.into()).padding([12, 16]).into()
+}
+
 /// A row of mutually exclusive buttons, like a GNOME/COSMIC "linked" control.
 pub fn segmented<'a, T, M>(
     options: Vec<(T, String)>,
@@ -257,12 +271,14 @@ impl<M> canvas::Program<M> for Ring {
 
 /// Battery ring with the percentage inside and a label underneath. `None` shows
 /// an empty ring with "–" (unknown). A bud resting in the case is dimmed, and so
-/// is a `last_known` value (e.g. the case while its lid is closed).
+/// is a remembered value: `last_seen` is its age, e.g. "2 h ago" (the case
+/// while its lid is closed).
 pub fn battery_ring<'a, M: 'a>(
     label: &'a str,
     battery: Option<&BatteryInfo>,
-    last_known: bool,
+    last_seen: Option<&str>,
 ) -> Element<'a, M> {
+    let last_known = last_seen.is_some();
     const SIZE: f32 = 64.0;
     let (fraction, color_kind, dimmed, center_label) = match battery {
         Some(b) => {
@@ -286,7 +302,7 @@ pub fn battery_ring<'a, M: 'a>(
         None => (0.0, RingColor::Unknown, false, "–".to_string()),
     };
     let caption = match battery {
-        Some(_) if last_known => format!("{label} · last known"),
+        Some(_) if last_known => format!("{label} · {}", last_seen.unwrap_or_default()),
         Some(b) if b.status == BatteryStatus::Disconnected && label != "Case" => {
             format!("{label} · in case")
         }
@@ -326,23 +342,28 @@ pub fn page_header<'a, M: 'a>(
     column![bar, divider()].into()
 }
 
-/// Sidebar navigation item.
+/// Sidebar navigation item. `compact` shows only the icon (narrow windows).
 pub fn nav_item<'a, M: Clone + 'a>(
     icon: &'a str,
     label: String,
     sublabel: Option<String>,
     selected: bool,
     on_press: M,
+    compact: bool,
 ) -> Element<'a, M> {
-    let mut labels = column![text(label).size(14)].spacing(1);
-    if let Some(sub) = sublabel {
-        labels = labels.push(text(sub).size(11).style(muted_text));
-    }
-    button(
+    let content: Element<'a, M> = if compact {
+        container(text(icon).size(18)).center_x(Length::Fill).into()
+    } else {
+        let mut labels = column![text(label).size(14)].spacing(1);
+        if let Some(sub) = sublabel {
+            labels = labels.push(text(sub).size(11).style(muted_text));
+        }
         row![text(icon).size(16).width(22), labels]
             .spacing(8)
-            .align_y(Alignment::Center),
-    )
+            .align_y(Alignment::Center)
+            .into()
+    };
+    button(content)
     .width(Length::Fill)
     .padding([8, 10])
     .style(move |theme: &Theme, status| {
@@ -363,4 +384,43 @@ pub fn nav_item<'a, M: Clone + 'a>(
     })
     .on_press(on_press)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bluetooth::aacp::BatteryComponent;
+
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum Choice {
+        A,
+        B,
+    }
+
+    /// Building components with edge-case inputs must not panic.
+    #[test]
+    fn components_build() {
+        let b = |level, status| BatteryInfo { component: BatteryComponent::Left, level, status };
+        for battery in [
+            None,
+            Some(b(0, BatteryStatus::NotCharging)),
+            Some(b(10, BatteryStatus::Charging)),
+            Some(b(100, BatteryStatus::Disconnected)),
+        ] {
+            for last_seen in [None, Some("2 h ago")] {
+                let _: Element<'_, ()> = battery_ring("Left", battery.as_ref(), last_seen);
+                let _: Element<'_, ()> = battery_ring("Case", battery.as_ref(), last_seen);
+            }
+        }
+        let _: Element<'_, Choice> =
+            segmented(vec![(Choice::A, "A".into()), (Choice::B, "B".into())], Some(Choice::B), |c| c);
+        let _: Element<'_, Choice> = segmented(vec![], None, |c| c);
+        let _: Element<'_, ()> = section("Empty", vec![]);
+        let _: Element<'_, ()> = section("Rows", vec![setting_row("t", None, text("x")), setting_row("t", Some("s".into()), text("y"))]);
+        let _: Element<'_, ()> = chip("Connected".into(), Some(Color::WHITE));
+        let _: Element<'_, ()> = tile("Label", "Value".into());
+        let _: Element<'_, ()> = page_header("Title".into(), None);
+        let _: Element<'_, ()> = nav_item("+", "Item".into(), Some("sub".into()), true, (), false);
+        let _: Element<'_, ()> = nav_item("+", "Item".into(), None, false, (), true);
+    }
 }

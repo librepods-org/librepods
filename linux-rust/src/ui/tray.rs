@@ -12,6 +12,8 @@ use crate::utils::get_app_settings_path;
 pub struct MyTray {
     /// Name of the connected AirPods, as shown in the applet.
     pub device_name: Option<String>,
+    /// Saved AirPods as (address, name), for the Connect menu.
+    pub saved_airpods: Vec<(String, String)>,
     pub conversation_detect_enabled: Option<bool>,
     pub battery_headphone: Option<u8>,
     pub battery_headphone_status: Option<BatteryStatus>,
@@ -142,23 +144,31 @@ impl ksni::Tray for MyTray {
         let options_clone = options.clone();
         let mut items: Vec<ksni::MenuItem<Self>> = vec![];
         if !self.connected {
-            items.push(
-                StandardItem {
-                    label: "Connect AirPods".into(),
-                    icon_name: "bluetooth-active".into(),
-                    activate: Box::new(|_: &mut Self| {
-                        if let Some(addr) = crate::bluetooth::discovery::saved_airpods_address() {
-                            tokio::spawn(async move {
-                                if let Err(e) = crate::bluetooth::discovery::connect_device(addr).await {
-                                    log::warn!("Connect from tray failed: {}", e);
-                                }
-                            });
-                        }
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-            );
+            // One "Connect" item per saved pair of AirPods.
+            for (mac, name) in self.saved_airpods.clone() {
+                let label = if self.saved_airpods.len() == 1 {
+                    "Connect AirPods".to_string()
+                } else {
+                    format!("Connect {name}")
+                };
+                items.push(
+                    StandardItem {
+                        label,
+                        icon_name: "bluetooth-active".into(),
+                        activate: Box::new(move |_: &mut Self| {
+                            if let Ok(addr) = mac.parse() {
+                                tokio::spawn(async move {
+                                    if let Err(e) = crate::bluetooth::discovery::connect_device(addr).await {
+                                        log::warn!("Connect from tray failed: {}", e);
+                                    }
+                                });
+                            }
+                        }),
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
         }
         items.extend(vec![
             StandardItem {

@@ -11,7 +11,7 @@
 //! | `listening_mode <n>`          | 1 = off, 2 = ANC, 3 = transparency, 4 = adaptive |
 //! | `conversation_detect <0\|1>`  | toggle conversation awareness                   |
 //! | `cycle_listening_mode`        | ANC → transparency → adaptive (→ off) → ANC     |
-//! | `connect`                     | connect the saved AirPods (e.g. from an iPhone)  |
+//! | `connect [mac]`               | connect saved AirPods (e.g. back from an iPhone) |
 //! | `quit`                        | quit LibrePods                                  |
 
 use crate::bluetooth::aacp::{BatteryStatus, ControlCommandIdentifiers};
@@ -23,6 +23,12 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{Mutex, watch};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SavedAirPods {
+    pub mac: String,
+    pub name: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Battery {
@@ -39,6 +45,8 @@ pub struct Status {
     pub connected: bool,
     /// The AirPods' name, e.g. "Satya's AirPods Pro".
     pub name: Option<String>,
+    /// All saved AirPods, so the applet can offer to connect a specific pair.
+    pub saved: Vec<SavedAirPods>,
     /// Single battery for over-ear headphones (AirPods Max).
     pub headphone: Option<Battery>,
     pub left: Option<Battery>,
@@ -62,6 +70,11 @@ impl Status {
         Self {
             connected: t.connected,
             name: t.device_name.clone(),
+            saved: t
+                .saved_airpods
+                .iter()
+                .map(|(mac, name)| SavedAirPods { mac: mac.clone(), name: name.clone() })
+                .collect(),
             headphone: battery(t.battery_headphone, t.battery_headphone_status),
             left: battery(t.battery_l, t.battery_l_status),
             right: battery(t.battery_r, t.battery_r_status),
@@ -181,6 +194,11 @@ pub fn set_global(handle: TrayHandle) {
     let _ = GLOBAL.set(handle);
 }
 
+/// The shared status, once the Bluetooth side has started.
+pub fn global_status() -> Option<watch::Receiver<Status>> {
+    GLOBAL.get().map(|h| h.subscribe())
+}
+
 /// Updates the AirPods name shown in the applet, e.g. after a rename in the window.
 pub fn set_device_name(name: String) {
     if let Some(handle) = GLOBAL.get().cloned() {
@@ -221,20 +239,22 @@ pub async fn serve(
             let mut writer: Option<tokio::task::JoinHandle<()>> = None;
             let mut is_applet = false;
             while let Ok(Some(line)) = lines.next_line().await {
-                let mut parts = line.split_whitespace();
-                match (parts.next(), parts.next().and_then(|v| v.parse::<u8>().ok())) {
-                    (Some("open"), _) => {
+                let Some(command) = parse_command(&line) else {
+                    debug!("Unknown IPC command: {:?}", line);
+                    continue;
+                };
+                match command {
+                    Command::Open => {
                         log::info!("Activated via IPC; opening window.");
                         let _ = ui_tx.send(BluetoothUIMessage::OpenWindow);
                     }
-                    (Some("subscribe"), _) if write.is_some() => {
-                        let says_applet = line.split_whitespace().nth(1) == Some("applet");
-                        if (says_applet || peer_is_applet) && !is_applet {
+                    Command::Subscribe { applet } => {
+                        let Some(mut w) = write.take() else { continue };
+                        if (applet || peer_is_applet) && !is_applet {
                             is_applet = true;
                             tray.applet_connected().await;
                         }
                         let mut rx = tray.subscribe();
-                        let mut w = write.take().unwrap();
                         writer = Some(tokio::spawn(async move {
                             loop {
                                 let json = serde_json::to_string(&*rx.borrow_and_update())
@@ -247,12 +267,12 @@ pub async fn serve(
                             }
                         }));
                     }
-                    (Some("quit"), _) => {
+                    Command::Quit => {
                         log::info!("Quit requested via IPC.");
                         std::process::exit(0);
                     }
-                    (Some("connect"), _) => {
-                        match crate::bluetooth::discovery::saved_airpods_address() {
+                    Command::Connect(addr) => {
+                        match addr.or_else(crate::bluetooth::discovery::saved_airpods_address) {
                             Some(addr) => {
                                 tokio::spawn(async move {
                                     if let Err(e) = crate::bluetooth::discovery::connect_device(addr).await {
@@ -263,27 +283,19 @@ pub async fn serve(
                             None => warn!("Connect requested, but no AirPods are saved yet"),
                         }
                     }
-                    (Some("cycle_listening_mode"), _) => {
+                    Command::CycleListeningMode => {
                         let current = tray.update(|t| (t.listening_mode, t.allow_off_option)).await;
                         if let Some((current, allow_off)) = current {
-                            let mut order = vec![0x02u8, 0x03, 0x04];
-                            if allow_off == Some(0x01) {
-                                order.push(0x01);
-                            }
-                            let next = current
-                                .and_then(|c| order.iter().position(|&m| m == c))
-                                .map(|i| order[(i + 1) % order.len()])
-                                .unwrap_or(order[0]);
+                            let next = next_listening_mode(current, allow_off == Some(0x01));
                             let _ = tray
                                 .send_command(ControlCommandIdentifiers::ListeningMode, next)
                                 .await;
                         }
                     }
-                    (Some("listening_mode"), Some(v)) if (1..=4).contains(&v) => {
+                    Command::ListeningMode(v) => {
                         let _ = tray.send_command(ControlCommandIdentifiers::ListeningMode, v).await;
                     }
-                    (Some("conversation_detect"), Some(v)) => {
-                        let enabled = v != 0;
+                    Command::ConversationDetect(enabled) => {
                         let sent = tray
                             .send_command(
                                 ControlCommandIdentifiers::ConversationDetectConfig,
@@ -295,7 +307,6 @@ pub async fn serve(
                                 .await;
                         }
                     }
-                    _ => debug!("Unknown IPC command: {:?}", line),
                 }
             }
             if let Some(w) = writer {
@@ -318,4 +329,148 @@ fn peer_is_cosmic_applet(stream: &tokio::net::UnixStream) -> bool {
     std::fs::read_to_string(format!("/proc/{}/comm", pid))
         .map(|comm| comm.trim_end().starts_with("librepods-cosmi"))
         .unwrap_or(false)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Command {
+    Open,
+    Subscribe { applet: bool },
+    Quit,
+    /// Connect the given AirPods, or the first saved ones.
+    Connect(Option<bluer::Address>),
+    CycleListeningMode,
+    /// 1 = off, 2 = noise cancellation, 3 = transparency, 4 = adaptive.
+    ListeningMode(u8),
+    ConversationDetect(bool),
+}
+
+pub(crate) fn parse_command(line: &str) -> Option<Command> {
+    let mut parts = line.split_whitespace();
+    let name = parts.next()?;
+    let arg = parts.next();
+    let number = || arg.and_then(|v| v.parse::<u8>().ok());
+    Some(match name {
+        "open" => Command::Open,
+        "subscribe" => Command::Subscribe { applet: arg == Some("applet") },
+        "quit" => Command::Quit,
+        "connect" => match arg {
+            None => Command::Connect(None),
+            Some(mac) => Command::Connect(Some(mac.parse().ok()?)),
+        },
+        "cycle_listening_mode" => Command::CycleListeningMode,
+        "listening_mode" => Command::ListeningMode(number().filter(|v| (1..=4).contains(v))?),
+        "conversation_detect" => Command::ConversationDetect(number()? != 0),
+        _ => return None,
+    })
+}
+
+/// Next mode for the "cycle" shortcut: ANC → transparency → adaptive (→ off).
+pub(crate) fn next_listening_mode(current: Option<u8>, allow_off: bool) -> u8 {
+    let mut order = vec![0x02u8, 0x03, 0x04];
+    if allow_off {
+        order.push(0x01);
+    }
+    current
+        .and_then(|c| order.iter().position(|&m| m == c))
+        .map(|i| order[(i + 1) % order.len()])
+        .unwrap_or(order[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_commands() {
+        assert_eq!(parse_command("open"), Some(Command::Open));
+        assert_eq!(parse_command("subscribe"), Some(Command::Subscribe { applet: false }));
+        assert_eq!(parse_command("subscribe applet"), Some(Command::Subscribe { applet: true }));
+        assert_eq!(parse_command("quit"), Some(Command::Quit));
+        assert_eq!(parse_command("connect"), Some(Command::Connect(None)));
+        assert_eq!(
+            parse_command("connect 70:AE:D5:D4:8B:37"),
+            Some(Command::Connect(Some("70:AE:D5:D4:8B:37".parse().unwrap())))
+        );
+        assert_eq!(parse_command("listening_mode 2"), Some(Command::ListeningMode(2)));
+        assert_eq!(parse_command("conversation_detect 0"), Some(Command::ConversationDetect(false)));
+        assert_eq!(parse_command("conversation_detect 1"), Some(Command::ConversationDetect(true)));
+        assert_eq!(parse_command("cycle_listening_mode"), Some(Command::CycleListeningMode));
+    }
+
+    #[test]
+    fn rejects_bad_commands() {
+        assert_eq!(parse_command(""), None);
+        assert_eq!(parse_command("bogus"), None);
+        assert_eq!(parse_command("listening_mode 9"), None);
+        assert_eq!(parse_command("listening_mode"), None);
+        assert_eq!(parse_command("connect not-a-mac"), None);
+    }
+
+    #[test]
+    fn cycles_listening_modes() {
+        assert_eq!(next_listening_mode(Some(0x02), false), 0x03);
+        assert_eq!(next_listening_mode(Some(0x03), false), 0x04);
+        assert_eq!(next_listening_mode(Some(0x04), false), 0x02);
+        assert_eq!(next_listening_mode(Some(0x04), true), 0x01);
+        assert_eq!(next_listening_mode(Some(0x01), true), 0x02);
+        // Off while Off isn't allowed, or unknown: start at noise cancellation.
+        assert_eq!(next_listening_mode(Some(0x01), false), 0x02);
+        assert_eq!(next_listening_mode(None, false), 0x02);
+    }
+
+    #[test]
+    fn status_marks_bud_in_case_as_not_connected() {
+        let tray = MyTray {
+            device_name: Some("Pods".into()),
+            saved_airpods: vec![("AA:BB:CC:DD:EE:FF".into(), "Pods".into())],
+            conversation_detect_enabled: Some(true),
+            battery_headphone: None,
+            battery_headphone_status: None,
+            battery_l: Some(90),
+            battery_l_status: Some(BatteryStatus::Charging),
+            battery_r: Some(87),
+            battery_r_status: Some(BatteryStatus::Disconnected),
+            battery_c: None,
+            battery_c_status: None,
+            connected: true,
+            listening_mode: Some(0x03),
+            allow_off_option: Some(0x01),
+            command_tx: None,
+            ui_tx: None,
+        };
+        let s = Status::from_tray(&tray);
+        assert_eq!(s.name.as_deref(), Some("Pods"));
+        assert_eq!(s.left, Some(Battery { level: 90, charging: true, connected: true }));
+        assert_eq!(s.right, Some(Battery { level: 87, charging: false, connected: false }));
+        assert_eq!(s.case, None);
+        assert!(s.allow_off);
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    /// The JSON shape the COSMIC applet parses (see cosmic-applet/src/ipc.rs).
+    #[test]
+    fn status_json_matches_applet_contract() {
+        let status = Status {
+            connected: true,
+            name: Some("Pods".into()),
+            saved: vec![SavedAirPods { mac: "AA:BB:CC:DD:EE:FF".into(), name: "Pods".into() }],
+            left: Some(Battery { level: 90, charging: true, connected: true }),
+            listening_mode: Some(3),
+            conversation_detect: Some(false),
+            ..Default::default()
+        };
+        let v: serde_json::Value = serde_json::to_value(&status).unwrap();
+        for key in ["connected", "name", "saved", "headphone", "left", "right", "case", "listening_mode", "allow_off", "conversation_detect"] {
+            assert!(v.get(key).is_some(), "missing key {key}");
+        }
+        assert_eq!(v["left"]["level"], 90);
+        assert_eq!(v["left"]["charging"], true);
+        assert_eq!(v["left"]["connected"], true);
+        assert_eq!(v["saved"][0]["mac"], "AA:BB:CC:DD:EE:FF");
+        assert!(v["case"].is_null());
+    }
 }

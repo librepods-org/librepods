@@ -40,6 +40,7 @@ impl AirPodsDevice {
                 .update(move |tray: &mut MyTray| {
                     tray.connected = true;
                     tray.device_name = Some(saved_name);
+                    tray.saved_airpods = crate::bluetooth::discovery::saved_airpods();
                     tray.battery_headphone = None;
                     tray.battery_headphone_status = None;
                     tray.battery_l = None;

@@ -11,8 +11,6 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Theme};
 use log::error;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
-use tokio::runtime::Runtime;
 
 fn mode_label(mode: AirPodsNoiseControlMode) -> &'static str {
     match mode {
@@ -50,7 +48,11 @@ fn find(battery: &[BatteryInfo], c: BatteryComponent) -> Option<&BatteryInfo> {
     battery.iter().find(|b| b.component == c)
 }
 
-fn hero<'a>(state: &'a AirPodsState, last_case: Option<&'a BatteryInfo>) -> Element<'a, Message> {
+fn hero<'a>(
+    state: &'a AirPodsState,
+    last_case: Option<(BatteryInfo, String)>,
+    compact: bool,
+) -> Element<'a, Message> {
     let (ear, _) = ear_summary(&state.ear_status);
     let status = if ear.is_empty() {
         "Connected".to_string()
@@ -58,18 +60,21 @@ fn hero<'a>(state: &'a AirPodsState, last_case: Option<&'a BatteryInfo>) -> Elem
         format!("Connected · {ear}")
     };
     let rings: Element<'a, Message> = if let Some(h) = find(&state.battery, BatteryComponent::Headphone) {
-        battery_ring("Battery", Some(h), false)
+        battery_ring("Battery", Some(h), None)
     } else {
         // The buds only know the case battery while they're in it or its lid is
         // open; otherwise show the last value we saw, marked as such.
-        let (case, case_stale) = match find(&state.battery, BatteryComponent::Case) {
-            Some(c) => (Some(c), false),
-            None => (last_case, last_case.is_some()),
+        let (case, case_age) = match find(&state.battery, BatteryComponent::Case) {
+            Some(c) => (Some(c), None),
+            None => match &last_case {
+                Some((c, age)) => (Some(c), Some(age.as_str())),
+                None => (None, None),
+            },
         };
         row![
-            battery_ring("Left", find(&state.battery, BatteryComponent::Left), false),
-            battery_ring("Right", find(&state.battery, BatteryComponent::Right), false),
-            battery_ring("Case", case, case_stale),
+            battery_ring("Left", find(&state.battery, BatteryComponent::Left), None),
+            battery_ring("Right", find(&state.battery, BatteryComponent::Right), None),
+            battery_ring("Case", case, case_age),
         ]
         .spacing(16)
         .into()
@@ -84,10 +89,7 @@ fn hero<'a>(state: &'a AirPodsState, last_case: Option<&'a BatteryInfo>) -> Elem
                 .color(p.primary.base.color)
                 .border(Border::default().rounded(20))
         });
-    card(
-        row![
-            icon,
-            column![
+    let info = column![
                 text("AIRPODS")
                     .size(11)
                     .font(components::bold())
@@ -99,19 +101,24 @@ fn hero<'a>(state: &'a AirPodsState, last_case: Option<&'a BatteryInfo>) -> Elem
                 chip(status, Some(Color::from_rgb8(0x2e, 0xc2, 0x7e))),
             ]
             .spacing(6)
-            .width(Length::Fill),
-            rings,
+            .width(Length::Fill);
+    // Narrow windows: rings go under the name instead of beside it.
+    let content: Element<'a, Message> = if compact {
+        column![
+            row![icon, info].spacing(16).align_y(Alignment::Center),
+            container(rings).center_x(Length::Fill),
         ]
-        .spacing(20)
-        .align_y(Alignment::Center),
-    )
-    .padding(20)
-    .into()
+        .spacing(16)
+        .into()
+    } else {
+        row![icon, info, rings].spacing(20).align_y(Alignment::Center).into()
+    };
+    card(content).padding(20).into()
 }
 
-fn tiles<'a>(state: &'a AirPodsState) -> Element<'a, Message> {
+fn tiles<'a>(state: &'a AirPodsState, compact: bool) -> Element<'a, Message> {
     let (ear, _) = ear_summary(&state.ear_status);
-    row![
+    let tiles = [
         tile("Noise control", mode_label(state.noise_control_mode).to_string()),
         tile(
             "Conversation awareness",
@@ -121,9 +128,12 @@ fn tiles<'a>(state: &'a AirPodsState) -> Element<'a, Message> {
             "Ear detection",
             if ear.is_empty() { "–".to_string() } else { capitalize(&ear) },
         ),
-    ]
-    .spacing(12)
-    .into()
+    ];
+    if compact {
+        iced::widget::Column::with_children(tiles).spacing(8).into()
+    } else {
+        iced::widget::Row::with_children(tiles).spacing(12).into()
+    }
 }
 
 fn capitalize(s: &str) -> String {
@@ -144,7 +154,8 @@ pub fn airpods_view<'a>(
     devices_list: &HashMap<String, DeviceData>,
     state: &'a AirPodsState,
     about_expanded: bool,
-    last_case: Option<&'a BatteryInfo>,
+    last_case: Option<(BatteryInfo, String)>,
+    compact: bool,
 ) -> Element<'a, Message> {
     // Noise control
     let mut modes = vec![];
@@ -204,9 +215,9 @@ pub fn airpods_view<'a>(
 
     let about = about_section(mac, devices_list, state, about_expanded);
 
-    column![hero(state, last_case), tiles(state), noise_control, audio, about]
+    column![hero(state, last_case, compact), tiles(state, compact), noise_control, audio, about]
         .spacing(20)
-        .padding([20, 24])
+        .padding(if compact { [16, 12] } else { [20, 24] })
         .into()
 }
 
@@ -266,7 +277,8 @@ fn about_section<'a>(
     let mut rows: Vec<Element<'a, Message>> = vec![value_row(
         "Name",
         text_input("", &state.device_name)
-            .on_input(move |n| change(mac, AirPodsChange::DeviceName(n)))
+            .on_input(move |n| Message::RenameEdited(mac.to_string(), n))
+            .on_submit(Message::RenameCommit(None))
             .size(14)
             .width(220)
             .align_x(Alignment::End)
@@ -323,7 +335,7 @@ pub fn send_change(aacp_manager: Arc<AACPManager>, change: &AirPodsChange) {
     let (id, value): (ControlCommandIdentifiers, u8) = match change {
         AirPodsChange::DeviceName(name) => {
             let name = name.clone();
-            run_async_in_thread(async move {
+            crate::utils::spawn_bg(async move {
                 if let Err(e) = aacp_manager.send_rename_packet(&name).await {
                     error!("Failed to rename AirPods: {}", e);
                 }
@@ -341,19 +353,85 @@ pub fn send_change(aacp_manager: Arc<AACPManager>, change: &AirPodsChange) {
             (ControlCommandIdentifiers::AllowOffOption, if *v { 0x01 } else { 0x02 })
         }
     };
-    run_async_in_thread(async move {
+    crate::utils::spawn_bg(async move {
         if let Err(e) = aacp_manager.send_control_command(id, &[value]).await {
             error!("Failed to send {:?}: {}", id, e);
         }
     });
 }
 
-fn run_async_in_thread<F>(fut: F)
-where
-    F: Future<Output = ()> + Send + 'static,
-{
-    thread::spawn(move || {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(fut);
-    });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use EarDetectionStatus::*;
+
+    fn state(battery: Vec<BatteryInfo>, ear: Vec<EarDetectionStatus>) -> AirPodsState {
+        AirPodsState {
+            device_name: "Test Pods".into(),
+            noise_control_mode: AirPodsNoiseControlMode::Adaptive,
+            noise_control_state: iced::widget::combo_box::State::new(vec![]),
+            conversation_awareness_enabled: true,
+            personalized_volume_enabled: false,
+            allow_off_mode: true,
+            battery,
+            ear_status: ear,
+        }
+    }
+
+    fn bat(c: BatteryComponent, level: u8, status: crate::bluetooth::aacp::BatteryStatus) -> BatteryInfo {
+        BatteryInfo { component: c, level, status }
+    }
+
+    /// Building every variant of the page must not panic (release builds abort).
+    #[test]
+    fn view_builds_for_all_kinds_of_state() {
+        use crate::bluetooth::aacp::BatteryStatus::*;
+        let devices = HashMap::new();
+        let last_case = bat(BatteryComponent::Case, 40, Disconnected);
+        let states = [
+            state(vec![], vec![]),
+            state(
+                vec![
+                    bat(BatteryComponent::Left, 5, NotCharging),
+                    bat(BatteryComponent::Right, 87, Disconnected),
+                    bat(BatteryComponent::Case, 100, Charging),
+                ],
+                vec![InEar, InCase],
+            ),
+            state(vec![bat(BatteryComponent::Headphone, 50, Charging)], vec![InEar, InEar]),
+        ];
+        for st in &states {
+            for about in [false, true] {
+                for compact in [false, true] {
+                    let _ = airpods_view("AA:BB:CC:DD:EE:FF", &devices, st, about, Some((last_case.clone(), "2 h ago".into())), compact);
+                    let _ = airpods_view("AA:BB:CC:DD:EE:FF", &devices, st, about, None, compact);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_mode_has_label_and_description() {
+        for m in [
+            AirPodsNoiseControlMode::Off,
+            AirPodsNoiseControlMode::NoiseCancellation,
+            AirPodsNoiseControlMode::Transparency,
+            AirPodsNoiseControlMode::Adaptive,
+        ] {
+            assert!(!mode_label(m).is_empty());
+            assert!(mode_description(m).ends_with('.'));
+        }
+        assert_eq!(capitalize("both in ear"), "Both in ear");
+        assert_eq!(capitalize(""), "");
+    }
+
+    #[test]
+    fn summarizes_ear_status() {
+        assert_eq!(ear_summary(&[InEar, InEar]), ("both in ear".to_string(), true));
+        assert_eq!(ear_summary(&[InEar, InCase]), ("one in ear".to_string(), true));
+        assert_eq!(ear_summary(&[InCase, InCase]), ("in case".to_string(), false));
+        assert_eq!(ear_summary(&[OutOfEar, InCase]), ("out of ear".to_string(), false));
+        assert_eq!(ear_summary(&[]), (String::new(), false));
+    }
 }

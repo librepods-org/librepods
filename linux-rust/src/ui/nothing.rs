@@ -9,8 +9,6 @@ use iced::widget::{Space, column, container, row, text};
 use iced::{Background, Border, Length, Theme};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
-use tokio::runtime::Runtime;
 
 pub fn nothing_view<'a>(
     mac: &'a str,
@@ -71,7 +69,7 @@ pub fn nothing_view<'a>(
                             let att_manager = att_manager_clone.clone();
                             let selected_mode_c = selected_mode.clone();
                             let mac_s = mac.clone();
-                            run_async_in_thread(async move {
+                            crate::utils::spawn_bg(async move {
                                 if let Err(e) = att_manager
                                     .write(
                                         ATTHandles::NothingEverything,
@@ -178,12 +176,3 @@ pub fn nothing_view<'a>(
     .height(Length::Fill)
 }
 
-fn run_async_in_thread<F>(fut: F)
-where
-    F: Future<Output = ()> + Send + 'static,
-{
-    thread::spawn(move || {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(fut);
-    });
-}

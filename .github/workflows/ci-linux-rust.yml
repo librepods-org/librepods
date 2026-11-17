@@ -75,9 +75,10 @@ jobs:
           cp target/release/librepods dist/librepods
           mv dist/LibrePods-x86_64.AppImage dist/librepods-x86_64.AppImage
 
-      - name: Build COSMIC applet
+      - name: Build and test COSMIC applet
         working-directory: linux-rust/cosmic-applet
         run: |
+          cargo test --release --locked
           cargo build --release --locked
           cp target/release/librepods-cosmic-applet ../dist/librepods-cosmic-applet
 

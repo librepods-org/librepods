@@ -34,8 +34,9 @@ pub enum Message {
     Surface(cosmic::surface::Action<Message>),
     SetListeningMode(u8),
     SetConversationDetect(bool),
-    /// Connect the saved AirPods, e.g. after using them with an iPhone.
-    Connect,
+    /// Connect saved AirPods (a specific pair, or the default one), e.g. after
+    /// using them with an iPhone.
+    Connect(Option<String>),
     Quit,
     OpenWindow,
 }
@@ -93,8 +94,11 @@ impl cosmic::Application for Applet {
                     return cosmic::task::message(cosmic::Action::Surface(destroy_popup(id)));
                 }
             }
-            Message::Connect => {
-                ipc::send("connect");
+            Message::Connect(mac) => {
+                ipc::send(&match mac {
+                    Some(mac) => format!("connect {mac}"),
+                    None => "connect".to_string(),
+                });
                 if let Some(id) = self.popup.take() {
                     return cosmic::task::message(cosmic::Action::Surface(destroy_popup(id)));
                 }
@@ -210,11 +214,22 @@ impl Applet {
 
         let name = status.name.clone().unwrap_or_else(|| "AirPods".to_string());
         if !status.connected {
-            return content
+            let mut content = content
                 .push(padded_control(text::heading(name)))
                 .push(padded_control(text::body("Not connected")))
-                .push(padded_control(divider::horizontal::default()))
-                .push(menu_button(text::body("Connect AirPods")).on_press(Message::Connect))
+                .push(padded_control(divider::horizontal::default()));
+            if status.saved.len() > 1 {
+                for pods in &status.saved {
+                    content = content.push(
+                        menu_button(text::body(format!("Connect {}", pods.name)))
+                            .on_press(Message::Connect(Some(pods.mac.clone()))),
+                    );
+                }
+            } else {
+                content = content
+                    .push(menu_button(text::body("Connect AirPods")).on_press(Message::Connect(None)));
+            }
+            return content
                 .push(menu_button(text::body("Open LibrePods")).on_press(Message::OpenWindow))
                 .push(menu_button(text::body("Quit LibrePods")).on_press(Message::Quit))
                 .into();
@@ -315,5 +330,35 @@ fn battery_summary(s: &Status) -> String {
         "AirPods connected".to_string()
     } else {
         parts.join(" · ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn b(level: u8, charging: bool, connected: bool) -> Battery {
+        Battery { level, charging, connected }
+    }
+
+    #[test]
+    fn formats_battery_labels() {
+        assert_eq!(format_battery(b(93, true, true), false), "93% (charging)");
+        assert_eq!(format_battery(b(87, false, false), false), "87% (in case)");
+        assert_eq!(format_battery(b(24, false, false), true), "24%", "the case isn't 'in case'");
+        assert_eq!(format_battery(b(50, false, true), false), "50%");
+    }
+
+    #[test]
+    fn tooltip_is_short() {
+        let s = Status {
+            connected: true,
+            left: Some(b(93, true, true)),
+            right: Some(b(92, false, true)),
+            case: Some(b(24, false, true)),
+            ..Default::default()
+        };
+        assert_eq!(battery_summary(&s), "L 93% · R 92% · Case 24%");
+        assert_eq!(battery_summary(&Status { connected: true, ..Default::default() }), "AirPods connected");
     }
 }

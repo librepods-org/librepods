@@ -25,13 +25,15 @@ fn decrypt(key: &[u8; 16], data: &[u8; 16]) -> [u8; 16] {
 }
 
 fn verify_rpa(addr: &str, irk: &[u8; 16]) -> bool {
-    let rpa: Vec<u8> = addr
+    // A malformed address is just "not ours"; never panic (release builds abort).
+    let Ok(mut rpa) = addr
         .split(':')
-        .map(|s| u8::from_str_radix(s, 16).unwrap())
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
+        .map(|s| u8::from_str_radix(s, 16))
+        .collect::<Result<Vec<u8>, _>>()
+    else {
+        return false;
+    };
+    rpa.reverse();
     if rpa.len() != 6 {
         return false;
     }
@@ -442,4 +444,37 @@ async fn start_le_monitor(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bluetooth Core Spec, Vol 3, Part H, D.7: IRK ec0234a357c8ad05341010a60a397d9b
+    /// resolves the random address with prand 708194 and hash 0dfbaa.
+    #[test]
+    fn resolves_spec_rpa() {
+        let mut irk: [u8; 16] = hex::decode("ec0234a357c8ad05341010a60a397d9b").unwrap().try_into().unwrap();
+        irk.reverse(); // stored little-endian, as received from the AirPods
+        assert!(verify_rpa("70:81:94:0D:FB:AA", &irk));
+        assert!(verify_rpa("70:81:94:0d:fb:aa", &irk), "case-insensitive");
+        assert!(!verify_rpa("70:81:94:0D:FB:AB", &irk), "wrong hash");
+        assert!(!verify_rpa("71:81:94:0D:FB:AA", &irk), "different prand");
+    }
+
+    #[test]
+    fn malformed_addresses_are_rejected_not_panicking() {
+        let irk = [0u8; 16];
+        assert!(!verify_rpa("zz:81:94:0D:FB:AA", &irk));
+        assert!(!verify_rpa("70:81:94", &irk));
+        assert!(!verify_rpa("", &irk));
+    }
+
+    /// FIPS-197 Appendix C.1 AES-128 vector.
+    #[test]
+    fn decrypts_fips197_vector() {
+        let key: [u8; 16] = hex::decode("000102030405060708090a0b0c0d0e0f").unwrap().try_into().unwrap();
+        let ct: [u8; 16] = hex::decode("69c4e0d86a7b0430d8cdb78070b4c55a").unwrap().try_into().unwrap();
+        assert_eq!(hex::encode(decrypt(&key, &ct)), "00112233445566778899aabbccddeeff");
+    }
 }

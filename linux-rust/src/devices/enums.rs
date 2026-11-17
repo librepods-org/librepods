@@ -152,3 +152,17 @@ impl NothingAncMode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AirPodsNoiseControlMode as M;
+
+    #[test]
+    fn noise_control_mode_bytes_round_trip() {
+        for m in [M::Off, M::NoiseCancellation, M::Transparency, M::Adaptive] {
+            assert_eq!(M::from_byte(&m.to_byte()), m);
+        }
+        assert_eq!(M::NoiseCancellation.to_byte(), 0x02);
+        assert_eq!(M::from_byte(&0x99), M::Off, "unknown values fall back to Off");
+    }
+}

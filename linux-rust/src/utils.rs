@@ -215,7 +215,16 @@ pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
         desktop_exec_quote(&exe.to_string_lossy())
     };
 
-    let entry = format!(
+    let entry = autostart_entry(&exec);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, entry)
+}
+
+/// The XDG autostart entry, starting LibrePods minimized to the tray.
+fn autostart_entry(exec: &str) -> String {
+    format!(
         "[Desktop Entry]\n\
          Type=Application\n\
          Name=LibrePods\n\
@@ -225,11 +234,7 @@ pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
          Terminal=false\n\
          X-GNOME-Autostart-enabled=true\n",
         exec
-    );
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, entry)
+    )
 }
 
 /// Quotes a path for the `Exec=` key of a desktop entry if needed.
@@ -253,6 +258,45 @@ mod tests {
     /// Bluetooth Core Spec, Vol 3, Part H, D.7 (ah random address hash):
     /// IRK ec0234a357c8ad05341010a60a397d9b, prand 708194 -> hash 0dfbaa.
     #[test]
+    fn autostart_entry_starts_minimized() {
+        let entry = super::autostart_entry("\"/opt/My Apps/librepods\"");
+        assert!(entry.starts_with("[Desktop Entry]\n"));
+        assert!(entry.contains("\nExec=\"/opt/My Apps/librepods\" --start-minimized\n"));
+        assert!(entry.contains("\nIcon=me.kavishdevar.librepods\n"));
+        assert!(entry.contains("\nType=Application\n"));
+    }
+
+    #[test]
+    fn formats_ages() {
+        use super::format_age;
+        assert_eq!(format_age(0), "just now");
+        assert_eq!(format_age(59), "just now");
+        assert_eq!(format_age(60), "1 min ago");
+        assert_eq!(format_age(3599), "59 min ago");
+        assert_eq!(format_age(3600), "1 h ago");
+        assert_eq!(format_age(86_399), "23 h ago");
+        assert_eq!(format_age(86_400), "1 day ago");
+        assert_eq!(format_age(3 * 86_400), "3 days ago");
+    }
+
+    #[test]
+    fn saved_case_round_trips_as_json() {
+        let mut cases = std::collections::HashMap::new();
+        cases.insert("AA:BB:CC:DD:EE:FF".to_string(), super::SavedCase { level: 24, charging: true, at: 1_700_000_000 });
+        let json = serde_json::to_string(&cases).unwrap();
+        let back: std::collections::HashMap<String, super::SavedCase> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cases);
+    }
+
+    #[test]
+    fn quotes_desktop_exec_paths() {
+        use super::desktop_exec_quote as q;
+        assert_eq!(q("/usr/bin/librepods"), "/usr/bin/librepods");
+        assert_eq!(q("/home/me/My Apps/LibrePods.AppImage"), "\"/home/me/My Apps/LibrePods.AppImage\"");
+        assert_eq!(q("/a/$HOME/b"), "\"/a/\\$HOME/b\"");
+    }
+
+    #[test]
     fn ah_matches_bluetooth_spec_vector() {
         let mut irk: [u8; 16] = hex::decode("ec0234a357c8ad05341010a60a397d9b").unwrap().try_into().unwrap();
         let mut r = [0x70, 0x81, 0x94];
@@ -262,5 +306,96 @@ mod tests {
         r.reverse();
         expected.reverse();
         assert_eq!(ah(&irk, &r), expected);
+    }
+}
+
+/// Runs a future on a shared background tokio runtime. Used for fire-and-forget
+/// work started from the UI thread (e.g. sending a command to the AirPods),
+/// instead of creating a new runtime and thread for every click.
+pub fn spawn_bg<F>(fut: F)
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("librepods-bg")
+                .enable_all()
+                .build()
+                .expect("failed to start background runtime")
+        })
+        .spawn(fut);
+}
+
+/// Loads the saved devices (devices.json). Missing file means no devices yet.
+pub fn load_devices() -> std::collections::HashMap<String, crate::devices::enums::DeviceData> {
+    match std::fs::read_to_string(get_devices_path()) {
+        Ok(json) => serde_json::from_str(&json).unwrap_or_else(|e| {
+            log::error!("Failed to parse devices file: {}", e);
+            Default::default()
+        }),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::error!("Failed to read devices file: {}", e);
+            }
+            Default::default()
+        }
+    }
+}
+
+/// Last case battery seen per device, kept across restarts: the case only
+/// reports while a bud is in it or its lid is open, so most of the time this is
+/// all we have (your iPhone shows a remembered value too).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedCase {
+    pub level: u8,
+    pub charging: bool,
+    /// Unix time (seconds) when it was seen.
+    pub at: u64,
+}
+
+fn last_case_path() -> PathBuf {
+    let state_dir = std::env::var("XDG_STATE_HOME").unwrap_or_else(|_| {
+        format!("{}/.local/state", std::env::var("HOME").unwrap_or_default())
+    });
+    PathBuf::from(state_dir).join("librepods").join("last_case.json")
+}
+
+pub fn load_last_cases() -> std::collections::HashMap<String, SavedCase> {
+    std::fs::read_to_string(last_case_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_last_cases(cases: &std::collections::HashMap<String, SavedCase>) {
+    let path = last_case_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string(cases)
+        && let Err(e) = std::fs::write(&path, json)
+    {
+        log::warn!("Could not save last case battery: {}", e);
+    }
+}
+
+pub fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// "just now", "5 min ago", "3 h ago", "2 days ago".
+pub fn format_age(seconds: u64) -> String {
+    match seconds {
+        0..=59 => "just now".to_string(),
+        60..=3599 => format!("{} min ago", seconds / 60),
+        3600..=86_399 => format!("{} h ago", seconds / 3600),
+        86_400..=172_799 => "1 day ago".to_string(),
+        _ => format!("{} days ago", seconds / 86_400),
     }
 }

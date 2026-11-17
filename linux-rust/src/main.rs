@@ -2,6 +2,7 @@ mod bluetooth;
 mod devices;
 mod ipc;
 mod media_controller;
+mod notify;
 mod single_instance;
 mod ui;
 mod utils;
@@ -144,6 +145,16 @@ fn main() -> iced::Result {
             )
         };
     }
+    // Check for a running instance before touching the log file: setting up
+    // logging truncates it, which would wipe the running instance's log every
+    // time LibrePods is launched again from the app launcher.
+    let instance_listener = match single_instance::acquire() {
+        single_instance::Instance::Primary(listener) => listener,
+        single_instance::Instance::Secondary => {
+            eprintln!("LibrePods is already running; asked it to open its window.");
+            return Ok(());
+        }
+    };
     init_logging();
 
     // Settings writes assume these exist; a fresh install would otherwise fail to
@@ -156,13 +167,6 @@ fn main() -> iced::Result {
         }
     }
 
-    let instance_listener = match single_instance::acquire() {
-        single_instance::Instance::Primary(listener) => listener,
-        single_instance::Instance::Secondary => {
-            info!("LibrePods is already running; asked it to open its window.");
-            return Ok(());
-        }
-    };
 
     let (ui_tx, ui_rx) = unbounded_channel::<BluetoothUIMessage>();
 
@@ -224,6 +228,7 @@ async fn async_main(
         .and_then(|a| bluetooth::discovery::saved_device_name(&a.to_string()));
     let tray_state = || MyTray {
         device_name: saved_name.clone(),
+        saved_airpods: bluetooth::discovery::saved_airpods(),
         conversation_detect_enabled: None,
         battery_headphone: None,
         battery_headphone_status: None,
@@ -254,6 +259,7 @@ async fn async_main(
     };
     let tray_handle = Some(ipc::TrayHandle::new(ksni_handle, tray_state(), !args.no_tray));
     ipc::set_global(tray_handle.clone().unwrap());
+    tokio::spawn(notify::run(tray_handle.as_ref().unwrap().subscribe()));
 
     if let Some(listener) = instance_listener {
         tokio::spawn(ipc::serve(
