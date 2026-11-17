@@ -1,5 +1,6 @@
 APP_NAME := "librepods"
 DESKTOP_FILE := "assets/me.kavishdevar.librepods.desktop"
+METAINFO_FILE := "flatpak/me.kavishdevar.librepods.metainfo.xml"
 ICON_FILE := "assets/icon.png"
 
 default: build-appimage
@@ -45,10 +46,16 @@ prepare:
     mkdir -p "$tmpdir/usr/bin"
     mkdir -p "$tmpdir/usr/share/applications"
     mkdir -p "$tmpdir/usr/share/icons/hicolor/256x256/apps"
+    mkdir -p "$tmpdir/usr/share/metainfo"
 
     cp target/release/{{APP_NAME}} "$tmpdir/usr/bin/"
     cp assets/icon.png "$tmpdir/usr/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png"
-    cp {{DESKTOP_FILE}} "$tmpdir/{{APP_NAME}}.desktop"
+    # Name the desktop file after the app ID so it matches the Wayland app_id and
+    # the AppStream metadata's <launchable>.
+    cp {{DESKTOP_FILE}} "$tmpdir/me.kavishdevar.librepods.desktop"
+    # appimagetool looks for usr/share/metainfo/<desktop file name>.appdata.xml
+    # and validates it with appstreamcli.
+    cp {{METAINFO_FILE}} "$tmpdir/usr/share/metainfo/me.kavishdevar.librepods.appdata.xml"
 
     printf '%s\n' \
         '#!/bin/bash' \
@@ -67,7 +74,7 @@ bundle:
     linuxdeploy \
         --appdir "$tmpdir" \
         --executable "$tmpdir/usr/bin/{{APP_NAME}}" \
-        --desktop-file "$tmpdir/{{APP_NAME}}.desktop" \
+        --desktop-file "$tmpdir/me.kavishdevar.librepods.desktop" \
         --icon-file "$tmpdir/usr/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png"
 
 build-appimage: build prepare bundle
