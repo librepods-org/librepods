@@ -19,7 +19,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned to the oldest supported image: binaries need a glibc at least as new
+    # as the one they were built against. ubuntu-latest moved to 26.04 (glibc
+    # 2.43), and its AppImage failed on Ubuntu/Pop!_OS 24.04 (glibc 2.39).
+    # 22.04 (glibc 2.35) covers Ubuntu 22.04+, Debian 12+ and other current distros.
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v7
@@ -64,6 +68,19 @@ jobs:
         run: |
           cargo build --release --locked
           cp target/release/librepods-cosmic-applet ../dist/librepods-cosmic-applet
+
+      - name: Check glibc compatibility
+        working-directory: linux-rust/dist
+        run: |
+          max_allowed=2.35
+          for bin in librepods librepods-cosmic-applet; do
+            needed=$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
+            echo "$bin requires glibc $needed"
+            if [ "$(printf '%s\n%s\n' "$needed" "$max_allowed" | sort -V | tail -1)" != "$max_allowed" ]; then
+              echo "::error::$bin requires glibc $needed (> $max_allowed); it won't run on older distros"
+              exit 1
+            fi
+          done
 
       - name: Upload AppImage artifact
         if: "!startsWith(github.ref, 'refs/tags/linux-v')"
