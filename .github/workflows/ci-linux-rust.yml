@@ -8,7 +8,13 @@ on:
       - 'linux-v*'
     paths:
       - 'linux-rust/**'
-      - '.github/workflows/linux-build.yml'
+      - '.github/workflows/ci-linux-rust.yml'
+  pull_request:
+    branches:
+      - linux/rust
+    paths:
+      - 'linux-rust/**'
+      - '.github/workflows/ci-linux-rust.yml'
   workflow_dispatch:
 
 jobs:
@@ -16,16 +22,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev appstream just libfuse2
+          # libxkbcommon-dev is needed by the COSMIC applet (libcosmic).
+          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev libxkbcommon-dev appstream just libfuse2
 
       - name: Install AppImage tools
         run: |
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O /usr/local/bin/linuxdeploy
           chmod +x /usr/local/bin/{appimagetool,linuxdeploy}
 
@@ -33,36 +40,51 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo
-        uses: actions/cache@v4
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            linux-rust/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('linux-rust/Cargo.lock') }}
+          workspaces: |
+            linux-rust -> target
+            linux-rust/cosmic-applet -> target
+
+      - name: Run tests
+        working-directory: linux-rust
+        run: cargo test --release --locked
 
       - name: Build AppImage and Binary
         working-directory: linux-rust
         run: |
-          cargo build --release --verbose
+          cargo build --release --locked --verbose
           just
           mkdir -p dist
           cp target/release/librepods dist/librepods
           mv dist/LibrePods-x86_64.AppImage dist/librepods-x86_64.AppImage
 
+      - name: Build COSMIC applet
+        working-directory: linux-rust/cosmic-applet
+        run: |
+          cargo build --release --locked
+          cp target/release/librepods-cosmic-applet ../dist/librepods-cosmic-applet
+
       - name: Upload AppImage artifact
         if: "!startsWith(github.ref, 'refs/tags/linux-v')"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: librepods-x86_64.AppImage
           path: linux-rust/dist/librepods-x86_64.AppImage
 
       - name: Upload binary artifact
         if: "!startsWith(github.ref, 'refs/tags/linux-v')"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: librepods
           path: linux-rust/dist/librepods
+
+      - name: Upload COSMIC applet artifact
+        if: "!startsWith(github.ref, 'refs/tags/linux-v')"
+        uses: actions/upload-artifact@v7
+        with:
+          name: librepods-cosmic-applet
+          path: linux-rust/dist/librepods-cosmic-applet
 
       - name: Create tarball for Flatpak
         if: startsWith(github.ref, 'refs/tags/linux-v')
@@ -73,15 +95,16 @@ jobs:
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "TAR_PATH=linux-rust/dist/librepods-v${VERSION}-source.tar.gz" >> $GITHUB_ENV
 
-      - name: Create GitHub Release (AppImage + binary + source)
+      - name: Create GitHub Release (AppImage + binary + applet + source)
         if: startsWith(github.ref, 'refs/tags/linux-v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           files: |
             linux-rust/dist/librepods-v${{ env.VERSION }}-source.tar.gz
             linux-rust/dist/librepods-x86_64.AppImage
             linux-rust/dist/librepods
+            linux-rust/dist/librepods-cosmic-applet
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
