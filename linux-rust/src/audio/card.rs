@@ -98,6 +98,34 @@ fn set_profile_unlocked(card: CardRef, profile: &str) -> bool {
     success
 }
 
+/// The card's highest-priority available headset profile (one carrying a
+/// microphone), e.g. "headset-head-unit" (LC3/mSBC) ahead of "-cvsd".
+pub fn best_headset_profile(card: &str) -> Option<String> {
+    let (mut mainloop, context) = connect()?;
+    let best: Rc<RefCell<Option<(u32, String)>>> = Rc::new(RefCell::new(None));
+    let op = context.introspect().get_card_info_by_name(card, {
+        let best = best.clone();
+        move |result| {
+            if let ListResult::Item(item) = result {
+                for p in item.profiles.iter() {
+                    let Some(name) = p.name.as_ref() else { continue };
+                    if !p.available || p.n_sources == 0 || !name.starts_with("headset-head-unit") {
+                        continue;
+                    }
+                    let mut b = best.borrow_mut();
+                    if b.as_ref().is_none_or(|(prio, _)| p.priority > *prio) {
+                        *b = Some((p.priority, name.to_string()));
+                    }
+                }
+            }
+        }
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    let result = best.borrow().clone().map(|(_, n)| n);
+    result
+}
+
 /// Set a card profile, serialized with every other profile change. Returns the
 /// real result reported by the server.
 pub fn set_profile(card: CardRef, profile: &str) -> bool {

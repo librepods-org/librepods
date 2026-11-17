@@ -19,6 +19,117 @@ use crate::audio::agc::Agc;
 
 pub const SOURCE_NAME: &str = "AirPodsHiRes";
 
+// --- WirePlumber's own AirPods microphone ------------------------------------
+//
+// With bluetooth.autoswitch-to-headset-profile on, WirePlumber lists a second
+// AirPods microphone (a loopback of the headset input) that, once an app records
+// from it, drops the card to the headset profile. The setting can't be limited to
+// one device, so it is turned off at runtime only while the AirPods are
+// connected and handed back afterwards. Nothing is saved (no --save).
+
+static AUTOSWITCH_OWED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const AUTOSWITCH_KEY: &str = "bluetooth.autoswitch-to-headset-profile";
+
+fn wireplumber_autoswitch() -> Option<bool> {
+    let out = std::process::Command::new("wpctl")
+        .args(["settings", AUTOSWITCH_KEY])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    if text.contains("Value: true") {
+        Some(true)
+    } else if text.contains("Value: false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn set_wireplumber_autoswitch(on: bool) -> bool {
+    std::process::Command::new("wpctl")
+        .args(["settings", AUTOSWITCH_KEY, if on { "true" } else { "false" }])
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Hide WirePlumber's AirPods mic while ours is in use. Blocking.
+pub fn hide_wireplumber_mic() {
+    if wireplumber_autoswitch() == Some(true) && set_wireplumber_autoswitch(false) {
+        AUTOSWITCH_OWED.store(true, std::sync::atomic::Ordering::Relaxed);
+        info!("[pw] WirePlumber autoswitch off while the AirPods are connected (one AirPods mic)");
+    }
+}
+
+/// Give the setting back if hide_wireplumber_mic() took it. Blocking.
+pub fn restore_wireplumber_mic() {
+    if AUTOSWITCH_OWED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        set_wireplumber_autoswitch(true);
+        info!("[pw] WirePlumber autoswitch handed back");
+    }
+}
+
+/// The headset profile's input as PulseAudio clients see it (WirePlumber's
+/// loopback; the SCO node itself is internal), for an AirPods address.
+pub fn headset_source(addr: &str) -> Option<String> {
+    let (mut mainloop, context) = connect()?;
+    let wanted: String = addr.chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_uppercase();
+    let found: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let op = context.introspect().get_source_info_list({
+        let found = found.clone();
+        move |result| {
+            if let ListResult::Item(item) = result
+                && item.monitor_of_sink.is_none()
+                && let Some(name) = item.name.as_ref()
+                && name.starts_with("bluez_input.")
+            {
+                let hex: String = name.chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_uppercase();
+                if hex.contains(&wanted) && found.borrow().is_none() {
+                    *found.borrow_mut() = Some(name.to_string());
+                }
+            }
+        }
+    });
+    wait_op(&mut mainloop, &op);
+    drop(op);
+    let result = found.borrow().clone();
+    result
+}
+
+/// Wake `wake` whenever a recording stream appears, goes or changes, so a new
+/// recorder starts the AirPods mic at once instead of on the next poll (the
+/// AirPods already take about 300 ms to send their first frame). Process-wide;
+/// the target is replaced on every call.
+pub fn watch_recorders(wake: std::sync::Arc<tokio::sync::Notify>) {
+    static TARGET: std::sync::Mutex<Option<std::sync::Arc<tokio::sync::Notify>>> = std::sync::Mutex::new(None);
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    *TARGET.lock().unwrap_or_else(|e| e.into_inner()) = Some(wake);
+    if STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("recorder-watch".into())
+        .spawn(|| loop {
+            if let Some((mut mainloop, mut context)) = connect() {
+                use libpulse_binding::context::subscribe::{Facility, InterestMaskSet};
+                context.set_subscribe_callback(Some(Box::new(|facility, _, _| {
+                    if facility == Some(Facility::SourceOutput)
+                        && let Some(w) = TARGET.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+                    {
+                        w.notify_one();
+                    }
+                })));
+                context.subscribe(InterestMaskSet::SOURCE_OUTPUT, |_| {});
+                while let IterateResult::Success(_) = mainloop.iterate(true) {
+                    if context.get_state() != libpulse_binding::context::State::Ready {
+                        break;
+                    }
+                }
+            }
+            // The sound server went away (restart): reconnect shortly.
+            std::thread::sleep(Duration::from_secs(2));
+        });
+}
+
 // FIFO the pipe-source reads from and that Output writes PCM into.
 fn fifo_path() -> String {
     let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -78,7 +189,7 @@ impl VirtualMic {
     /// microphone appears or disappears while they record. Only adopted if the
     /// source exists and its FIFO is still there; otherwise every leftover module
     /// is unloaded and None returned.
-    pub fn adopt() -> Option<VirtualMic> {
+    pub fn adopt(description: &str) -> Option<VirtualMic> {
         let modules = our_modules();
         if modules.is_empty() {
             return None;
@@ -91,7 +202,11 @@ impl VirtualMic {
         let keep = if fifo_ok && source_index(SOURCE_NAME).is_some() {
             modules
                 .iter()
-                .find(|(_, arg)| arg.contains(&format!("file={fifo} ")))
+                .find(|(_, arg)| {
+                    // Another name (the AirPods were renamed) is recreated, not adopted.
+                    arg.contains(&format!("file={fifo} "))
+                        && arg.contains(&format!("device.description=\"{description}\""))
+                })
                 .map(|(i, _)| *i)
         } else {
             None

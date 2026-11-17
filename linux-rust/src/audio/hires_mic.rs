@@ -33,10 +33,15 @@ const STALL_TIMEOUT: Duration = Duration::from_millis(2000);
 const RECORDER_GONE_GRACE: Duration = Duration::from_secs(60);
 /// Upper bound for the delay between stall restarts that keep failing.
 const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(30);
-/// After this many restarts in a row without audio, stop retrying until the ear
-/// state changes (e.g. the remaining bud doesn't stream its mic); retrying
-/// forever would only churn the AACP channel.
-const MAX_FAILED_RESTARTS: u32 = 3;
+/// After this many restarts in a row without audio the headset profile takes
+/// over the same virtual mic (see Fallback), so apps keep their device.
+const MAX_FAILED_RESTARTS: u32 = 2;
+/// The headset profile costs playback quality, so it's left this soon after the
+/// last recorder; the next recording tries the AirPods stream first again.
+const FALLBACK_IDLE: Duration = Duration::from_secs(3);
+/// How many polls between checks that WirePlumber's AirPods mic is still hidden
+/// (a WirePlumber restart resets its runtime setting).
+const WIREPLUMBER_RECHECK_POLLS: u32 = 25;
 const LEVEL_RELEASE: f32 = 0.85;
 /// After connecting, how long a parked mic waits for the first ear-detection
 /// report before it is unparked anyway (ear detection may be switched off).
@@ -86,12 +91,25 @@ pub fn any_capture_active() -> bool {
     ANY_CAPTURE_ACTIVE.load(Ordering::Relaxed)
 }
 
+/// The card is on a headset profile because the AirPods stream failed and the
+/// headset mic feeds the virtual mic. The media controller must not switch it
+/// back to A2DP meanwhile.
+static HEADSET_FALLBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn headset_fallback_active() -> bool {
+    HEADSET_FALLBACK_ACTIVE.load(Ordering::Relaxed)
+}
+
 #[derive(Clone, Default)]
 pub struct MicStatus {
     level: Arc<AtomicU32>,
     active: Arc<AtomicBool>,
     app: Arc<Mutex<Option<String>>>,
     last_sdu: Arc<Mutex<Option<Instant>>>,
+    /// An audio SDU arrived since the capture last (re)started. The stall clock
+    /// is refreshed at every start without audio, so only this may clear the
+    /// failed-restart count.
+    got_audio: Arc<AtomicBool>,
 }
 
 impl MicStatus {
@@ -132,6 +150,17 @@ impl MicStatus {
     /// Record that an audio SDU just arrived from the device.
     pub fn mark_sdu(&self) {
         *self.last_sdu.lock().unwrap() = Some(Instant::now());
+        self.got_audio.store(true, Ordering::Relaxed);
+    }
+
+    /// A capture (re)started: start the stall clock with no audio seen yet.
+    fn mark_start(&self) {
+        *self.last_sdu.lock().unwrap() = Some(Instant::now());
+        self.got_audio.store(false, Ordering::Relaxed);
+    }
+
+    fn got_audio(&self) -> bool {
+        self.got_audio.load(Ordering::Relaxed)
     }
 
     /// Time since the last audio SDU, or None if none has arrived yet.
@@ -150,7 +179,8 @@ impl HiResMic {
     // activity monitor. When the monitor exits the input is kept (and parked
     // later), or unloaded if the hi-res mic was turned off.
     pub async fn start(aacp: &AACPManager, addr: String, status: MicStatus) -> Option<HiResMic> {
-        // Name it after the AirPods, like their output: "<AirPods name> Microphone".
+        // Name it after the AirPods exactly, like their output, so the desktop
+        // shows one AirPods microphone.
         let device_name = aacp
             .state
             .lock()
@@ -160,8 +190,8 @@ impl HiResMic {
             .map(|d| d.name.trim().to_string())
             .filter(|n| !n.is_empty() && n != &addr);
         let mic_name = match device_name {
-            Some(name) => format!("{name} Microphone"),
-            None => "AirPods Microphone".to_string(),
+            Some(name) => name,
+            None => "AirPods".to_string(),
         };
         let created = {
             let name = mic_name.clone();
@@ -170,8 +200,10 @@ impl HiResMic {
         if created {
             refresh_desktop_default_source(aacp.runtime());
         }
+        blocking(output::hide_wireplumber_mic).await;
         let stop = Arc::new(Notify::new());
         let wake = aacp.hires_wake();
+        output::watch_recorders(wake.clone());
         // Spawn on the backend runtime, not the caller's (the UI toggle uses a
         // throwaway runtime that would abort this task immediately).
         let monitor = aacp.runtime().spawn(monitor_loop(
@@ -207,6 +239,99 @@ struct Capture {
     decode_thread: Option<JoinHandle<()>>,
 }
 
+// The AirPods stream failed: the card is on its headset profile and parec
+// copies that profile's mic into the virtual mic, so apps keep their device.
+struct Fallback {
+    /// The profile to go back to (the A2DP one that was active).
+    previous_profile: Option<String>,
+    feed: Option<std::process::Child>,
+    idle_since: Option<Instant>,
+}
+
+fn card_name(addr: &str) -> String {
+    format!("bluez_card.{}", addr.replace(':', "_"))
+}
+
+/// Blocking.
+fn enter_fallback(addr: &str) -> Fallback {
+    let card = card_name(addr);
+    let previous_profile = crate::audio::card::active_profile(crate::audio::card::CardRef::Name(&card));
+    HEADSET_FALLBACK_ACTIVE.store(true, Ordering::Relaxed);
+    match crate::audio::card::best_headset_profile(&card) {
+        Some(profile) => {
+            if crate::audio::card::set_profile(crate::audio::card::CardRef::Name(&card), &profile) {
+                info!("[hires] AirPods stream unavailable; card on {} meanwhile", profile);
+            }
+        }
+        None => error!("[hires] no headset profile to fall back to on {}", card),
+    }
+    Fallback {
+        previous_profile,
+        feed: None,
+        idle_since: None,
+    }
+}
+
+/// Start copying the headset mic into the virtual mic. Blocking.
+fn start_feed(addr: &str) -> Option<std::process::Child> {
+    let source = output::headset_source(addr)?;
+    let mut output = Output::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8)?;
+    let mut child = std::process::Command::new("parec")
+        .args([
+            "-d",
+            &source,
+            "--raw",
+            "--format=s16le",
+            "--channels=1",
+            &format!("--rate={ELD_SAMPLE_RATE}"),
+            "--latency-msec=20",
+            "--client-name=librepods-headset-feed",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    std::thread::Builder::new()
+        .name("headset-feed".into())
+        .spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 4096];
+            let mut pcm: Vec<i16> = Vec::with_capacity(buf.len() / 2);
+            while let Ok(n) = stdout.read(&mut buf) {
+                if n < 2 {
+                    break;
+                }
+                pcm.clear();
+                pcm.extend(buf[..n - n % 2].chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])));
+                if output.write(&pcm).is_err() {
+                    break;
+                }
+            }
+        })
+        .ok()?;
+    info!("[hires] feeding the AirPods mic from {}", source);
+    Some(child)
+}
+
+/// Leave the headset profile. Blocking.
+fn leave_fallback(mut fallback: Fallback, addr: &str, restore_profile: bool) {
+    if let Some(mut feed) = fallback.feed.take() {
+        let _ = feed.kill();
+        let _ = feed.wait();
+    }
+    if restore_profile {
+        let card = card_name(addr);
+        let profile = fallback
+            .previous_profile
+            .filter(|p| p.starts_with("a2dp"))
+            .unwrap_or_else(|| "a2dp-sink".to_string());
+        crate::audio::card::set_profile(crate::audio::card::CardRef::Name(&card), &profile);
+        info!("[hires] back on {}; the next recording tries the AirPods stream first", profile);
+    }
+    HEADSET_FALLBACK_ACTIVE.store(false, Ordering::Relaxed);
+}
+
 async fn monitor_loop(
     aacp: AACPManager,
     addr: String,
@@ -228,8 +353,8 @@ async fn monitor_loop(
     // Earliest next START after one failed (don't retry on every poll).
     let mut next_start_at = Instant::now();
     let mut failed_restarts: u32 = 0;
-    // Ear generation at which we gave up restarting; retry once it changes.
-    let mut gave_up_at_ear: Option<u64> = None;
+    let mut fallback: Option<Fallback> = None;
+    let mut polls: u32 = 0;
     // When the recorder disappeared while capturing (stop grace period).
     let mut recorder_gone_since: Option<Instant> = None;
     let mut source_missing_polls: u32 = 0;
@@ -252,6 +377,10 @@ async fn monitor_loop(
             _ = stop.notified() => break,
             _ = wake.notified() => {}
             _ = tokio::time::sleep(POLL_INTERVAL) => {}
+        }
+        polls = polls.wrapping_add(1);
+        if polls % WIREPLUMBER_RECHECK_POLLS == 0 {
+            blocking(output::hide_wireplumber_mic).await;
         }
 
         // --- Wearing, with a grace period -----------------------------------
@@ -337,6 +466,29 @@ async fn monitor_loop(
             && recorder_gone_since.is_some_and(|t| t.elapsed() < RECORDER_GONE_GRACE);
         let recording = app.is_some() || in_grace;
 
+        if let Some(fb) = fallback.as_mut() {
+            if enabled && app.is_some() && worn {
+                fb.idle_since = None;
+                if fb.feed.as_mut().is_none_or(|c| c.try_wait().ok().flatten().is_some()) {
+                    let feed_addr = addr.clone();
+                    fb.feed = blocking(move || start_feed(&feed_addr)).await.flatten();
+                }
+            } else if fb.idle_since.is_none() {
+                fb.idle_since = Some(Instant::now());
+            } else if fb.idle_since.is_some_and(|t| t.elapsed() >= FALLBACK_IDLE) {
+                let fb = fallback.take().unwrap();
+                let leave_addr = addr.clone();
+                blocking(move || leave_fallback(fb, &leave_addr, true)).await;
+                if let Some(prev) = old_convo_state.take() {
+                    restore_conversation_detection(&aacp, prev).await;
+                }
+                status.reset();
+                restart_backoff = STALL_TIMEOUT;
+                failed_restarts = 0;
+            }
+            continue;
+        }
+
         // A stall only counts while a bud is really in: during the not-worn
         // grace the AirPods simply don't send mic audio.
         let stalled = worn_now
@@ -379,32 +531,26 @@ async fn monitor_loop(
                 if app.is_some() {
                     status.set_capture(app);
                 }
-                if worn_now {
+                // A restart refreshes the stall clock without any audio, so
+                // only audio clears the count.
+                if worn_now && status.got_audio() {
                     restart_backoff = STALL_TIMEOUT;
                     failed_restarts = 0;
-                    gave_up_at_ear = None;
                 }
             }
             CaptureAction::Restart => {
                 if app.is_some() {
                     status.set_capture(app);
                 }
-                if let Some(generation) = gave_up_at_ear {
-                    if aacp.ear_generation() == generation {
-                        continue;
-                    }
-                    info!("[hires] ear state changed; retrying the mic stream");
-                    gave_up_at_ear = None;
-                    failed_restarts = 0;
-                    restart_backoff = STALL_TIMEOUT;
-                    next_restart_at = Instant::now();
-                }
                 if failed_restarts >= MAX_FAILED_RESTARTS {
                     warn!(
-                        "[hires] no mic audio after {} restarts; waiting for an ear change",
+                        "[hires] no mic audio after {} restarts; falling back to the headset profile",
                         failed_restarts
                     );
-                    gave_up_at_ear = Some(aacp.ear_generation());
+                    // No A2DP reset: the card leaves A2DP right away.
+                    stop_capture(capture.take().unwrap(), &aacp).await;
+                    let fb_addr = addr.clone();
+                    fallback = blocking(move || enter_fallback(&fb_addr)).await;
                     continue;
                 }
                 if Instant::now() >= next_restart_at {
@@ -453,7 +599,6 @@ async fn monitor_loop(
                 status.reset();
                 restart_backoff = STALL_TIMEOUT;
                 failed_restarts = 0;
-                gave_up_at_ear = None;
                 recorder_gone_since = None;
             }
             CaptureAction::Idle => {
@@ -498,7 +643,16 @@ async fn monitor_loop(
             blocking(move || output::reset_a2dp(&reset_addr)).await;
         }
     }
+    if let Some(fb) = fallback.take() {
+        let connected = aacp.is_connected();
+        let leave_addr = addr.clone();
+        blocking(move || leave_fallback(fb, &leave_addr, connected)).await;
+        if let Some(prev) = old_convo_state.take() {
+            restore_conversation_detection(&aacp, prev).await;
+        }
+    }
     status.reset();
+    blocking(output::restore_wireplumber_mic).await;
 
     if aacp.hires_mic_enabled() {
         // Disconnected (or LibrePods exiting): keep the virtual mic.
@@ -706,7 +860,7 @@ fn acquire_mic(description: &str) -> Option<bool> {
         // is worn (see monitor_loop).
         Some(_) => false,
         None => {
-            let (vmic, created) = match VirtualMic::adopt() {
+            let (vmic, created) = match VirtualMic::adopt(description) {
                 Some(vmic) => (vmic, false),
                 None => (
                     VirtualMic::open(ELD_SAMPLE_RATE, ELD_CHANNELS as u8, description)?,
@@ -837,6 +991,7 @@ fn recreate_mic(description: &str) -> bool {
 /// but send apps to another mic, since nothing will feed this one.
 pub fn park_on_exit() {
     park_mic();
+    output::restore_wireplumber_mic();
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
@@ -864,7 +1019,7 @@ async fn start_capture(aacp: &AACPManager, addr: &str, status: &MicStatus) -> Op
     let rx = aacp.take_audio_channel().await;
     // Start the stall grace period now; the device should deliver SDUs (which
     // refresh this) well within STALL_TIMEOUT.
-    status.mark_sdu();
+    status.mark_start();
     let decode_thread = spawn_decode_thread(rx, decoder, output, status.clone());
 
     if let Err(e) = aacp.send_start_audio().await {

@@ -416,6 +416,10 @@ impl MediaController {
 
     async fn activate_a2dp_profile_locked(&self) {
         debug!("Entering activate_a2dp_profile");
+        if crate::audio::hires_mic::headset_fallback_active() {
+            info!("Headset profile holds the mic while the AirPods stream is unavailable; not switching to A2DP");
+            return;
+        }
         let state = self.state.lock().await;
 
         if state.connected_device_mac.is_empty() {
