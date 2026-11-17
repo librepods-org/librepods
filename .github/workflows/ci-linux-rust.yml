@@ -38,7 +38,13 @@ jobs:
         run: |
           sudo apt-get update
           # libxkbcommon-dev is needed by the COSMIC applet (libcosmic).
-          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev libxkbcommon-dev appstream just libfuse2
+          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev libxkbcommon-dev appstream libfuse2
+
+      # Ubuntu 22.04 doesn't package `just`; install a prebuilt binary.
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
       - name: Install AppImage tools
         run: |
