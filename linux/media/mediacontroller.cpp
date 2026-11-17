@@ -254,17 +254,24 @@ void MediaController::activateA2dpProfile() {
   m_a2dpRetriesLeft = 0;
 
   if (!isA2dpProfileAvailable()) {
+    if (m_wirePlumberRestarted) {
+      LOG_ERROR("A2DP profile still not available after WirePlumber restart");
+      return;
+    }
     LOG_WARN("A2DP profile not available, attempting to restart WirePlumber");
-    if (restartWirePlumber()) {
-      m_deviceOutputName = getAudioDeviceName();
-      if (!isA2dpProfileAvailable()) {
-        LOG_ERROR("A2DP profile still not available after WirePlumber restart");
-        return;
-      }
-    } else {
+    m_wirePlumberRestarted = true;
+    if (!restartWirePlumber()) {
       LOG_ERROR("Could not restart WirePlumber, A2DP profile unavailable");
       return;
     }
+    // The restart tears down and recreates the bluez card, which takes a few
+    // seconds; a single check right after it always lost that race. Start a
+    // fresh retry window instead.
+    m_deviceOutputName.clear();
+    m_cachedA2dpProfile.clear();
+    m_a2dpRetriesLeft = kA2dpRetryAttempts;
+    scheduleA2dpRetry();
+    return;
   }
 
   QString preferredProfile = getPreferredA2dpProfile();
@@ -306,6 +313,7 @@ void MediaController::setConnectedDeviceMacAddress(const QString &macAddress) {
   m_cachedA2dpProfile.clear();
   m_a2dpRetryTimer->stop();
   m_a2dpRetriesLeft = kA2dpRetryAttempts;
+  m_wirePlumberRestarted = false;
   ensureDeviceOutputName();
   LOG_INFO("Device output name set to: " << m_deviceOutputName);
 }

@@ -70,7 +70,8 @@ private:
   QString m_cachedA2dpProfile;
   QTimer *m_a2dpRetryTimer = nullptr;
   int m_a2dpRetriesLeft = 0;
-  static constexpr int kA2dpRetryAttempts = 10;
+  static constexpr int kA2dpRetryAttempts = 30;
+  bool m_wirePlumberRestarted = false;
   static constexpr int kA2dpRetryIntervalMs = 1000;
 };
 
