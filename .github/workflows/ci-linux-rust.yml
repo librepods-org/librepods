@@ -17,6 +17,12 @@ on:
       - '.github/workflows/ci-linux-rust.yml'
   workflow_dispatch:
 
+# A new push to the same branch (or PR) cancels the older run that's still in
+# progress. Release tag builds are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build:
     # Pinned to the oldest supported image: binaries need a glibc at least as new
