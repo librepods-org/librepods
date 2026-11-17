@@ -82,10 +82,7 @@ build-appimage: build prepare bundle
     set -euo pipefail
     tmpdir="$(cat .appdir_path)"
     mkdir -p dist
-    # gzip instead of appimagetool's default zstd: AppImageLauncher 2.x (still the
-    # stable release on many Ubuntu installs) can't mount zstd AppImages
-    # ("Can't open squashfs image: Bad address").
-    appimagetool --comp gzip "$tmpdir" "dist/LibrePods-x86_64.AppImage"
+    appimagetool "$tmpdir" "dist/LibrePods-x86_64.AppImage"
     rm -rf "$tmpdir" .appdir_path
     echo "Done!"
 
