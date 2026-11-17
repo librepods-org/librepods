@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           # libxkbcommon-dev is needed by the COSMIC applet (libcosmic).
-          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev libxkbcommon-dev appstream libfuse2
+          sudo apt-get install -y pkg-config libdbus-1-dev libpulse-dev libxkbcommon-dev appstream libfuse2 squashfs-tools
 
       # Ubuntu 22.04 doesn't package `just`; install a prebuilt binary.
       - name: Install just
@@ -93,6 +93,18 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Check AppImage compression
+        working-directory: linux-rust/dist
+        run: |
+          # AppImageLauncher 2.x can only open gzip/xz images (not zstd).
+          offset="$(./librepods-x86_64.AppImage --appimage-offset)"
+          comp="$(unsquashfs -o "$offset" -s librepods-x86_64.AppImage | sed -n 's/^Compression //p')"
+          echo "AppImage squashfs compression: $comp"
+          if [ "$comp" != "gzip" ]; then
+            echo "::error::AppImage uses $comp compression; AppImageLauncher 2.x needs gzip"
+            exit 1
+          fi
 
       - name: Upload AppImage artifact
         if: "!startsWith(github.ref, 'refs/tags/linux-v')"

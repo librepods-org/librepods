@@ -82,7 +82,18 @@ build-appimage: build prepare bundle
     set -euo pipefail
     tmpdir="$(cat .appdir_path)"
     mkdir -p dist
-    appimagetool "$tmpdir" "dist/LibrePods-x86_64.AppImage"
+    # appimagetool validates the AppDir (desktop file, AppStream) and builds the
+    # AppImage, but its bundled mksquashfs only supports zstd. AppImageLauncher
+    # 2.x (still common on Ubuntu) can only open gzip/xz images and fails with
+    # "Can't open squashfs image". Repack with gzip on the same runtime, which
+    # reads both zstd and gzip: an AppImage is the runtime + a squashfs image.
+    appimagetool "$tmpdir" "dist/LibrePods-x86_64.AppImage.zstd"
+    offset="$(./dist/LibrePods-x86_64.AppImage.zstd --appimage-offset)"
+    head -c "$offset" "dist/LibrePods-x86_64.AppImage.zstd" > dist/runtime
+    mksquashfs "$tmpdir" dist/app.squashfs -root-owned -noappend -comp gzip -quiet
+    cat dist/runtime dist/app.squashfs > "dist/LibrePods-x86_64.AppImage"
+    chmod 755 "dist/LibrePods-x86_64.AppImage"
+    rm -f dist/runtime dist/app.squashfs "dist/LibrePods-x86_64.AppImage.zstd"
     rm -rf "$tmpdir" .appdir_path
     echo "Done!"
 
