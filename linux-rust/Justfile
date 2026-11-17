@@ -37,6 +37,9 @@ prepare:
     set -euo pipefail
 
     tmpdir="$(mktemp -d)"
+    # mktemp creates the dir as 0700; the AppImage root must be readable by
+    # everyone or other users get "Permission denied" (appimagetool rejects it).
+    chmod 755 "$tmpdir"
     echo "Building AppDir in: $tmpdir"
 
     mkdir -p "$tmpdir/usr/bin"
