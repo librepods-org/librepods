@@ -34,6 +34,9 @@ pub enum Message {
     Surface(cosmic::surface::Action<Message>),
     SetListeningMode(u8),
     SetConversationDetect(bool),
+    /// Connect the saved AirPods, e.g. after using them with an iPhone.
+    Connect,
+    Quit,
     OpenWindow,
 }
 
@@ -83,6 +86,18 @@ impl cosmic::Application for Applet {
             }
             Message::SetConversationDetect(enabled) => {
                 ipc::send(&format!("conversation_detect {}", u8::from(enabled)));
+            }
+            Message::Quit => {
+                ipc::send("quit");
+                if let Some(id) = self.popup.take() {
+                    return cosmic::task::message(cosmic::Action::Surface(destroy_popup(id)));
+                }
+            }
+            Message::Connect => {
+                ipc::send("connect");
+                if let Some(id) = self.popup.take() {
+                    return cosmic::task::message(cosmic::Action::Surface(destroy_popup(id)));
+                }
             }
             Message::OpenWindow => {
                 ipc::open_window();
@@ -193,16 +208,19 @@ impl Applet {
                 .into();
         };
 
+        let name = status.name.clone().unwrap_or_else(|| "AirPods".to_string());
         if !status.connected {
             return content
-                .push(padded_control(text::heading("AirPods")))
+                .push(padded_control(text::heading(name)))
                 .push(padded_control(text::body("Not connected")))
                 .push(padded_control(divider::horizontal::default()))
+                .push(menu_button(text::body("Connect AirPods")).on_press(Message::Connect))
                 .push(menu_button(text::body("Open LibrePods")).on_press(Message::OpenWindow))
+                .push(menu_button(text::body("Quit LibrePods")).on_press(Message::Quit))
                 .into();
         }
 
-        content = content.push(padded_control(text::heading("AirPods")));
+        content = content.push(padded_control(text::heading(name)));
         let parts = [
             ("Headphones", status.headphone),
             ("Left", status.left),
@@ -266,6 +284,7 @@ impl Applet {
         content
             .push(padded_control(divider::horizontal::default()))
             .push(menu_button(text::body("Open LibrePods")).on_press(Message::OpenWindow))
+            .push(menu_button(text::body("Quit LibrePods")).on_press(Message::Quit))
             .into()
     }
 }

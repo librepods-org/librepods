@@ -91,3 +91,66 @@ pub(crate) async fn wait_for_powered_adapter(session: &bluer::Session) -> Adapte
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 }
+
+/// Connects a paired device (e.g. AirPods that are currently with an iPhone).
+/// Uses BlueZ's Device1.Connect, falling back to `bluetoothctl connect`, which
+/// some setups need. Returns a short, user-facing error.
+pub(crate) async fn connect_device(addr: bluer::Address) -> Result<(), String> {
+    let session = bluer::Session::new()
+        .await
+        .map_err(|e| format!("Can't reach Bluetooth: {e}"))?;
+    let adapter = session
+        .default_adapter()
+        .await
+        .map_err(|_| "No Bluetooth adapter found".to_string())?;
+    if !adapter.is_powered().await.unwrap_or(false) {
+        return Err("Bluetooth is turned off".to_string());
+    }
+    let device = adapter
+        .device(addr)
+        .map_err(|e| format!("Unknown device: {e}"))?;
+    if device.is_connected().await.unwrap_or(false) {
+        return Ok(());
+    }
+    log::info!("Connecting to {addr}...");
+    match tokio::time::timeout(std::time::Duration::from_secs(20), device.connect()).await {
+        Ok(Ok(())) => return Ok(()),
+        Ok(Err(e)) => log::warn!("BlueZ connect to {addr} failed ({e}); trying bluetoothctl"),
+        Err(_) => log::warn!("BlueZ connect to {addr} timed out; trying bluetoothctl"),
+    }
+    let output = tokio::process::Command::new("bluetoothctl")
+        .args(["--timeout", "20", "connect", &addr.to_string()])
+        .output()
+        .await
+        .map_err(|e| format!("Couldn't run bluetoothctl: {e}"))?;
+    if device.is_connected().await.unwrap_or(false) {
+        Ok(())
+    } else {
+        let out = String::from_utf8_lossy(&output.stdout);
+        log::warn!("bluetoothctl connect {addr}: {}", out.trim());
+        Err(if out.contains("page-timeout") || out.contains("Host is down") {
+            "AirPods didn't respond. Make sure they're out of the case and nearby.".to_string()
+        } else {
+            "Couldn't connect. Try again, or disconnect them on your other device first.".to_string()
+        })
+    }
+}
+
+/// The first AirPods saved in devices.json, used by the tray/applet "Connect" action.
+pub(crate) fn saved_airpods_address() -> Option<bluer::Address> {
+    let json = std::fs::read_to_string(crate::utils::get_devices_path()).ok()?;
+    let devices: std::collections::HashMap<String, crate::devices::enums::DeviceData> =
+        serde_json::from_str(&json).ok()?;
+    devices
+        .iter()
+        .find(|(_, d)| d.type_ == crate::devices::enums::DeviceType::AirPods)
+        .and_then(|(mac, _)| mac.parse().ok())
+}
+
+/// The saved (devices.json) name for a device.
+pub(crate) fn saved_device_name(mac: &str) -> Option<String> {
+    let json = std::fs::read_to_string(crate::utils::get_devices_path()).ok()?;
+    let devices: std::collections::HashMap<String, crate::devices::enums::DeviceData> =
+        serde_json::from_str(&json).ok()?;
+    devices.get(mac).map(|d| d.name.clone())
+}

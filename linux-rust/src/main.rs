@@ -56,6 +56,10 @@ struct Args {
     status: bool,
     #[arg(long, help = "Like --status, but print a new JSON line on every change")]
     watch: bool,
+    #[arg(long, help = "Tell the running LibrePods to connect your AirPods (e.g. after using them with an iPhone) and exit")]
+    connect: bool,
+    #[arg(long, help = "Quit the running LibrePods")]
+    quit: bool,
 }
 
 /// Client-side commands that talk to an already running instance.
@@ -75,6 +79,10 @@ fn run_client_command(args: &Args) -> Option<std::process::ExitCode> {
                 return Some(ExitCode::from(2));
             }
         }
+    } else if args.connect {
+        "connect".to_string()
+    } else if args.quit {
+        "quit".to_string()
     } else if args.status || args.watch {
         "subscribe".to_string()
     } else {
@@ -211,7 +219,11 @@ async fn async_main(
         }
     }
 
+    // Known up front, so the applet can say e.g. "Satya's AirPods Pro: Not connected".
+    let saved_name = bluetooth::discovery::saved_airpods_address()
+        .and_then(|a| bluetooth::discovery::saved_device_name(&a.to_string()));
     let tray_state = || MyTray {
+        device_name: saved_name.clone(),
         conversation_detect_enabled: None,
         battery_headphone: None,
         battery_headphone_status: None,
@@ -241,6 +253,7 @@ async fn async_main(
         }
     };
     let tray_handle = Some(ipc::TrayHandle::new(ksni_handle, tray_state(), !args.no_tray));
+    ipc::set_global(tray_handle.clone().unwrap());
 
     if let Some(listener) = instance_listener {
         tokio::spawn(ipc::serve(
@@ -389,6 +402,30 @@ async fn async_main(
         if is_connected==0 {
             if let Err(e) = ui_tx.send(BluetoothUIMessage::DeviceDisconnected(addr_str.clone())) {
                 warn!("Failed to send DeviceConnected UI message: {:?}", e);
+            }
+            // Clear the tray/applet/IPC state, which otherwise keeps showing the
+            // AirPods as connected with stale battery levels.
+            if uuids.iter().any(|u| u.to_lowercase() == target_uuid)
+                && let Some(handle) = tray_handle.clone()
+            {
+                tokio::spawn(async move {
+                    handle
+                        .update(|t| {
+                            t.connected = false;
+                            t.battery_headphone = None;
+                            t.battery_headphone_status = None;
+                            t.battery_l = None;
+                            t.battery_l_status = None;
+                            t.battery_r = None;
+                            t.battery_r_status = None;
+                            t.battery_c = None;
+                            t.battery_c_status = None;
+                            t.listening_mode = None;
+                            t.conversation_detect_enabled = None;
+                            t.command_tx = None;
+                        })
+                        .await;
+                });
             }
             return true
         }

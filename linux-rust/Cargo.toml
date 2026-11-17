@@ -11,7 +11,7 @@ uuid = "1.29.3"
 log = "0.4.35"
 dbus = "0.9.12"
 hex = "0.4.3"
-iced = { version = "0.14.0", features = ["tokio", "image"] }
+iced = { version = "0.14.0", features = ["tokio", "image", "canvas"] }
 libpulse-binding = "2.30.1"
 ksni = "0.3.7"
 image = "0.25.8"

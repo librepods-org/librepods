@@ -11,6 +11,8 @@
 //! | `listening_mode <n>`          | 1 = off, 2 = ANC, 3 = transparency, 4 = adaptive |
 //! | `conversation_detect <0\|1>`  | toggle conversation awareness                   |
 //! | `cycle_listening_mode`        | ANC → transparency → adaptive (→ off) → ANC     |
+//! | `connect`                     | connect the saved AirPods (e.g. from an iPhone)  |
+//! | `quit`                        | quit LibrePods                                  |
 
 use crate::bluetooth::aacp::{BatteryStatus, ControlCommandIdentifiers};
 use crate::ui::messages::BluetoothUIMessage;
@@ -35,6 +37,8 @@ pub struct Battery {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Status {
     pub connected: bool,
+    /// The AirPods' name, e.g. "Satya's AirPods Pro".
+    pub name: Option<String>,
     /// Single battery for over-ear headphones (AirPods Max).
     pub headphone: Option<Battery>,
     pub left: Option<Battery>,
@@ -57,6 +61,7 @@ impl Status {
     fn from_tray(t: &MyTray) -> Self {
         Self {
             connected: t.connected,
+            name: t.device_name.clone(),
             headphone: battery(t.battery_headphone, t.battery_headphone_status),
             left: battery(t.battery_l, t.battery_l_status),
             right: battery(t.battery_r, t.battery_r_status),
@@ -84,11 +89,12 @@ pub struct TrayHandle {
 
 impl TrayHandle {
     pub fn new(tray: Option<ksni::Handle<MyTray>>, state: MyTray, tray_allowed: bool) -> Self {
+        let initial = Status::from_tray(&state);
         Self {
             state: Arc::new(Mutex::new(state)),
             tray: Arc::new(Mutex::new(tray)),
             tray_allowed,
-            status: Arc::new(watch::channel(Status::default()).0),
+            status: Arc::new(watch::channel(initial).0),
             applets: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
@@ -168,6 +174,24 @@ impl TrayHandle {
     }
 }
 
+static GLOBAL: std::sync::OnceLock<TrayHandle> = std::sync::OnceLock::new();
+
+/// Makes the shared state reachable from the window (which runs on another thread).
+pub fn set_global(handle: TrayHandle) {
+    let _ = GLOBAL.set(handle);
+}
+
+/// Updates the AirPods name shown in the applet, e.g. after a rename in the window.
+pub fn set_device_name(name: String) {
+    if let Some(handle) = GLOBAL.get().cloned() {
+        std::thread::spawn(move || {
+            if let Ok(rt) = tokio::runtime::Runtime::new() {
+                rt.block_on(handle.update(move |t| t.device_name = Some(name)));
+            }
+        });
+    }
+}
+
 pub async fn serve(
     listener: std::os::unix::net::UnixListener,
     ui_tx: UnboundedSender<BluetoothUIMessage>,
@@ -222,6 +246,22 @@ pub async fn serve(
                                 }
                             }
                         }));
+                    }
+                    (Some("quit"), _) => {
+                        log::info!("Quit requested via IPC.");
+                        std::process::exit(0);
+                    }
+                    (Some("connect"), _) => {
+                        match crate::bluetooth::discovery::saved_airpods_address() {
+                            Some(addr) => {
+                                tokio::spawn(async move {
+                                    if let Err(e) = crate::bluetooth::discovery::connect_device(addr).await {
+                                        warn!("Connect requested via IPC failed: {}", e);
+                                    }
+                                });
+                            }
+                            None => warn!("Connect requested, but no AirPods are saved yet"),
+                        }
                     }
                     (Some("cycle_listening_mode"), _) => {
                         let current = tray.update(|t| (t.listening_mode, t.allow_off_option)).await;

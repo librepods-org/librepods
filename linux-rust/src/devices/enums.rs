@@ -58,9 +58,11 @@ pub struct AirPodsState {
     pub personalized_volume_enabled: bool,
     pub allow_off_mode: bool,
     pub battery: Vec<BatteryInfo>,
+    /// Per bud (primary first), as last reported by the AirPods.
+    pub ear_status: Vec<crate::bluetooth::aacp::EarDetectionStatus>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AirPodsNoiseControlMode {
     Off,
     NoiseCancellation,

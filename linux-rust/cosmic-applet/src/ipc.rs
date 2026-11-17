@@ -22,6 +22,9 @@ fn yes() -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Status {
     pub connected: bool,
+    /// The AirPods' name (absent from older LibrePods builds).
+    #[serde(default)]
+    pub name: Option<String>,
     pub headphone: Option<Battery>,
     pub left: Option<Battery>,
     pub right: Option<Battery>,
