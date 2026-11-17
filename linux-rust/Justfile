@@ -4,8 +4,33 @@ ICON_FILE := "assets/icon.png"
 
 default: build-appimage
 
+PREFIX := env_var_or_default("PREFIX", env_var("HOME") + "/.local")
+
 build:
     cargo build --release
+
+# Install for the current user (shows up in the COSMIC/GNOME/KDE app launcher).
+install: build
+    install -Dm755 target/release/{{APP_NAME}} "{{PREFIX}}/bin/{{APP_NAME}}"
+    install -Dm644 {{DESKTOP_FILE}} "{{PREFIX}}/share/applications/me.kavishdevar.librepods.desktop"
+    install -Dm644 {{ICON_FILE}} "{{PREFIX}}/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png"
+    -update-desktop-database "{{PREFIX}}/share/applications" 2>/dev/null
+    -gtk-update-icon-cache -f -t "{{PREFIX}}/share/icons/hicolor" 2>/dev/null
+    @echo "Installed to {{PREFIX}}. Make sure {{PREFIX}}/bin is on your PATH."
+
+# COSMIC panel applet. Needs libxkbcommon-dev (sudo apt install libxkbcommon-dev).
+# After installing, add "LibrePods" in Settings > Desktop > Panel > Applets.
+install-cosmic-applet:
+    cd cosmic-applet && cargo build --release
+    install -Dm755 cosmic-applet/target/release/librepods-cosmic-applet "{{PREFIX}}/bin/librepods-cosmic-applet"
+    install -Dm644 cosmic-applet/me.kavishdevar.librepods.CosmicApplet.desktop "{{PREFIX}}/share/applications/me.kavishdevar.librepods.CosmicApplet.desktop"
+
+uninstall:
+    rm -f "{{PREFIX}}/bin/{{APP_NAME}}" \
+          "{{PREFIX}}/share/applications/me.kavishdevar.librepods.desktop" \
+          "{{PREFIX}}/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png" \
+          "{{PREFIX}}/bin/librepods-cosmic-applet" \
+          "{{PREFIX}}/share/applications/me.kavishdevar.librepods.CosmicApplet.desktop"
 
 prepare:
     #!/usr/bin/env bash

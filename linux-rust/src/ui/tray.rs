@@ -8,7 +8,7 @@ use crate::bluetooth::aacp::{BatteryStatus, ControlCommandIdentifiers};
 use crate::ui::messages::BluetoothUIMessage;
 use crate::utils::get_app_settings_path;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MyTray {
     pub conversation_detect_enabled: Option<bool>,
     pub battery_headphone: Option<u8>,
@@ -29,6 +29,12 @@ pub struct MyTray {
 impl ksni::Tray for MyTray {
     fn id(&self) -> String {
         env!("CARGO_PKG_NAME").into()
+    }
+    /// Left click opens the window, as users expect on KDE/COSMIC (upstream #636).
+    fn activate(&mut self, _x: i32, _y: i32) {
+        if let Some(tx) = &self.ui_tx {
+            let _ = tx.send(BluetoothUIMessage::OpenWindow);
+        }
     }
     fn title(&self) -> String {
         "AirPods".into()
@@ -81,8 +87,12 @@ impl ksni::Tray for MyTray {
     fn tool_tip(&self) -> ToolTip {
         let format_component =
             |label: &str, level: Option<u8>, status: Option<BatteryStatus>| -> String {
-                match status {
-                    Some(BatteryStatus::Disconnected) => format!("{}: -", label),
+                match (level, status) {
+                    (None, _) => format!("{}: -", label),
+                    // A bud reporting Disconnected with a level is sitting in the case.
+                    (Some(l), Some(BatteryStatus::Disconnected)) if label != "C" => {
+                        format!("{}: {}% (in case)", label, l)
+                    }
                     _ => {
                         let pct = level.map(|b| format!("{}%", b)).unwrap_or("?".to_string());
                         let suffix = if status == Some(BatteryStatus::Charging) {
@@ -148,7 +158,14 @@ impl ksni::Tray for MyTray {
                             .get(current)
                             .map(|&(_, val)| val)
                             .unwrap_or(0x02);
-                        let _ = tx.send((ControlCommandIdentifiers::ListeningMode, vec![value]));
+                        if tx
+                            .send((ControlCommandIdentifiers::ListeningMode, vec![value]))
+                            .is_ok()
+                        {
+                            // Update right away so the menu never shows two checked
+                            // items while waiting for the AirPods to confirm (#635).
+                            this.listening_mode = Some(value);
+                        }
                     }
                 }),
                 options: options
@@ -193,10 +210,33 @@ impl ksni::Tray for MyTray {
     }
 }
 
+/// Draws text with a dark outline so the tray icon stays readable on both light
+/// and dark panels (COSMIC lets the panel theme differ from the app theme).
+fn draw_outlined_text(
+    img: &mut image::RgbaImage,
+    color: image::Rgba<u8>,
+    x: i32,
+    y: i32,
+    scale: ab_glyph::PxScale,
+    font: &ab_glyph::FontRef,
+    text: &str,
+) {
+    use imageproc::drawing::draw_text_mut;
+    let outline = image::Rgba([0u8, 0u8, 0u8, 255u8]);
+    const R: i32 = 3;
+    for dy in -R..=R {
+        for dx in -R..=R {
+            if (dx != 0 || dy != 0) && dx * dx + dy * dy <= R * R {
+                draw_text_mut(img, outline, x + dx, y + dy, scale, font, text);
+            }
+        }
+    }
+    draw_text_mut(img, color, x, y, scale, font, text);
+}
+
 fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
     use ab_glyph::{FontRef, PxScale};
     use image::{ImageBuffer, Rgba};
-    use imageproc::drawing::draw_text_mut;
 
     let width = 64;
     let height = 64;
@@ -262,27 +302,34 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
             }
             let x = ((width as f32 - emoji_width) / 2.0).max(0.0) as i32;
             let y = ((height as f32 - scale.y) / 2.0).max(0.0) as i32;
-            draw_text_mut(&mut img, color, x, y, scale, &font, emoji);
+            draw_outlined_text(&mut img, color, x, y, scale, &font, emoji);
         }
     } else {
         // battery text
         let scale = PxScale::from(48.0);
-        let color = if charging {
-            Rgba([0u8, 255u8, 0u8, 255u8])
-        } else {
-            Rgba([255u8, 255u8, 255u8, 255u8])
-        };
+        // Always white (with the dark outline): green text was hard to read on the
+        // panel. Charging is shown in the tooltip and the window.
+        let _ = charging;
+        let color = Rgba([255u8, 255u8, 255u8, 255u8]);
 
-        let scaled_font = font.as_scaled(scale);
-        let mut text_width = 0.0;
-        for c in text.chars() {
-            let glyph_id = font.glyph_id(c);
-            text_width += scaled_font.h_advance(glyph_id);
+        let measure = |scale: PxScale| -> f32 {
+            let scaled_font = font.as_scaled(scale);
+            text.chars()
+                .map(|c| scaled_font.h_advance(font.glyph_id(c)))
+                .sum()
+        };
+        let mut scale = scale;
+        let mut text_width = measure(scale);
+        // Leave room for the outline; shrink e.g. "100" so it isn't clipped.
+        let max_width = width as f32 - 8.0;
+        if text_width > max_width {
+            scale = PxScale::from(scale.y * max_width / text_width);
+            text_width = measure(scale);
         }
         let x = ((width as f32 - text_width) / 2.0).max(0.0) as i32;
         let y = ((height as f32 - scale.y) / 2.0).max(0.0) as i32;
 
-        draw_text_mut(&mut img, color, x, y, scale, &font, text);
+        draw_outlined_text(&mut img, color, x, y, scale, &font, text);
     }
 
     let mut data = Vec::with_capacity((width * height * 4) as usize);
@@ -297,5 +344,20 @@ fn generate_icon(text: &str, text_mode: bool, charging: bool) -> Icon {
         width: width as i32,
         height: height as i32,
         data,
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn icons_render_with_visible_pixels() {
+        for (text, text_mode, charging) in [("100", true, false), ("42", true, true), ("70", false, true)] {
+            let icon = super::generate_icon(text, text_mode, charging);
+            assert_eq!(icon.data.len(), 64 * 64 * 4);
+            // ARGB: count pixels with non-zero alpha.
+            let opaque = icon.data.chunks(4).filter(|p| p[0] > 0).count();
+            assert!(opaque > 100, "{text}: only {opaque} visible pixels");
+        }
     }
 }

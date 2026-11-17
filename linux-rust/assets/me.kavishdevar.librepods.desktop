@@ -1,6 +1,11 @@
 [Desktop Entry]
 Name=LibrePods
+Comment=AirPods battery, noise control and ear detection
 Exec=librepods
 Icon=me.kavishdevar.librepods
 Type=Application
+Terminal=false
 Categories=Utility;
+Keywords=AirPods;Bluetooth;Headphones;Battery;Noise;
+StartupWMClass=me.kavishdevar.librepods
+SingleMainWindow=true

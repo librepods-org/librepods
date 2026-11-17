@@ -308,10 +308,21 @@ pub enum AACPEvent {
     StemPress(StemPressType, StemPressBudType),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AirPodsLEKeys {
     pub irk: String,
     pub enc_key: String,
+}
+
+/// Redacted so the keys never end up in logs via `{:?}`.
+impl std::fmt::Debug for AirPodsLEKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mark = |k: &str| if k.is_empty() { "<none>" } else { "<redacted>" };
+        f.debug_struct("AirPodsLEKeys")
+            .field("irk", &mark(&self.irk))
+            .field("enc_key", &mark(&self.enc_key))
+            .finish()
+    }
 }
 
 pub struct AACPManagerState {
@@ -439,8 +450,11 @@ impl AACPManager {
     }
 
     async fn send_packet(&self, data: &[u8]) -> Result<()> {
-        let state = self.state.lock().await;
-        if let Some(sender) = &state.sender {
+        // Clone the sender and release the lock before sending: if the channel is
+        // full, holding the lock here would stall the receive loop and everything
+        // else that needs the state (upstream #775).
+        let sender = self.state.lock().await.sender.clone();
+        if let Some(sender) = &sender {
             sender.send(data.to_vec()).await.map_err(|e| {
                 error!("Failed to send packet to channel: {}", e);
                 Error::from(std::io::Error::new(
@@ -550,10 +564,26 @@ impl AACPManager {
                         },
                     });
                 }
+                // AirPods use two "unknown" sentinels: a level above 100 (sent while
+                // the case works out what it holds) and level 0 with status
+                // Disconnected (component out of contact, e.g. case lid shut).
+                // Disconnected with a real level is valid: a bud sitting in the case.
+                batteries.retain(|b| {
+                    b.level <= 100 && !(b.status == BatteryStatus::Disconnected && b.level == 0)
+                });
+                // Packets don't always mention every component, so merge by component
+                // instead of replacing; otherwise one bud's update erases the case
+                // and the other bud (upstream issue #422).
                 let mut state = self.state.lock().await;
-                state.battery_info = batteries.clone();
+                for b in batteries {
+                    match state.battery_info.iter_mut().find(|x| x.component == b.component) {
+                        Some(existing) => *existing = b,
+                        None => state.battery_info.push(b),
+                    }
+                }
+                let merged = state.battery_info.clone();
                 if let Some(ref tx) = state.event_tx {
-                    let _ = tx.send(AACPEvent::BatteryInfo(batteries));
+                    let _ = tx.send(AACPEvent::BatteryInfo(merged));
                 }
                 info!("Received Battery Info: {:?}", state.battery_info);
             }
@@ -603,8 +633,8 @@ impl AACPManager {
                         hex::encode(&value)
                     );
                 } else {
-                    error!(
-                        "Unknown Control Command identifier: {:#04x}",
+                    debug!(
+                        "Unknown Control Command identifier (ignored): {:#04x}",
                         identifier_byte
                     );
                 }
@@ -768,9 +798,11 @@ impl AACPManager {
                     offset += key_length;
                 }
                 info!(
+                    // Never log key material: these keys identify the AirPods and
+                    // decrypt their BLE advertisements (upstream #897).
                     "Received Proximity Keys Response: {:?}",
                     keys.iter()
-                        .map(|(kt, kd)| (kt, hex::encode(kd)))
+                        .map(|(kt, kd)| format!("type {} ({} bytes)", kt, kd.len()))
                         .collect::<Vec<_>>()
                 );
                 let mut state = self.state.lock().await;
@@ -1212,7 +1244,12 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
             Ok(n) => {
                 let data = &buf[..n];
-                debug!("Received {} bytes: {}", n, hex::encode(data));
+                if data.get(4) == Some(&opcodes::PROXIMITY_KEYS_RSP) {
+                    // Contains the IRK and encryption key; never log them (upstream #897).
+                    debug!("Received {} bytes: <proximity keys redacted>", n);
+                } else {
+                    debug!("Received {} bytes: {}", n, hex::encode(data));
+                }
                 manager.receive_packet(data).await;
             }
             Err(e) => {

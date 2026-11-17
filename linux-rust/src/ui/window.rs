@@ -9,7 +9,7 @@ use crate::devices::enums::{
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path};
+use crate::utils::{MyTheme, get_app_settings_path, get_devices_path, is_autostart_enabled, set_autostart};
 use bluer::{Address};
 use iced::border::Radius;
 use iced::overlay::menu;
@@ -52,12 +52,28 @@ pub fn start_ui(
     .theme(App::theme)
     .title(App::title)
     .settings(Settings {
-        id: Some("librepods".to_string()),
+        // On Wayland this becomes the xdg app_id; it must match the .desktop file
+        // basename so COSMIC (and other compositors) can show the right icon/name
+        // in the dock and app switcher.
+        id: Some(APP_ID.to_string()),
         fonts: vec![include_bytes!("../../assets/font/sf_pro.otf").as_slice().into()],
         default_font: Font::with_name("SF Pro Text"),
         ..Settings::default()
     })
     .run()
+}
+
+pub const APP_ID: &str = "me.kavishdevar.librepods";
+
+fn main_window_settings() -> window::Settings {
+    let mut settings = window::Settings::default();
+    settings.min_size = Some(Size::new(400.0, 300.0));
+    // Embed the icon: a relative path is resolved against the current working
+    // directory at runtime, which is never the source tree for an installed app.
+    settings.icon =
+        window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None).ok();
+    settings.platform_specific.application_id = APP_ID.to_string();
+    settings
 }
 
 pub struct App {
@@ -76,6 +92,7 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    start_on_login: bool,
 }
 
 pub struct BluetoothState {
@@ -106,8 +123,34 @@ pub enum Message {
     ConfirmAddDevice,
     CancelAddDevice,
     StateChanged(String, DeviceState),
+    /// A single user change to an AirPods setting. Applied to the current state so
+    /// a stale snapshot from the last render can't overwrite newer values reported
+    /// by the device (upstream issue #423).
+    AirPodsChanged(String, AirPodsChange),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    StartOnLoginChanged(bool),
+}
+
+#[derive(Clone, Debug)]
+pub enum AirPodsChange {
+    DeviceName(String),
+    NoiseControlMode(AirPodsNoiseControlMode),
+    ConversationAwareness(bool),
+    PersonalizedVolume(bool),
+    AllowOffMode(bool),
+}
+
+fn noise_control_modes(allow_off: bool) -> combo_box::State<AirPodsNoiseControlMode> {
+    let mut modes = vec![
+        AirPodsNoiseControlMode::Transparency,
+        AirPodsNoiseControlMode::NoiseCancellation,
+        AirPodsNoiseControlMode::Adaptive,
+    ];
+    if allow_off {
+        modes.insert(0, AirPodsNoiseControlMode::Off);
+    }
+    combo_box::State::new(modes)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -140,9 +183,7 @@ impl App {
         let (window, open_task) = if start_minimized {
             (None, Task::none())
         } else {
-            let mut settings = window::Settings::default();
-            settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+            let settings = main_window_settings();
             let (id, open) = window::open(settings);
             (Some(id), open.map(Message::WindowOpened))
         };
@@ -155,7 +196,7 @@ impl App {
             .clone()
             .and_then(|v| v.get("theme").cloned())
             .and_then(|t| serde_json::from_value(t).ok())
-            .unwrap_or(MyTheme::Dark);
+            .unwrap_or(MyTheme::System);
         let tray_text_mode = settings
             .clone()
             .and_then(|v| v.get("tray_text_mode").cloned())
@@ -183,6 +224,7 @@ impl App {
                 panes,
                 selected_tab: Tab::Device("none".to_string()),
                 theme_state: combo_box::State::new(vec![
+                    MyTheme::System,
                     MyTheme::Light,
                     MyTheme::Dark,
                     MyTheme::Dracula,
@@ -217,6 +259,7 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                start_on_login: is_autostart_enabled(),
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -277,9 +320,7 @@ impl App {
                         if let Some(window_id) = self.window {
                             Task::batch(vec![window::gain_focus(window_id), wait_task])
                         } else {
-                            let mut settings = window::Settings::default();
-                            settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+                            let settings = main_window_settings();
                             let (new_window_task, open_task) = window::open(settings);
                             self.window = Some(new_window_task);
                             Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
@@ -310,7 +351,7 @@ impl App {
                         let type_ = {
                             let devices_json = std::fs::read_to_string(get_devices_path())
                                 .unwrap_or_else(|e| {
-                                    error!("Failed to read devices file: {}", e);
+                                    if e.kind() != std::io::ErrorKind::NotFound { error!("Failed to read devices file: {}", e); }
                                     "{}".to_string()
                                 });
                             let devices_list: HashMap<String, DeviceData> =
@@ -331,7 +372,7 @@ impl App {
                                 let device_name = {
                                     let devices_json = std::fs::read_to_string(get_devices_path())
                                         .unwrap_or_else(|e| {
-                                            error!("Failed to read devices file: {}", e);
+                                            if e.kind() != std::io::ErrorKind::NotFound { error!("Failed to read devices file: {}", e); }
                                             "{}".to_string()
                                         });
                                     let devices_list: HashMap<String, DeviceData> =
@@ -559,7 +600,7 @@ impl App {
                 {
                     let devices_path = get_devices_path();
                     let devices_json = std::fs::read_to_string(&devices_path).unwrap_or_else(|e| {
-                        error!("Failed to read devices file: {}", e);
+                        if e.kind() != std::io::ErrorKind::NotFound { error!("Failed to read devices file: {}", e); }
                         "{}".to_string()
                     });
                     let mut devices_list: HashMap<String, DeviceData> =
@@ -591,13 +632,30 @@ impl App {
                 self.selected_device_type = None;
                 Task::none()
             }
+            Message::AirPodsChanged(mac, change) => {
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    match change {
+                        AirPodsChange::DeviceName(name) => state.device_name = name,
+                        AirPodsChange::NoiseControlMode(mode) => state.noise_control_mode = mode,
+                        AirPodsChange::ConversationAwareness(v) => {
+                            state.conversation_awareness_enabled = v
+                        }
+                        AirPodsChange::PersonalizedVolume(v) => state.personalized_volume_enabled = v,
+                        AirPodsChange::AllowOffMode(v) => {
+                            state.allow_off_mode = v;
+                            state.noise_control_state = noise_control_modes(v);
+                        }
+                    }
+                }
+                Task::none()
+            }
             Message::StateChanged(mac, state) => {
                 self.device_states.insert(mac.clone(), state);
                 // if airpods, update the noise control state combo box based on allow off mode
                 let type_ = {
                     let devices_json =
                         std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-                            error!("Failed to read devices file: {}", e);
+                            if e.kind() != std::io::ErrorKind::NotFound { error!("Failed to read devices file: {}", e); }
                             "{}".to_string()
                         });
                     let devices_list: HashMap<String, DeviceData> =
@@ -640,6 +698,13 @@ impl App {
                 std::fs::write(app_settings_path, settings.to_string()).ok();
                 Task::none()
             }
+            Message::StartOnLoginChanged(is_enabled) => {
+                match set_autostart(is_enabled) {
+                    Ok(()) => self.start_on_login = is_enabled,
+                    Err(e) => log::error!("Failed to update autostart entry: {}", e),
+                }
+                Task::none()
+            }
             Message::StemControlChanged(is_enabled) => {
                 self.stem_control = is_enabled;
                 let app_settings_path = get_app_settings_path();
@@ -661,7 +726,7 @@ impl App {
 
     fn view(&self, _id: window::Id) -> Element<'_, Message> {
         let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-            error!("Failed to read devices file: {}", e);
+            if e.kind() != std::io::ErrorKind::NotFound { error!("Failed to read devices file: {}", e); }
             "{}".to_string()
         });
         let devices_list: HashMap<String, DeviceData> = serde_json::from_str(&devices_json)
@@ -698,12 +763,12 @@ impl App {
                                                     level, if charging {"\u{1002E6}"} else {""}
                                                 )
                                             } else {
-                                                let left  = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let right = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let case  = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.level).unwrap_or_default();
+                                                // Unknown components show "–" rather than 0%.
+                                                let level = |c: BatteryComponent| b.iter().find(|x| x.component == c)
+                                                    .map(|x| format!("{}%", x.level)).unwrap_or_else(|| "–".to_string());
+                                                let left = level(BatteryComponent::Left);
+                                                let right = level(BatteryComponent::Right);
+                                                let case = level(BatteryComponent::Case);
                                                 let left_charging = b.iter().find(|x| x.component == BatteryComponent::Left)
                                                     .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
                                                 let right_charging = b.iter().find(|x| x.component == BatteryComponent::Right)
@@ -711,7 +776,7 @@ impl App {
                                                 let case_charging = b.iter().find(|x| x.component == BatteryComponent::Case)
                                                     .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
                                                 format!(
-                                                    "\u{1018E5} {}%{} \u{1018E8} {}%{} \u{100E6C} {}%{}",
+                                                    "\u{1018E5} {}{} \u{1018E8} {}{} \u{100E6C} {}{}",
                                                     left, if left_charging {"\u{1002E6}"} else {""}, right, if right_charging {"\u{1002E6}"} else {""}, case, if case_charging {"\u{1002E6}"} else {""}
                                                 )
                                             }
@@ -967,6 +1032,64 @@ impl App {
                                         )
                                     .align_y(Center);
 
+                            let start_on_login_toggle = container(
+                                row![
+                                    column![
+                                        text("Start on login").size(16),
+                                        text("Launch LibrePods minimized to the tray when you log in.").size(12).style(
+                                            |theme: &Theme| {
+                                                let mut style = text::Style::default();
+                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
+                                                style
+                                            }
+                                        ).width(Length::Fill)
+                                    ].width(Length::Fill),
+                                    toggler(self.start_on_login)
+                                        .on_toggle(Message::StartOnLoginChanged)
+                                    .spacing(0)
+                                    .size(20)
+                                    ]
+                                        .align_y(Center)
+                                        .spacing(12)
+                                    )
+                                        .padding(Padding{
+                                            top: 5.0,
+                                            bottom: 5.0,
+                                            left: 18.0,
+                                            right: 18.0,
+                                        })
+                                        .style(
+                                            |theme: &Theme| {
+                                                let mut style = container::Style::default();
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                let mut border = Border::default();
+                                                border.color = theme.palette().primary.scale_alpha(0.5);
+                                                style.border = border.rounded(16);
+                                                style
+                                            }
+                                        )
+                                    .align_y(Center);
+
+                            let general_settings_col = column![
+                                container(
+                                    text("General").size(20).style(
+                                        |theme: &Theme| {
+                                            let mut style = text::Style::default();
+                                            style.color = Some(theme.palette().primary);
+                                            style
+                                        }
+                                    )
+                                )
+                                .padding(Padding{
+                                    top: 0.0,
+                                    bottom: 0.0,
+                                    left: 18.0,
+                                    right: 18.0,
+                                }),
+                                start_on_login_toggle
+                            ]
+                            .spacing(12);
+
                             let appearance_settings_col = column![
                                 container(
                                     text("Appearance").size(20).style(
@@ -1116,8 +1239,10 @@ impl App {
                             ]
                             .spacing(12);
 
-                            container(
+                            let settings_content = container(
                                 column![
+                                    general_settings_col,
+                                    Space::new().height(Length::from(20)),
                                     appearance_settings_col,
                                     Space::new().height(Length::from(20)),
                                     tray_text_mode_toggle,
@@ -1126,6 +1251,8 @@ impl App {
                                 ]
                             )
                                 .padding(20)
+                                .width(Length::Fill);
+                            container(scrollable(settings_content).height(Length::Fill))
                                 .width(Length::Fill)
                                 .height(Length::Fill)
                         },
@@ -1296,8 +1423,8 @@ impl App {
         container(pane_grid).into()
     }
 
-    fn theme(&self, _id: window::Id) -> Theme {
-        self.selected_theme.into()
+    fn theme(&self, _id: window::Id) -> Option<Theme> {
+        self.selected_theme.to_theme()
     }
 
     fn subscription(&self) -> Subscription<Message> {

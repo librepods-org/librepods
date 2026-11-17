@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
 // use crate::bluetooth::att::ATTManager;
-use crate::devices::enums::{AirPodsState, DeviceData, DeviceInformation, DeviceState};
-use crate::ui::window::Message;
+use crate::devices::enums::{AirPodsState, DeviceData, DeviceInformation};
+use crate::ui::window::{AirPodsChange, Message};
 
 pub fn airpods_view<'a>(
     mac: &'a str,
@@ -57,7 +57,6 @@ pub fn airpods_view<'a>(
                 .align_x(End)
                 .on_input({
                     let mac = mac.clone();
-                    let state = state.clone();
                     move |new_name| {
                         let aacp_manager = aacp_manager_for_rename.clone();
                         run_async_in_thread({
@@ -69,9 +68,7 @@ pub fn airpods_view<'a>(
                                     .expect("Failed to send rename packet");
                             }
                         });
-                        let mut state = state.clone();
-                        state.device_name = new_name.clone();
-                        Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                        Message::AirPodsChanged(mac.to_string(), AirPodsChange::DeviceName(new_name.clone()))
                     }
                 })
         ]
@@ -101,7 +98,6 @@ pub fn airpods_view<'a>(
             }),
             Space::new().width(Length::Fill),
             {
-                let state_clone = state.clone();
                 let mac = mac.clone();
                 // this combo_box doesn't go really well with the design, but I am not writing my own dropdown menu for this
                 combo_box(
@@ -122,9 +118,7 @@ pub fn airpods_view<'a>(
                                     .await
                                     .expect("Failed to send Noise Control Mode command");
                             });
-                            let mut state = state_clone.clone();
-                            state.noise_control_mode = selected_mode.clone();
-                            Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                            Message::AirPodsChanged(mac.to_string(), AirPodsChange::NoiseControlMode(selected_mode.clone()))
                         }
                     },
                 )
@@ -219,7 +213,6 @@ pub fn airpods_view<'a>(
                             .on_toggle(
                             {
                                 let mac = mac_audio.clone();
-                                let state = state.clone();
                                 move |is_enabled| {
                                     let aacp_manager = aacp_manager_pv.clone();
                                     let mac = mac.clone();
@@ -231,9 +224,7 @@ pub fn airpods_view<'a>(
                                             ).await.expect("Failed to send Personalized Volume command");
                                         }
                                     );
-                                    let mut state = state.clone();
-                                    state.personalized_volume_enabled = is_enabled;
-                                    Message::StateChanged(mac, DeviceState::AirPods(state))
+                                    Message::AirPodsChanged(mac, AirPodsChange::PersonalizedVolume(is_enabled))
                                 }
                             }
                         )
@@ -277,9 +268,7 @@ pub fn airpods_view<'a>(
                                         ).await.expect("Failed to send Conversation Awareness command");
                                     }
                                 );
-                                let mut state = state.clone();
-                                state.conversation_awareness_enabled = is_enabled;
-                                Message::StateChanged(mac_audio.to_string(), DeviceState::AirPods(state))
+                                Message::AirPodsChanged(mac_audio.to_string(), AirPodsChange::ConversationAwareness(is_enabled))
                             })
                         .spacing(0)
                         .size(20)
@@ -334,9 +323,7 @@ pub fn airpods_view<'a>(
                             ).await.expect("Failed to send Off Listening Mode command");
                         }
                     );
-                    let mut state = state.clone();
-                    state.allow_off_mode = is_enabled;
-                    Message::StateChanged(mac.to_string(), DeviceState::AirPods(state))
+                    Message::AirPodsChanged(mac.to_string(), AirPodsChange::AllowOffMode(is_enabled))
                 })
             .spacing(0)
             .size(20)

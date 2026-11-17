@@ -13,7 +13,6 @@ use libpulse_binding::proplist::Proplist;
 use libpulse_binding::volume::{ChannelVolumes, Volume};
 use log::{debug, error, info, warn};
 use std::cell::RefCell;
-use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +27,7 @@ struct OwnedCardProfileInfo {
 struct OwnedCardInfo {
     index: u32,
     proplist: Proplist,
+    active_profile: Option<String>,
     profiles: Vec<OwnedCardProfileInfo>,
 }
 
@@ -138,11 +138,19 @@ impl MediaController {
             drop(state);
 
             if !was_playing && is_playing {
-                let aacp_state = aacp_manager.state.lock().await;
-                if !aacp_state
-                    .ear_detection_status
-                    .contains(&EarDetectionStatus::InEar)
-                {
+                // Copy what we need and release the lock: the sends below lock the
+                // same state, so holding it here deadlocks as soon as another device
+                // (e.g. an iPhone) is connected to the AirPods (upstream #896).
+                let (in_ear, connected_devices) = {
+                    let aacp_state = aacp_manager.state.lock().await;
+                    (
+                        aacp_state
+                            .ear_detection_status
+                            .contains(&EarDetectionStatus::InEar),
+                        aacp_state.connected_devices.clone(),
+                    )
+                };
+                if !in_ear {
                     info!("Media playback started but buds not in ear, skipping takeover");
                     continue;
                 }
@@ -155,7 +163,6 @@ impl MediaController {
 
                 info!("already connected locally, hijacking connection by asking AirPods");
 
-                let connected_devices = aacp_state.connected_devices.clone();
                 for device in connected_devices {
                     if device.mac != local_mac {
                         if let Err(e) = aacp_manager
@@ -310,40 +317,60 @@ impl MediaController {
             return;
         }
 
-        let device_index = state.device_index;
         let mac = state.connected_device_mac.clone();
         drop(state);
 
-        let mut current_device_index = device_index;
+        let Some(card_index) = self.resolve_card_index_with(&mac, true).await else {
+            warn!("Could not find the audio card. Cannot activate A2DP profile.");
+            return;
+        };
 
-        if current_device_index.is_none() {
-            warn!("Device index not found, trying to get it.");
-            current_device_index = self.get_audio_device_index(&mac).await;
-            if let Some(idx) = current_device_index {
-                self.state.lock().await.device_index = Some(idx);
-            } else {
-                warn!("Could not get device index. Cannot activate A2DP profile.");
-                return;
-            }
+        // Switching the profile recreates the PipeWire sink, which interrupts the
+        // stream that is starting and makes WirePlumber pause the player. Skip it
+        // when A2DP is already active (upstream #766 / #913).
+        let already_a2dp = tokio::task::spawn_blocking(move || {
+            get_card_info_list_sync()
+                .into_iter()
+                .find(|c| c.index == card_index)
+                .and_then(|c| c.active_profile)
+                .is_some_and(|p| p.starts_with("a2dp-sink"))
+        })
+        .await
+        .unwrap_or(false);
+        if already_a2dp {
+            debug!("A2DP profile already active; not switching.");
+            return;
         }
 
-        if !self.is_a2dp_profile_available().await {
-            warn!("A2DP profile not available, attempting to restart WirePlumber");
-            if self.restart_wire_plumber().await {
-                let mut state = self.state.lock().await;
-                state.device_index = self
-                    .get_audio_device_index(&state.connected_device_mac)
-                    .await;
-                debug!(
-                    "Updated device_index after WirePlumber restart: {:?}",
-                    state.device_index
-                );
-                if !self.is_a2dp_profile_available().await {
-                    error!("A2DP profile still not available after WirePlumber restart");
-                    return;
+        // Profiles can appear shortly after the card itself; only fall back to
+        // restarting WirePlumber (which interrupts all audio) if they never do.
+        let mut a2dp_available = false;
+        for _ in 0..6 {
+            if self.is_a2dp_profile_available().await {
+                a2dp_available = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        if !a2dp_available {
+            // The card exists without A2DP: the profile itself isn't connected.
+            // Ask BlueZ for it rather than restarting WirePlumber, which cuts all
+            // audio on the system and can drop the very connection being set up.
+            warn!("A2DP profile not available; asking BlueZ to connect it");
+            bluez_connect_a2dp(&mac).await;
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if let Some(idx) = self.get_audio_device_index(&mac).await {
+                    self.state.lock().await.device_index = Some(idx);
+                    if self.is_a2dp_profile_available().await {
+                        a2dp_available = true;
+                        break;
+                    }
                 }
-            } else {
-                error!("Could not restart WirePlumber, A2DP profile unavailable");
+            }
+            if !a2dp_available {
+                error!("A2DP profile still not available for {}", mac);
                 return;
             }
         }
@@ -594,23 +621,32 @@ impl MediaController {
             .unwrap_or(false)
     }
 
-    async fn restart_wire_plumber(&self) -> bool {
-        info!("Restarting WirePlumber to rediscover A2DP profiles");
-        let result = Command::new("systemctl")
-            .args(["--user", "restart", "wireplumber"])
-            .output();
-
-        match result {
-            Ok(output) if output.status.success() => {
-                info!("WirePlumber restarted successfully");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                true
+    /// Looks up the PipeWire/PulseAudio card for `mac`, waiting up to 10 s for it to
+    /// appear. Never trusts a previously cached index: cards are recreated (with a
+    /// new index) whenever the device reconnects or Bluetooth restarts.
+    ///
+    /// With `connect_audio`, also asks BlueZ to (re)connect the A2DP profile if the
+    /// card doesn't show up: BlueZ's own A2DP setup can fail with EBUSY when it
+    /// races our AAP L2CAP connection right after the AirPods connect, and it
+    /// does not retry by itself, leaving the AirPods with no audio at all.
+    async fn resolve_card_index_with(&self, mac: &str, connect_audio: bool) -> Option<u32> {
+        for attempt in 0..30 {
+            if let Some(idx) = self.get_audio_device_index(mac).await {
+                self.state.lock().await.device_index = Some(idx);
+                return Some(idx);
             }
-            _ => {
-                error!("Failed to restart WirePlumber. Do you use wireplumber?");
-                false
+            if connect_audio && matches!(attempt, 4 | 12 | 20) {
+                bluez_connect_a2dp(mac).await;
             }
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
+        self.state.lock().await.device_index = None;
+        error!("No Bluetooth audio card appeared for {}", mac);
+        None
+    }
+
+    async fn resolve_card_index(&self, mac: &str) -> Option<u32> {
+        self.resolve_card_index_with(mac, false).await
     }
 
     async fn get_audio_device_index(&self, mac: &str) -> Option<u32> {
@@ -628,7 +664,7 @@ impl MediaController {
                     return Some(card.index);
                 }
             }
-            error!("No matching Bluetooth card found for MAC address: {}", mac_clone);
+            debug!("No matching Bluetooth card found for MAC address: {}", mac_clone);
             None
         })
             .await
@@ -637,20 +673,15 @@ impl MediaController {
 
     pub async fn deactivate_a2dp_profile(&self) {
         debug!("Entering deactivate_a2dp_profile");
-        let mut state = self.state.lock().await;
-
-        if state.device_index.is_none() {
-            state.device_index = self
-                .get_audio_device_index(&state.connected_device_mac)
-                .await;
-        }
-
-        if state.connected_device_mac.is_empty() || state.device_index.is_none() {
-            warn!("Connected device MAC or index is empty, cannot deactivate A2DP profile");
+        let mac = self.state.lock().await.connected_device_mac.clone();
+        if mac.is_empty() {
+            warn!("Connected device MAC is empty, cannot deactivate A2DP profile");
             return;
         }
-        let device_index = state.device_index.unwrap();
-        drop(state);
+        let Some(device_index) = self.resolve_card_index(&mac).await else {
+            warn!("Could not find the audio card, cannot deactivate A2DP profile");
+            return;
+        };
 
         info!("Deactivating A2DP profile for AirPods by setting to off");
 
@@ -923,6 +954,10 @@ fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
                 cards.borrow_mut().push(OwnedCardInfo {
                     index: item.index,
                     proplist: item.proplist.clone(),
+                    active_profile: item
+                        .active_profile
+                        .as_ref()
+                        .and_then(|p| p.name.as_ref().map(|n| n.to_string())),
                     profiles,
                 });
             }
@@ -1079,4 +1114,23 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
     })
         .await
         .unwrap_or(None)
+}
+/// Asks BlueZ to connect the AirPods' A2DP sink profile.
+async fn bluez_connect_a2dp(mac: &str) {
+    const A2DP_SINK: &str = "0000110b-0000-1000-8000-00805f9b34fb";
+    let Ok(addr) = mac.parse::<bluer::Address>() else {
+        return;
+    };
+    let result = async {
+        let session = bluer::Session::new().await?;
+        let device = session.default_adapter().await?.device(addr)?;
+        device
+            .connect_profile(&A2DP_SINK.parse().expect("valid UUID"))
+            .await
+    }
+    .await;
+    match result {
+        Ok(()) => info!("Connected A2DP profile for {}", mac),
+        Err(e) => warn!("BlueZ could not connect A2DP for {}: {}", mac, e),
+    }
 }

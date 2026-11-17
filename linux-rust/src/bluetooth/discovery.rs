@@ -47,3 +47,47 @@ pub async fn find_other_managed_devices(
         "No other managed devices found",
     )))
 }
+
+/// Waits until a Bluetooth adapter exists and is powered on, then returns it.
+///
+/// We deliberately do not force the adapter on: desktop environments such as
+/// COSMIC turn Bluetooth off by soft-blocking it via rfkill, and in that state
+/// `set_powered(true)` fails with `org.bluez.Error.Failed`. Instead we wait for
+/// the user to enable Bluetooth.
+pub(crate) async fn wait_for_powered_adapter(session: &bluer::Session) -> Adapter {
+    let mut reported = false;
+    loop {
+        match session.default_adapter().await {
+            Ok(adapter) => match adapter.is_powered().await {
+                Ok(true) => {
+                    if reported {
+                        log::info!("Bluetooth adapter {} is now powered on.", adapter.name());
+                    }
+                    return adapter;
+                }
+                Ok(false) => {
+                    if !reported {
+                        log::info!(
+                            "Bluetooth adapter {} is off; waiting for Bluetooth to be enabled.",
+                            adapter.name()
+                        );
+                        reported = true;
+                    }
+                }
+                Err(e) => {
+                    if !reported {
+                        log::warn!("Could not query Bluetooth adapter state: {}", e);
+                        reported = true;
+                    }
+                }
+            },
+            Err(e) => {
+                if !reported {
+                    log::warn!("No Bluetooth adapter available ({}); waiting.", e);
+                    reported = true;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}

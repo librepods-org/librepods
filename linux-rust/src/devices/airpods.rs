@@ -4,7 +4,7 @@ use crate::media_controller::MediaController;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
 use bluer::Address;
-use ksni::Handle;
+use crate::ipc::TrayHandle;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ pub struct AirPodsDevice {
 impl AirPodsDevice {
     pub async fn new(
         mac_address: Address,
-        tray_handle: Option<Handle<MyTray>>,
+        tray_handle: Option<TrayHandle>,
         ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
     ) -> Self {
         info!("Creating new AirPodsDevice for {}", mac_address);

@@ -6,6 +6,7 @@ use aes::Aes128;
 use aes::cipher::Array;
 use aes::cipher::{BlockCipherDecrypt, KeyInit};
 use bluer::monitor::{Monitor, MonitorEvent, Pattern};
+use crate::bluetooth::discovery::wait_for_powered_adapter;
 use bluer::{Address, Session};
 use futures::StreamExt;
 use hex;
@@ -46,10 +47,73 @@ fn verify_rpa(addr: &str, irk: &[u8; 16]) -> bool {
     hash == computed_hash
 }
 
-pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> bluer::Result<()> {
-    let session = Session::new().await?;
-    let adapter = session.default_adapter().await?;
-    adapter.set_powered(true).await?;
+/// Runs the LE advertisement monitor for as long as the app lives, restarting it
+/// whenever Bluetooth is turned off and on again (e.g. via the COSMIC panel
+/// toggle) or when it stops unexpectedly.
+pub async fn run_le_monitor(tray_handle: Option<crate::ipc::TrayHandle>) {
+    let session = match Session::new().await {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("LE monitor: failed to connect to BlueZ: {}", e);
+            return;
+        }
+    };
+    let mut hinted_experimental = false;
+    loop {
+        let adapter = wait_for_powered_adapter(&session).await;
+        info!("Starting LE monitor on {}", adapter.name());
+        let mut task = tokio::spawn(start_le_monitor(adapter.clone(), tray_handle.clone()));
+        let retry_after = tokio::select! {
+            res = &mut task => match res {
+                Ok(Err(e)) if e.to_string().contains("AdvertisementMonitorManager1") => {
+                    if !hinted_experimental {
+                        log::warn!(
+                            "Bluetooth LE monitoring is unavailable: BlueZ's advertisement monitor API is disabled. \
+                             Battery info from nearby/case advertisements will be missing. To enable it, set \
+                             `Experimental = true` under [General] in /etc/bluetooth/main.conf and restart bluetooth \
+                             (sudo systemctl restart bluetooth). LibrePods will pick it up automatically."
+                        );
+                        hinted_experimental = true;
+                    }
+                    // Check back occasionally in case bluetoothd is restarted with it enabled.
+                    std::time::Duration::from_secs(30)
+                }
+                Ok(Err(e)) => {
+                    log::error!("LE monitor error: {}; restarting.", e);
+                    std::time::Duration::from_secs(5)
+                }
+                Ok(Ok(())) => {
+                    info!("LE monitor stopped; restarting.");
+                    std::time::Duration::from_secs(2)
+                }
+                Err(e) => {
+                    log::error!("LE monitor task failed: {}", e);
+                    std::time::Duration::from_secs(5)
+                }
+            },
+            _ = wait_for_power_off(&adapter) => {
+                info!("Bluetooth turned off; LE monitor paused until it is turned back on.");
+                task.abort();
+                std::time::Duration::from_secs(0)
+            }
+        };
+        tokio::time::sleep(retry_after).await;
+    }
+}
+
+async fn wait_for_power_off(adapter: &bluer::Adapter) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        if !adapter.is_powered().await.unwrap_or(false) {
+            return;
+        }
+    }
+}
+
+async fn start_le_monitor(
+    adapter: bluer::Adapter,
+    tray_handle: Option<crate::ipc::TrayHandle>,
+) -> bluer::Result<()> {
 
     let all_devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
         .ok()
@@ -85,7 +149,9 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
     while let Some(mevt) = monitor_handle.next().await {
         if let MonitorEvent::DeviceFound(devid) = mevt {
             let adapter_monitor_clone = adapter.clone();
-            let dev = adapter_monitor_clone.device(devid.device)?;
+            let Ok(dev) = adapter_monitor_clone.device(devid.device) else {
+                continue;
+            };
             let addr = dev.address();
             let addr_str = addr.to_string();
 

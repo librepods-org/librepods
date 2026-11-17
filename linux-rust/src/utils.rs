@@ -75,6 +75,8 @@ pub fn ah(k: &[u8; 16], r: &[u8; 3]) -> [u8; 3] {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MyTheme {
+    /// Follow the desktop's light/dark preference (e.g. COSMIC, GNOME, KDE).
+    System,
     Light,
     Dark,
     Dracula,
@@ -102,6 +104,7 @@ pub enum MyTheme {
 impl std::fmt::Display for MyTheme {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
+            Self::System => "System",
             Self::Light => "Light",
             Self::Dark => "Dark",
             Self::Dracula => "Dracula",
@@ -131,6 +134,8 @@ impl std::fmt::Display for MyTheme {
 impl From<MyTheme> for Theme {
     fn from(my_theme: MyTheme) -> Self {
         match my_theme {
+            // Only used as a fallback; `MyTheme::to_theme` returns `None` for System.
+            MyTheme::System => Theme::Dark,
             MyTheme::Light => Theme::Light,
             MyTheme::Dark => Theme::Dark,
             MyTheme::Dracula => Theme::Dracula,
@@ -154,5 +159,108 @@ impl From<MyTheme> for Theme {
             MyTheme::Oxocarbon => Theme::Oxocarbon,
             MyTheme::Ferra => Theme::Ferra,
         }
+    }
+}
+
+impl MyTheme {
+    /// Returns `None` for [`MyTheme::System`], which tells iced to follow the
+    /// system color scheme (read from the XDG desktop portal on Linux).
+    pub fn to_theme(self) -> Option<Theme> {
+        match self {
+            MyTheme::System => None,
+            other => Some(other.into()),
+        }
+    }
+}
+
+/// Path of the XDG autostart entry, honoured by COSMIC, GNOME, KDE and most other
+/// desktops.
+pub fn get_autostart_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    // Inside Flatpak, XDG_CONFIG_HOME points into the sandbox (~/.var/app/...), which
+    // the host session never reads. The manifest grants `xdg-config/autostart`, which
+    // is mounted at the host path, so write there instead. (The Background portal
+    // would be the alternative, but COSMIC's portal backend doesn't implement it.)
+    let config_dir = if std::env::var("FLATPAK_ID").is_ok() {
+        format!("{}/.config", home)
+    } else {
+        std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{}/.config", home))
+    };
+    PathBuf::from(config_dir)
+        .join("autostart")
+        .join("me.kavishdevar.librepods.desktop")
+}
+
+pub fn is_autostart_enabled() -> bool {
+    get_autostart_path().exists()
+}
+
+/// Creates or removes the XDG autostart entry. The entry starts LibrePods
+/// minimized to the tray.
+pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
+    let path = get_autostart_path();
+    if !enabled {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+
+    let exec = if let Ok(id) = std::env::var("FLATPAK_ID") {
+        format!("flatpak run {}", id)
+    } else if let Ok(appimage) = std::env::var("APPIMAGE") {
+        desktop_exec_quote(&appimage)
+    } else {
+        let exe = std::env::current_exe()?;
+        desktop_exec_quote(&exe.to_string_lossy())
+    };
+
+    let entry = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=LibrePods\n\
+         Comment=AirPods battery and controls in the system tray\n\
+         Icon=me.kavishdevar.librepods\n\
+         Exec={} --start-minimized\n\
+         Terminal=false\n\
+         X-GNOME-Autostart-enabled=true\n",
+        exec
+    );
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, entry)
+}
+
+/// Quotes a path for the `Exec=` key of a desktop entry if needed.
+fn desktop_exec_quote(s: &str) -> String {
+    if s.chars().any(|c| c.is_whitespace() || "\"'\\$`".contains(c)) {
+        let escaped = s
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('$', "\\$")
+            .replace('`', "\\`");
+        format!("\"{}\"", escaped)
+    } else {
+        s.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ah;
+
+    /// Bluetooth Core Spec, Vol 3, Part H, D.7 (ah random address hash):
+    /// IRK ec0234a357c8ad05341010a60a397d9b, prand 708194 -> hash 0dfbaa.
+    #[test]
+    fn ah_matches_bluetooth_spec_vector() {
+        let mut irk: [u8; 16] = hex::decode("ec0234a357c8ad05341010a60a397d9b").unwrap().try_into().unwrap();
+        let mut r = [0x70, 0x81, 0x94];
+        let mut expected = [0x0d, 0xfb, 0xaa];
+        // `ah` works on little-endian (over-the-air) byte order.
+        irk.reverse();
+        r.reverse();
+        expected.reverse();
+        assert_eq!(ah(&irk, &r), expected);
     }
 }
