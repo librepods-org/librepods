@@ -21,6 +21,17 @@ pub struct NothingDevice {
     pub information: NothingInformation,
 }
 
+/// Extracts the firmware version from a firmware-version notification.
+/// Returns None if the prefix does not match or the packet is too short
+/// to contain the 8-byte header (prefix 5 bytes + 3 filler bytes).
+fn parse_firmware_version(data: &[u8]) -> Option<String> {
+    const PREFIX: [u8; 5] = [0x55, 0x20, 0x01, 0x42, 0x40];
+    if !data.starts_with(&PREFIX) || data.len() < 8 {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&data[8..]).to_string())
+}
+
 impl NothingDevice {
     pub async fn new(
         mac_address: Address,
@@ -87,8 +98,7 @@ impl NothingDevice {
         let information_l = information.clone();
         tokio::spawn(async move {
             while let Some(data) = rx.recv().await {
-                if data.starts_with(&[0x55, 0x20, 0x01, 0x42, 0x40]) {
-                    let firmware_version = String::from_utf8_lossy(&data[8..]).to_string();
+                if let Some(firmware_version) = parse_firmware_version(&data) {
                     info!(
                         "Received firmware version from Nothing device {}: {}",
                         mac_address, firmware_version
@@ -175,5 +185,30 @@ impl NothingDevice {
             att_manager,
             information,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_firmware_version;
+
+    #[test]
+    fn prefix_only_five_bytes_returns_none_without_panic() {
+        let data = [0x55, 0x20, 0x01, 0x42, 0x40];
+        assert_eq!(parse_firmware_version(&data), None);
+    }
+
+    #[test]
+    fn valid_packet_returns_firmware_version() {
+        let data = [
+            0x55, 0x20, 0x01, 0x42, 0x40, 0x00, 0x00, 0x00, b'1', b'.', b'2', b'.', b'3',
+        ];
+        assert_eq!(parse_firmware_version(&data), Some("1.2.3".to_string()));
+    }
+
+    #[test]
+    fn non_matching_packet_returns_none() {
+        let data = [0x55, 0x20, 0x01, 0x06, 0x40, 0x00, 0x00, 0x00, b'1', b'.', b'2'];
+        assert_eq!(parse_firmware_version(&data), None);
     }
 }
