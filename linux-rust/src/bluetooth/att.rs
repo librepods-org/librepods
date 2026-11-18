@@ -12,11 +12,42 @@ const PSM_ATT: u16 = 0x001F;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
+const OPCODE_ERROR_RESPONSE: u8 = 0x01;
 const OPCODE_READ_REQUEST: u8 = 0x0A;
 const OPCODE_WRITE_REQUEST: u8 = 0x12;
 const OPCODE_HANDLE_VALUE_NTF: u8 = 0x1B;
 const OPCODE_WRITE_RESPONSE: u8 = 0x13;
 const RESPONSE_TIMEOUT: u64 = 5000;
+
+/// A response to a request: Ok(payload) on success, Err(ATT error code) when the device refused.
+type ResponseResult = std::result::Result<Vec<u8>, u8>;
+
+/// What an incoming ATT PDU means, decided without touching any shared state.
+#[derive(Debug, PartialEq, Eq)]
+enum Pdu {
+    Notification { handle: u16, value: Vec<u8> },
+    WriteResponse,
+    Error { code: u8 },
+    Response(Vec<u8>),
+    Ignored,
+}
+
+fn classify_pdu(data: &[u8]) -> Pdu {
+    match data.first() {
+        None => Pdu::Ignored,
+        Some(&OPCODE_HANDLE_VALUE_NTF) if data.len() >= 3 => Pdu::Notification {
+            handle: (data[1] as u16) | ((data[2] as u16) << 8),
+            value: data[3..].to_vec(),
+        },
+        Some(&OPCODE_HANDLE_VALUE_NTF) => Pdu::Ignored,
+        Some(&OPCODE_WRITE_RESPONSE) => Pdu::WriteResponse,
+        // [0x01, request opcode, handle lsb, handle msb, error code]
+        Some(&OPCODE_ERROR_RESPONSE) => Pdu::Error {
+            code: data.get(4).copied().unwrap_or(0),
+        },
+        Some(_) => Pdu::Response(data[1..].to_vec()),
+    }
+}
 
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -65,8 +96,8 @@ impl ATTManagerState {
 #[derive(Clone)]
 pub struct ATTManager {
     state: Arc<Mutex<ATTManagerState>>,
-    response_rx: Arc<Mutex<mpsc::UnboundedReceiver<Vec<u8>>>>,
-    response_tx: mpsc::UnboundedSender<Vec<u8>>,
+    response_rx: Arc<Mutex<mpsc::UnboundedReceiver<ResponseResult>>>,
+    response_tx: mpsc::UnboundedSender<ResponseResult>,
     tasks: Arc<Mutex<JoinSet<()>>>,
 }
 
@@ -209,7 +240,11 @@ impl ATTManager {
         debug!("Waiting for response...");
         let mut rx = self.response_rx.lock().await;
         match tokio::time::timeout(Duration::from_millis(RESPONSE_TIMEOUT), rx.recv()).await {
-            Ok(Some(resp)) => Ok(resp),
+            Ok(Some(Ok(resp))) => Ok(resp),
+            Ok(Some(Err(code))) => Err(Error::from(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("ATT error 0x{:02x}", code),
+            ))),
             Ok(None) => Err(Error::from(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
                 "Response channel closed",
@@ -233,24 +268,26 @@ async fn recv_thread(manager: ATTManager, sp: Arc<SeqPacket>) {
             Ok(n) => {
                 let data = &buf[..n];
                 debug!("Received {} bytes: {}", n, hex::encode(data));
-                if data.is_empty() {
-                    continue;
-                }
-                if data[0] == OPCODE_HANDLE_VALUE_NTF {
-                    // Notification
-                    let handle = (data[1] as u16) | ((data[2] as u16) << 8);
-                    let value = data[3..].to_vec();
-                    let state = manager.state.lock().await;
-                    if let Some(listeners) = state.listeners.get(&handle) {
-                        for listener in listeners {
-                            let _ = listener.send(value.clone());
+                match classify_pdu(data) {
+                    Pdu::Notification { handle, value } => {
+                        let state = manager.state.lock().await;
+                        if let Some(listeners) = state.listeners.get(&handle) {
+                            for listener in listeners {
+                                let _ = listener.send(value.clone());
+                            }
                         }
                     }
-                } else if data[0] == OPCODE_WRITE_RESPONSE {
-                    let _ = manager.response_tx.send(vec![]);
-                } else {
-                    // Response
-                    let _ = manager.response_tx.send(data[1..].to_vec());
+                    Pdu::WriteResponse => {
+                        let _ = manager.response_tx.send(Ok(vec![]));
+                    }
+                    Pdu::Error { code } => {
+                        debug!("ATT error response, code 0x{:02x}", code);
+                        let _ = manager.response_tx.send(Err(code));
+                    }
+                    Pdu::Response(payload) => {
+                        let _ = manager.response_tx.send(Ok(payload));
+                    }
+                    Pdu::Ignored => {}
                 }
             }
             Err(e) => {
@@ -272,4 +309,47 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
         debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
     }
     info!("send thread finished.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_response_is_classified_with_code() {
+        // Error for a Write Request (0x12) on handle 0x0002, error code 0x06
+        assert_eq!(
+            classify_pdu(&[0x01, 0x12, 0x02, 0x00, 0x06]),
+            Pdu::Error { code: 0x06 }
+        );
+    }
+
+    #[test]
+    fn short_error_response_does_not_panic() {
+        assert_eq!(classify_pdu(&[0x01]), Pdu::Error { code: 0 });
+    }
+
+    #[test]
+    fn read_response_is_data() {
+        assert_eq!(
+            classify_pdu(&[0x0B, 0xAA, 0xBB]),
+            Pdu::Response(vec![0xAA, 0xBB])
+        );
+    }
+
+    #[test]
+    fn write_response_is_empty_success() {
+        assert_eq!(classify_pdu(&[0x13]), Pdu::WriteResponse);
+    }
+
+    #[test]
+    fn notification_is_routed_by_handle() {
+        assert_eq!(
+            classify_pdu(&[0x1B, 0x18, 0x00, 0x01, 0x02]),
+            Pdu::Notification {
+                handle: 0x0018,
+                value: vec![0x01, 0x02]
+            }
+        );
+    }
 }
