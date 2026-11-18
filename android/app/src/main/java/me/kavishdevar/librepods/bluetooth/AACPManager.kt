@@ -1248,7 +1248,7 @@ class AACPManager {
             val mac = macBytes.joinToString(":") { "%02X".format(it) }
             val info1 = data[offset + 6]
             val info2 = data[offset + 7]
-            val existingDevice = devices.find { it.mac == mac }
+            val existingDevice = connectedDevices.find { it.mac == mac }
             devices.add(ConnectedDevice(mac, info1, info2, existingDevice?.type))
             offset += 8
         }
