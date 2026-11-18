@@ -515,12 +515,14 @@ class AACPManager {
             }
 
             Opcodes.CONNECTED_DEVICES -> {
+                if (packet.size < 9) return
                 oldConnectedDevices = connectedDevices
                 connectedDevices = parseConnectedDevicesResponse(packet)
                 callback?.onConnectedDevicesReceived(connectedDevices)
             }
 
             Opcodes.SMART_ROUTING_RESP -> {
+                if (packet.size < 12) return
                 val packetString = packet.decodeToString()
                 val sender =
                     packet.sliceArray(6..11).reversedArray().joinToString(":") { "%02X".format(it) }
