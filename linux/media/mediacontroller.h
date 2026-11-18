@@ -8,6 +8,7 @@ class QProcess;
 class EarDetection;
 class PlayerStatusWatcher;
 class QDBusInterface;
+class QTimer;
 
 class MediaController : public QObject
 {
@@ -55,6 +56,8 @@ Q_SIGNALS:
 private:
   MediaState mediaStateFromPlayerctlOutput(const QString &output) const;
   QString getAudioDeviceName();
+  bool ensureDeviceOutputName();
+  void scheduleA2dpRetry();
   QStringList getPlayingMediaPlayers();
 
   QStringList pausedByAppServices;
@@ -65,6 +68,11 @@ private:
   PlayerStatusWatcher *playerStatusWatcher = nullptr;
   PulseAudioController *m_pulseAudio = nullptr;
   QString m_cachedA2dpProfile;
+  QTimer *m_a2dpRetryTimer = nullptr;
+  int m_a2dpRetriesLeft = 0;
+  static constexpr int kA2dpRetryAttempts = 30;
+  bool m_wirePlumberRestarted = false;
+  static constexpr int kA2dpRetryIntervalMs = 1000;
 };
 
 #endif // MEDIACONTROLLER_H

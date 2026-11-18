@@ -284,13 +284,55 @@ bool PulseAudioController::isProfileAvailable(const QString &cardName, const QSt
     return data.available;
 }
 
+// Called with the mainloop lock held, on the GUI thread.
+//
+// The info callbacks above only signal on success: a lookup that fails (e.g.
+// pa_context_get_card_info_by_name for a card that no longer exists) calls
+// them with eol < 0 and no info, so they never woke this wait and the whole
+// app froze. Signal from the operation's own state callback instead, which
+// fires whenever it finishes, succeeded or not. A timer on the PulseAudio
+// mainloop is a backstop for a server that never answers at all; the
+// operation is then cancelled, which also stops its callback from touching
+// the caller's stack data later.
 bool PulseAudioController::waitForOperation(pa_operation *op)
 {
     if (!op) return false;
 
-    while (pa_operation_get_state(op) == PA_OPERATION_RUNNING)
+    pa_operation_set_state_callback(op, [](pa_operation *, void *userdata) {
+        pa_threaded_mainloop_signal(static_cast<pa_threaded_mainloop*>(userdata), 0);
+    }, m_mainloop);
+
+    static constexpr pa_usec_t kOperationTimeoutUsec = 5 * PA_USEC_PER_SEC;
+
+    struct TimeoutData {
+        pa_threaded_mainloop *mainloop;
+        bool timedOut;
+    } timeout{m_mainloop, false};
+
+    auto onTimeout = [](pa_mainloop_api *, pa_time_event *, const struct timeval *, void *userdata) {
+        TimeoutData *t = static_cast<TimeoutData*>(userdata);
+        t->timedOut = true;
+        pa_threaded_mainloop_signal(t->mainloop, 0);
+    };
+
+    pa_mainloop_api *api = pa_threaded_mainloop_get_api(m_mainloop);
+    struct timeval deadline;
+    pa_gettimeofday(&deadline);
+    pa_timeval_add(&deadline, kOperationTimeoutUsec);
+    pa_time_event *timer = api->time_new(api, &deadline, onTimeout, &timeout);
+
+    while (pa_operation_get_state(op) == PA_OPERATION_RUNNING && !timeout.timedOut)
     {
         pa_threaded_mainloop_wait(m_mainloop);
+    }
+
+    if (timer) api->time_free(timer);
+
+    if (pa_operation_get_state(op) == PA_OPERATION_RUNNING)
+    {
+        LOG_ERROR("PulseAudio operation timed out after 5s, cancelling it");
+        pa_operation_cancel(op);
+        return false;
     }
 
     return pa_operation_get_state(op) == PA_OPERATION_DONE;

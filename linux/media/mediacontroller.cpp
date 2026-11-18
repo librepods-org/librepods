@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
+#include <QTimer>
 
 MediaController::MediaController(QObject *parent) : QObject(parent) {
   m_pulseAudio = new PulseAudioController(this);
@@ -17,6 +18,13 @@ MediaController::MediaController(QObject *parent) : QObject(parent) {
   {
     LOG_ERROR("Failed to initialize PulseAudio controller");
   }
+
+  // The BlueZ connect signal fires before WirePlumber has created the audio
+  // card, so the first activation attempt can miss it. Retry briefly.
+  m_a2dpRetryTimer = new QTimer(this);
+  m_a2dpRetryTimer->setSingleShot(true);
+  m_a2dpRetryTimer->setInterval(kA2dpRetryIntervalMs);
+  connect(m_a2dpRetryTimer, &QTimer::timeout, this, &MediaController::activateA2dpProfile);
 }
 
 void MediaController::handleEarDetection(EarDetection *earDetection)
@@ -196,24 +204,86 @@ bool MediaController::restartWirePlumber() {
   }
 }
 
+bool MediaController::ensureDeviceOutputName() {
+  if (connectedDeviceMacAddress.isEmpty()) {
+    return false;
+  }
+  // Never trust a cached empty lookup: the card may have appeared since.
+  if (m_deviceOutputName.isEmpty()) {
+    m_deviceOutputName = getAudioDeviceName();
+    if (!m_deviceOutputName.isEmpty()) {
+      LOG_INFO("Resolved device output name: " << m_deviceOutputName);
+    }
+  }
+  return !m_deviceOutputName.isEmpty();
+}
+
+void MediaController::scheduleA2dpRetry() {
+  if (m_a2dpRetryTimer->isActive()) {
+    return;
+  }
+  if (m_a2dpRetriesLeft <= 0) {
+    LOG_ERROR("Giving up on A2DP activation after " << kA2dpRetryAttempts << " retries");
+    return;
+  }
+  --m_a2dpRetriesLeft;
+  LOG_INFO("Audio card not ready yet, retrying A2DP activation in "
+           << kA2dpRetryIntervalMs << "ms (" << m_a2dpRetriesLeft << " retries left)");
+  m_a2dpRetryTimer->start();
+}
+
 void MediaController::activateA2dpProfile() {
-  if (connectedDeviceMacAddress.isEmpty() || m_deviceOutputName.isEmpty()) {
-    LOG_WARN("Connected device MAC address or output name is empty, cannot activate A2DP profile");
+  if (connectedDeviceMacAddress.isEmpty()) {
+    LOG_WARN("Connected device MAC address is empty, cannot activate A2DP profile");
+    return;
+  }
+
+  if (!ensureDeviceOutputName()) {
+    scheduleA2dpRetry();
     return;
   }
 
   if (!isA2dpProfileAvailable()) {
+    // The cached name can be the card of an earlier connection, gone since
+    // the device disconnected (ear detection can fire on reconnect before
+    // setConnectedDeviceMacAddress). Look the card up again so the checks
+    // below query the live card, or wait for it to appear.
+    m_deviceOutputName.clear();
+    if (!ensureDeviceOutputName()) {
+      scheduleA2dpRetry();
+      return;
+    }
+  }
+
+  if (!isA2dpProfileAvailable() && m_a2dpRetriesLeft > 0) {
+    // A freshly created card may not list its A2DP profiles yet; wait before
+    // falling back to the heavyweight WirePlumber restart below.
+    scheduleA2dpRetry();
+    return;
+  }
+
+  m_a2dpRetryTimer->stop();
+  m_a2dpRetriesLeft = 0;
+
+  if (!isA2dpProfileAvailable()) {
+    if (m_wirePlumberRestarted) {
+      LOG_ERROR("A2DP profile still not available after WirePlumber restart");
+      return;
+    }
     LOG_WARN("A2DP profile not available, attempting to restart WirePlumber");
-    if (restartWirePlumber()) {
-      m_deviceOutputName = getAudioDeviceName();
-      if (!isA2dpProfileAvailable()) {
-        LOG_ERROR("A2DP profile still not available after WirePlumber restart");
-        return;
-      }
-    } else {
+    m_wirePlumberRestarted = true;
+    if (!restartWirePlumber()) {
       LOG_ERROR("Could not restart WirePlumber, A2DP profile unavailable");
       return;
     }
+    // The restart tears down and recreates the bluez card, which takes a few
+    // seconds; a single check right after it always lost that race. Start a
+    // fresh retry window instead.
+    m_deviceOutputName.clear();
+    m_cachedA2dpProfile.clear();
+    m_a2dpRetriesLeft = kA2dpRetryAttempts;
+    scheduleA2dpRetry();
+    return;
   }
 
   QString preferredProfile = getPreferredA2dpProfile();
@@ -225,16 +295,24 @@ void MediaController::activateA2dpProfile() {
   LOG_INFO("Activating A2DP profile for AirPods: " << preferredProfile);
   if (!m_pulseAudio->setCardProfile(m_deviceOutputName, preferredProfile)) {
     LOG_ERROR("Failed to activate A2DP profile: " << preferredProfile);
+    // The card may have been recreated under us; re-resolve next time.
+    m_deviceOutputName.clear();
+    return;
   }
   LOG_INFO("A2DP profile activated successfully");
 }
 
 void MediaController::removeAudioOutputDevice() {
-  if (connectedDeviceMacAddress.isEmpty() || m_deviceOutputName.isEmpty()) {
-    LOG_WARN("Connected device MAC address or output name is empty, cannot remove audio output device");
+  // Buds came out while a connect-time retry was pending: don't turn audio
+  // back on behind the user's back.
+  m_a2dpRetryTimer->stop();
+  m_a2dpRetriesLeft = 0;
+
+  if (!ensureDeviceOutputName()) {
+    LOG_WARN("Audio card for AirPods not found, cannot remove audio output device");
     return;
   }
-  
+
   LOG_INFO("Removing AirPods as audio output device");
   if (!m_pulseAudio->setCardProfile(m_deviceOutputName, "off")) {
     LOG_ERROR("Failed to remove AirPods as audio output device");
@@ -243,8 +321,12 @@ void MediaController::removeAudioOutputDevice() {
 
 void MediaController::setConnectedDeviceMacAddress(const QString &macAddress) {
   connectedDeviceMacAddress = macAddress;
-  m_deviceOutputName = getAudioDeviceName();
+  m_deviceOutputName.clear();
   m_cachedA2dpProfile.clear();
+  m_a2dpRetryTimer->stop();
+  m_a2dpRetriesLeft = kA2dpRetryAttempts;
+  m_wirePlumberRestarted = false;
+  ensureDeviceOutputName();
   LOG_INFO("Device output name set to: " << m_deviceOutputName);
 }
 
