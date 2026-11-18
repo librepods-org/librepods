@@ -187,8 +187,9 @@ impl ATTManager {
     }
 
     async fn send_packet(&self, data: &[u8]) -> Result<()> {
-        let state = self.state.lock().await;
-        if let Some(sender) = &state.sender {
+        // Don't hold the state lock across the (bounded) send.
+        let sender = self.state.lock().await.sender.clone();
+        if let Some(sender) = sender {
             sender.send(data.to_vec()).await.map_err(|e| {
                 error!("Failed to send packet to channel: {}", e);
                 Error::from(std::io::Error::new(
@@ -237,6 +238,10 @@ async fn recv_thread(manager: ATTManager, sp: Arc<SeqPacket>) {
                     continue;
                 }
                 if data[0] == OPCODE_HANDLE_VALUE_NTF {
+                    if data.len() < 3 {
+                        debug!("Notification too short: {}", hex::encode(data));
+                        continue;
+                    }
                     // Notification
                     let handle = (data[1] as u16) | ((data[2] as u16) << 8);
                     let value = data[3..].to_vec();

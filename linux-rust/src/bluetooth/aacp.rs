@@ -5,13 +5,14 @@ use bluer::{
     Address, AddressType, Error, Result,
     l2cap::{SeqPacket, Socket, SocketAddr},
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, Notify, mpsc, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep};
 
@@ -19,6 +20,25 @@ const PSM: u16 = 0x1001;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const HEADER_BYTES: [u8; 4] = [0x04, 0x00, 0x04, 0x00];
+
+/// L2CAP recv buffer. 0x58 hi-res audio SDUs can exceed 1 KB; SOCK_SEQPACKET
+/// silently truncates an undersized buffer, so this must comfortably exceed the
+/// largest SDU
+const RECV_BUF_LEN: usize = 4096;
+
+/// 0x58 microphone-stream control packets (include the 04 00 04 00 header).
+const AACP_START_AUDIO: [u8; 19] = [
+    0x04, 0x00, 0x04, 0x00, 0x58, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x01, 0x82, 0x00, 0x00, 0x00,
+    0x04, 0x96, 0x00,
+];
+const AACP_STOP_AUDIO: [u8; 12] = [
+    0x04, 0x00, 0x04, 0x00, 0x58, 0x00, 0x00, 0x00, 0x02, 0x00, 0x03, 0x01,
+];
+
+/// Bound for the audio SDU forwarding channel. Realtime: if the decoder falls
+/// behind we drop SDUs (a brief glitch) rather than back-pressure the L2CAP
+/// recv loop, which would stall control traffic too.
+const AUDIO_CHANNEL_CAP: usize = 256;
 
 pub mod opcodes {
     pub const SET_FEATURE_FLAGS: u8 = 0x4D;
@@ -330,6 +350,8 @@ pub struct AACPManagerState {
     event_tx: Option<mpsc::UnboundedSender<AACPEvent>>,
     pub devices: HashMap<String, DeviceData>,
     pub airpods_mac: Option<Address>,
+    /// When set, recv_thread forwards raw 0x58 audio SDUs here (hi-res mic).
+    pub audio_tx: Option<mpsc::Sender<Vec<u8>>>,
 }
 
 impl AACPManagerState {
@@ -353,6 +375,7 @@ impl AACPManagerState {
             event_tx: None,
             devices,
             airpods_mac: None,
+            audio_tx: None,
         }
     }
 }
@@ -361,6 +384,24 @@ impl AACPManagerState {
 pub struct AACPManager {
     pub state: Arc<Mutex<AACPManagerState>>,
     tasks: Arc<Mutex<JoinSet<()>>>,
+    hires_enabled: Arc<AtomicBool>,
+    hires_mic: Arc<Mutex<Option<crate::audio::hires_mic::HiResMic>>>,
+    /// Wakes the hi-res monitor so it re-polls promptly when the feature is
+    /// toggled, instead of waiting out the poll interval.
+    hires_wake: Arc<Notify>,
+    mic_status: crate::audio::hires_mic::MicStatus,
+    /// Handle to the long-lived backend runtime, so the hi-res monitor task
+    /// survives even when armed from a throwaway runtime (the UI toggle thread).
+    runtime: tokio::runtime::Handle,
+    /// true while the L2CAP control channel is up. Per-connection tasks (playback
+    /// listener, command/subscriber loops) watch this and exit when it drops, so
+    /// they don't pile up across reconnects.
+    connected: Arc<watch::Sender<bool>>,
+    /// Incremented on every ear-detection report.
+    ear_generation: Arc<AtomicU64>,
+    /// The user changed conversation awareness while a capture had it
+    /// overridden; the capture then must not restore its saved value.
+    convo_user_changed: Arc<AtomicBool>,
 }
 
 impl AACPManager {
@@ -368,10 +409,223 @@ impl AACPManager {
         AACPManager {
             state: Arc::new(Mutex::new(AACPManagerState::new())),
             tasks: Arc::new(Mutex::new(JoinSet::new())),
+            hires_enabled: Arc::new(AtomicBool::new(
+                crate::utils::AppSettings::load().hires_mic_enabled,
+            )),
+            hires_mic: Arc::new(Mutex::new(None)),
+            hires_wake: Arc::new(Notify::new()),
+            mic_status: crate::audio::hires_mic::MicStatus::new(),
+            runtime: tokio::runtime::Handle::current(),
+            connected: Arc::new(watch::channel(false).0),
+            ear_generation: Arc::new(AtomicU64::new(0)),
+            convo_user_changed: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub async fn connect(&mut self, addr: Address) {
+    pub fn is_connected(&self) -> bool {
+        *self.connected.borrow()
+    }
+
+    /// Tear this connection down from outside: used when BlueZ reports the
+    /// AirPods connected again while our old L2CAP link hasn't noticed yet that it
+    /// died (otherwise two device stacks would run side by side until the old
+    /// socket errors out).
+    pub async fn close(&self) {
+        self.tasks.lock().await.abort_all();
+        {
+            let mut state = self.state.lock().await;
+            state.sender = None;
+            state.owns = false;
+            state.connected_devices.clear();
+            state.ear_detection_status.clear();
+            state.old_ear_detection_status.clear();
+            state.audio_tx = None;
+        }
+        self.connected.send_replace(false);
+        self.disarm_hires_mic().await;
+    }
+
+    /// Conversation awareness changed from the UI.
+    pub async fn set_conversation_detection_by_user(&self, enabled: bool) -> bool {
+        self.convo_user_changed.store(true, Ordering::Relaxed);
+        self.set_conversation_detection(enabled).await
+    }
+
+    /// Whether the user changed conversation awareness since the last call (and
+    /// clear the flag).
+    pub fn take_convo_user_changed(&self) -> bool {
+        self.convo_user_changed.swap(false, Ordering::Relaxed)
+    }
+
+    /// True if a device other than this computer is currently playing media or
+    /// in a call on the AirPods (per their audio-source report).
+    pub async fn other_device_using_audio(&self, local_mac: &str) -> bool {
+        let state = self.state.lock().await;
+        state.audio_source.as_ref().is_some_and(|source| {
+            source.r#type != AudioSourceType::None
+                && source.mac != "00:00:00:00:00:00"
+                && !source.mac.eq_ignore_ascii_case(local_mac)
+        })
+    }
+
+    /// Changes whenever the AirPods report a new ear-detection state.
+    pub fn ear_generation(&self) -> u64 {
+        self.ear_generation.load(Ordering::Relaxed)
+    }
+
+    /// Resolves once this connection has ended (immediately if it never came up).
+    pub async fn disconnected(&self) {
+        let mut rx = self.connected.subscribe();
+        let _ = rx.wait_for(|up| !*up).await;
+    }
+
+    /// True if at least one bud is in an ear. An empty status (not reported yet,
+    /// or ear detection off on the AirPods) counts as wearing so it never blocks.
+    pub async fn is_worn(&self) -> bool {
+        let state = self.state.lock().await;
+        state.ear_detection_status.is_empty()
+            || state.ear_detection_status.contains(&EarDetectionStatus::InEar)
+    }
+
+    /// True once the AirPods have reported an ear-detection state on this
+    /// connection (is_worn() is only a guess before that).
+    pub async fn ear_status_reported(&self) -> bool {
+        !self.state.lock().await.ear_detection_status.is_empty()
+    }
+
+    pub async fn conversation_detection_enabled(&self) -> bool {
+        self.state
+            .lock()
+            .await
+            .control_command_status_list
+            .iter()
+            .find(|s| s.identifier == ControlCommandIdentifiers::ConversationDetectConfig)
+            .is_some_and(|s| s.value.first() == Some(&0x01))
+    }
+
+    /// Returns false if the command couldn't be sent (e.g. not connected).
+    pub async fn set_conversation_detection(&self, enabled: bool) -> bool {
+        let value = if enabled { 0x01 } else { 0x02 };
+        info!("[aacp] setting conversation detection to {}", enabled);
+        if let Err(e) = self
+            .send_control_command(
+                ControlCommandIdentifiers::ConversationDetectConfig,
+                &[value],
+            )
+            .await
+        {
+            warn!("[hires] failed to set conversation detection: {}", e);
+            return false;
+        }
+        // AirPods don't echo this back, so record it in our own status list
+        // (the source of truth for conversation_detection_enabled) and push it
+        // to the UI ourselves.
+        let mut state = self.state.lock().await;
+        if let Some(existing) = state
+            .control_command_status_list
+            .iter_mut()
+            .find(|s| s.identifier == ControlCommandIdentifiers::ConversationDetectConfig)
+        {
+            existing.value = vec![value];
+        } else {
+            state
+                .control_command_status_list
+                .push(ControlCommandStatus {
+                    identifier: ControlCommandIdentifiers::ConversationDetectConfig,
+                    value: vec![value],
+                });
+        }
+        if let Some(ref tx) = state.event_tx {
+            let _ = tx.send(AACPEvent::ControlCommand(ControlCommandStatus {
+                identifier: ControlCommandIdentifiers::ConversationDetectConfig,
+                value: vec![value],
+            }));
+        }
+        true
+    }
+
+    pub fn mic_level(&self) -> f32 {
+        self.mic_status.level()
+    }
+
+    pub fn mic_active(&self) -> bool {
+        self.mic_status.active()
+    }
+
+    pub fn mic_app(&self) -> Option<String> {
+        self.mic_status.app()
+    }
+
+    pub fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
+    }
+
+    pub fn hires_mic_enabled(&self) -> bool {
+        self.hires_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn hires_wake(&self) -> Arc<Notify> {
+        self.hires_wake.clone()
+    }
+
+    pub async fn set_hires_mic_enabled(&self, enabled: bool) {
+        self.hires_enabled.store(enabled, Ordering::Relaxed);
+        self.hires_wake.notify_one();
+        if enabled {
+            self.arm_hires_mic().await;
+        }
+    }
+
+    // Create the virtual device + monitor if the feature is enabled, AirPods are
+    // connected, and it is not already armed. Called on enable and on connect.
+    pub async fn arm_hires_mic(&self) {
+        if !self.hires_enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut guard = self.hires_mic.lock().await;
+        if guard.as_ref().is_some_and(|m| m.is_running()) {
+            return;
+        }
+        let addr = self.state.lock().await.airpods_mac.map(|a| a.to_string());
+        let Some(addr) = addr else {
+            return;
+        };
+        match crate::audio::hires_mic::HiResMic::start(self, addr, self.mic_status.clone()).await {
+            Some(mic) => *guard = Some(mic),
+            None => error!("Failed to start hi-res microphone"),
+        }
+    }
+
+    // Tear down the virtual device + monitor without clearing the enabled flag,
+    // so a later reconnect re-arms. Called on disable and on disconnect.
+    pub async fn disarm_hires_mic(&self) {
+        let mic = self.hires_mic.lock().await.take();
+        if let Some(mic) = mic {
+            mic.stop().await;
+        }
+    }
+
+    /// Open the AACP control channel, retrying a few times: right after the
+    /// AirPods connect the L2CAP channel can be refused or time out, and giving up
+    /// after one attempt would leave the device half-initialised until the next
+    /// reconnect.
+    /// Returns false if the channel could not be opened.
+    pub async fn connect(&mut self, addr: Address) -> bool {
+        const BACKOFF_SECS: [u64; 4] = [1, 2, 4, 8];
+        for attempt in 0..=BACKOFF_SECS.len() {
+            if self.try_connect(addr).await {
+                return true;
+            }
+            if let Some(backoff) = BACKOFF_SECS.get(attempt) {
+                warn!("AACP connect attempt {} failed; retrying in {}s", attempt + 1, backoff);
+                sleep(Duration::from_secs(*backoff)).await;
+            }
+        }
+        error!("Could not open the AACP channel to {}", addr);
+        false
+    }
+
+    async fn try_connect(&mut self, addr: Address) -> bool {
         info!("AACPManager connecting to {} on PSM {:#06X}...", addr, PSM);
         let target_sa = SocketAddr::new(addr, AddressType::BrEdr, PSM);
 
@@ -384,7 +638,7 @@ impl AACPManager {
             Ok(s) => s,
             Err(e) => {
                 error!("Failed to create L2CAP socket: {}", e);
-                return;
+                return false;
             }
         };
 
@@ -393,11 +647,11 @@ impl AACPManager {
                 Ok(Ok(s)) => Arc::new(s),
                 Ok(Err(e)) => {
                     error!("L2CAP connect failed: {}", e);
-                    return;
+                    return false;
                 }
                 Err(_) => {
                     error!("L2CAP connect timed out");
-                    return;
+                    return false;
                 }
             };
 
@@ -411,14 +665,14 @@ impl AACPManager {
                     if e.raw_os_error() == Some(107) {
                         // ENOTCONN
                         error!("Peer has disconnected during connection setup.");
-                        return;
+                        return false;
                     }
                     error!("Error getting peer address: {}", e);
                 }
             }
             if start.elapsed() >= CONNECT_TIMEOUT {
                 error!("Timed out waiting for L2CAP connection to be fully established.");
-                return;
+                return false;
             }
             sleep(POLL_INTERVAL).await;
         }
@@ -433,14 +687,19 @@ impl AACPManager {
             state.sender = Some(tx);
         }
 
+        self.connected.send_replace(true);
         let mut tasks = self.tasks.lock().await;
         tasks.spawn(recv_thread(manager_clone, seq_packet.clone()));
         tasks.spawn(send_thread(rx, seq_packet));
+        true
     }
 
     async fn send_packet(&self, data: &[u8]) -> Result<()> {
-        let state = self.state.lock().await;
-        if let Some(sender) = &state.sender {
+        // Clone the sender and release the state lock before the (bounded,
+        // possibly waiting) send: every incoming packet and the UI need that
+        // lock, and a stalled socket would otherwise freeze them all.
+        let sender = self.state.lock().await.sender.clone();
+        if let Some(sender) = sender {
             sender.send(data.to_vec()).await.map_err(|e| {
                 error!("Failed to send packet to channel: {}", e);
                 Error::from(std::io::Error::new(
@@ -603,13 +862,17 @@ impl AACPManager {
                         hex::encode(&value)
                     );
                 } else {
-                    error!(
+                    debug!(
                         "Unknown Control Command identifier: {:#04x}",
                         identifier_byte
                     );
                 }
             }
             opcodes::EAR_DETECTION => {
+                if packet.len() < 8 {
+                    error!("Ear detection packet too short: {}", hex::encode(packet));
+                    return;
+                }
                 let primary_status = packet[6];
                 let secondary_status = packet[7];
                 let mut statuses = Vec::new();
@@ -651,6 +914,10 @@ impl AACPManager {
                     "Received Ear Detection Status: {:?}",
                     state.ear_detection_status
                 );
+                drop(state);
+                self.ear_generation.fetch_add(1, Ordering::Relaxed);
+                // The hi-res monitor ties capture to "a bud is in an ear"; re-check now.
+                self.hires_wake.notify_one();
             }
             opcodes::CONVERSATION_AWARENESS => {
                 if packet.len() == 10 {
@@ -695,7 +962,9 @@ impl AACPManager {
                         strings.push(s.to_string());
                     }
                 }
-                strings.remove(0);
+                if !strings.is_empty() {
+                    strings.remove(0);
+                }
                 let info = AirPodsInformation {
                     name: strings.first().cloned().unwrap_or_default(),
                     model_number: strings.get(1).cloned().unwrap_or_default(),
@@ -720,16 +989,11 @@ impl AACPManager {
                     device_data.name = info.name.clone();
                     device_data.information = Some(DeviceInformation::AirPods(info.clone()));
                 }
-                let json = serde_json::to_string(&state.devices).unwrap();
-                if let Some(parent) = get_devices_path().parent()
-                    && let Err(e) = tokio::fs::create_dir_all(&parent).await
-                {
-                    error!("Failed to create directory for devices: {}", e);
-                    return;
-                }
-                if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
-                    error!("Failed to save devices: {}", e);
-                }
+                let json = serde_json::to_string(&state.devices);
+                // Don't hold the AACP state lock across disk I/O: every incoming
+                // packet needs it.
+                drop(state);
+                save_devices_json(json).await;
                 info!("Received Information: {:?}", info);
             }
 
@@ -807,16 +1071,11 @@ impl AACPManager {
                         }
                     }
                 }
-                let json = serde_json::to_string(&state.devices).unwrap();
-                if let Some(parent) = get_devices_path().parent()
-                    && let Err(e) = tokio::fs::create_dir_all(&parent).await
-                {
-                    error!("Failed to create directory for devices: {}", e);
-                    return;
-                }
-                if let Err(e) = tokio::fs::write(&get_devices_path(), json).await {
-                    error!("Failed to save devices: {}", e);
-                }
+                let json = serde_json::to_string(&state.devices);
+                // Don't hold the AACP state lock across disk I/O: every incoming
+                // packet needs it.
+                drop(state);
+                save_devices_json(json).await;
             }
             opcodes::STEM_PRESS => {
                 if payload.len() < 4 {
@@ -865,7 +1124,7 @@ impl AACPManager {
                     return;
                 }
                 let count = payload[2] as usize;
-                if payload.len() < 3 + count * 8 {
+                if payload.len() < 5 + count * 8 {
                     error!(
                         "Connected Devices packet length mismatch: {}",
                         hex::encode(payload)
@@ -905,7 +1164,7 @@ impl AACPManager {
                 info!("Received Connected Devices: {:?}", state.connected_devices);
             }
             opcodes::SMART_ROUTING_RESP => {
-                let packet_string = String::from_utf8_lossy(&payload[2..]);
+                let packet_string = String::from_utf8_lossy(payload.get(2..).unwrap_or(&[]));
                 info!("Received Smart Routing Response: {}", packet_string);
                 if packet_string.contains("SetOwnershipToFalse") {
                     info!("Received OwnershipToFalse request");
@@ -919,6 +1178,32 @@ impl AACPManager {
             }
             _ => debug!("Received unknown packet with opcode {:#04x}", opcode),
         }
+    }
+
+    /// Create the channel that recv_thread forwards 0x58 audio SDUs to, and
+    /// return the receiving half for the hi-res decode task. Replaces any
+    /// previously installed channel.
+    pub async fn take_audio_channel(&self) -> mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = mpsc::channel(AUDIO_CHANNEL_CAP);
+        let mut state = self.state.lock().await;
+        state.audio_tx = Some(tx);
+        rx
+    }
+
+    /// Stop forwarding audio SDUs
+    pub async fn clear_audio_channel(&self) {
+        let mut state = self.state.lock().await;
+        state.audio_tx = None;
+    }
+
+    /// Start the proprietary hi-res microphone stream (0x58 START).
+    pub async fn send_start_audio(&self) -> Result<()> {
+        self.send_packet(&AACP_START_AUDIO).await
+    }
+
+    /// Stop the proprietary hi-res microphone stream (0x58 STOP).
+    pub async fn send_stop_audio(&self) -> Result<()> {
+        self.send_packet(&AACP_STOP_AUDIO).await
     }
 
     pub async fn send_notification_request(&self) -> Result<()> {
@@ -1202,8 +1487,29 @@ impl AACPManager {
     }
 }
 
+/// Persist the devices file (atomically, off the async runtime).
+async fn save_devices_json(json: serde_json::Result<String>) {
+    let json = match json {
+        Ok(j) => j,
+        Err(e) => {
+            error!("Failed to serialize devices: {}", e);
+            return;
+        }
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        crate::utils::write_atomic(&get_devices_path(), json.as_bytes())
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => error!("Failed to save devices: {}", e),
+        Err(e) => error!("Failed to save devices: {}", e),
+    }
+}
+
 async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
-    let mut buf = vec![0u8; 1024];
+    let mut buf = vec![0u8; RECV_BUF_LEN];
+    manager.arm_hires_mic().await;
     loop {
         match sp.recv(&mut buf).await {
             Ok(0) => {
@@ -1212,6 +1518,21 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
             Ok(n) => {
                 let data = &buf[..n];
+
+                // Forward audio SDUs to the audio thread, leaving control SDUs for the control thread.
+                if crate::bluetooth::aacp_audio::is_audio(data) {
+                    // Device-level liveness for the hi-res stall watchdog.
+                    manager.mic_status.mark_sdu();
+                    let audio_tx = {
+                        let state = manager.state.lock().await;
+                        state.audio_tx.clone()
+                    };
+                    if let Some(tx) = audio_tx {
+                        let _ = tx.try_send(data.to_vec());
+                    }
+                    continue;
+                }
+
                 debug!("Received {} bytes: {}", n, hex::encode(data));
                 manager.receive_packet(data).await;
             }
@@ -1228,29 +1549,63 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
         }
     }
-    let mut state = manager.state.lock().await;
-    state.sender = None;
+    {
+        let mut state = manager.state.lock().await;
+        state.sender = None;
+        // Stale "InEar" would otherwise drive takeover / mic decisions later.
+        state.ear_detection_status.clear();
+        state.old_ear_detection_status.clear();
+    }
+    manager.connected.send_replace(false);
+    manager.disarm_hires_mic().await;
 }
 
 async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
     while let Some(data) = rx.recv().await {
         let mut attempts = 0;
         loop {
-          match sp.send(&data).await {
-            Ok(_) => {
-              debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
-              break;
+            match sp.send(&data).await {
+                Ok(_) => {
+                    debug!("Sent {} bytes: {}", data.len(), hex::encode(&data));
+                    break;
+                }
+                Err(e) if e.raw_os_error() == Some(107) && attempts < 10 => {
+                    attempts += 1;
+                    sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => {
+                    error!("Failed to send data: {}", e);
+                    return;
+                }
             }
-            Err(e) if e.raw_os_error() == Some(107) && attempts < 10 => {
-              attempts += 1;
-              sleep(Duration::from_millis(100)).await;
-            }
-            Err(e) => {
-              error!("Failed to send data: {}", e);
-              return;
-            }
-          }
         }
     }
     info!("Send thread finished.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AACPManager, HEADER_BYTES, opcodes};
+
+    /// A connected-devices packet that announces more entries than it carries
+    /// must be rejected, not read past its end.
+    #[tokio::test]
+    async fn short_connected_devices_packet_is_rejected() {
+        let manager = AACPManager::new();
+        for extra in 0..2 {
+            // opcode, 0x00, count = 1, then 8 + `extra` bytes: one or two
+            // short of the 10 the entry needs (it starts at offset 5).
+            let mut packet = HEADER_BYTES.to_vec();
+            packet.extend_from_slice(&[opcodes::CONNECTED_DEVICES, 0x00, 0x01]);
+            packet.extend(std::iter::repeat_n(0xAA, 8 + extra));
+            manager.receive_packet(&packet).await;
+            assert!(manager.state.lock().await.connected_devices.is_empty());
+        }
+        // A complete one is still accepted.
+        let mut packet = HEADER_BYTES.to_vec();
+        packet.extend_from_slice(&[opcodes::CONNECTED_DEVICES, 0x00, 0x01]);
+        packet.extend(std::iter::repeat_n(0xAA, 10));
+        manager.receive_packet(&packet).await;
+        assert_eq!(manager.state.lock().await.connected_devices.len(), 1);
+    }
 }
