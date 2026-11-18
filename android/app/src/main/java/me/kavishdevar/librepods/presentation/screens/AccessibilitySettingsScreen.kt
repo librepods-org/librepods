@@ -58,6 +58,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import me.kavishdevar.librepods.R
 import me.kavishdevar.librepods.bluetooth.AACPManager
@@ -285,6 +286,7 @@ fun AccessibilitySettingsScreen(viewModel: AirPodsViewModel, navigateToPurchase:
             snapshotFlow {
                 toneVolumeValue.floatValue
             }
+                .drop(1)
                 .debounce(100.milliseconds)
                 .collect {
                     viewModel.setControlCommandValue(
