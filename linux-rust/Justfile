@@ -1,26 +1,61 @@
 APP_NAME := "librepods"
 DESKTOP_FILE := "assets/me.kavishdevar.librepods.desktop"
+METAINFO_FILE := "flatpak/me.kavishdevar.librepods.metainfo.xml"
 ICON_FILE := "assets/icon.png"
 
 default: build-appimage
 
+PREFIX := env_var_or_default("PREFIX", env_var("HOME") + "/.local")
+
 build:
     cargo build --release
+
+# Install for the current user (shows up in the COSMIC/GNOME/KDE app launcher).
+install: build
+    install -Dm755 target/release/{{APP_NAME}} "{{PREFIX}}/bin/{{APP_NAME}}"
+    install -Dm644 {{DESKTOP_FILE}} "{{PREFIX}}/share/applications/me.kavishdevar.librepods.desktop"
+    install -Dm644 {{ICON_FILE}} "{{PREFIX}}/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png"
+    -update-desktop-database "{{PREFIX}}/share/applications" 2>/dev/null
+    -gtk-update-icon-cache -f -t "{{PREFIX}}/share/icons/hicolor" 2>/dev/null
+    @echo "Installed to {{PREFIX}}. Make sure {{PREFIX}}/bin is on your PATH."
+
+# COSMIC panel applet. Needs libxkbcommon-dev (sudo apt install libxkbcommon-dev).
+# After installing, add "LibrePods" in Settings > Desktop > Panel > Applets.
+install-cosmic-applet:
+    cd cosmic-applet && cargo build --release
+    install -Dm755 cosmic-applet/target/release/librepods-cosmic-applet "{{PREFIX}}/bin/librepods-cosmic-applet"
+    install -Dm644 cosmic-applet/me.kavishdevar.librepods.CosmicApplet.desktop "{{PREFIX}}/share/applications/me.kavishdevar.librepods.CosmicApplet.desktop"
+
+uninstall:
+    rm -f "{{PREFIX}}/bin/{{APP_NAME}}" \
+          "{{PREFIX}}/share/applications/me.kavishdevar.librepods.desktop" \
+          "{{PREFIX}}/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png" \
+          "{{PREFIX}}/bin/librepods-cosmic-applet" \
+          "{{PREFIX}}/share/applications/me.kavishdevar.librepods.CosmicApplet.desktop"
 
 prepare:
     #!/usr/bin/env bash
     set -euo pipefail
 
     tmpdir="$(mktemp -d)"
+    # mktemp creates the dir as 0700; the AppImage root must be readable by
+    # everyone or other users get "Permission denied" (appimagetool rejects it).
+    chmod 755 "$tmpdir"
     echo "Building AppDir in: $tmpdir"
 
     mkdir -p "$tmpdir/usr/bin"
     mkdir -p "$tmpdir/usr/share/applications"
     mkdir -p "$tmpdir/usr/share/icons/hicolor/256x256/apps"
+    mkdir -p "$tmpdir/usr/share/metainfo"
 
     cp target/release/{{APP_NAME}} "$tmpdir/usr/bin/"
     cp assets/icon.png "$tmpdir/usr/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png"
-    cp {{DESKTOP_FILE}} "$tmpdir/{{APP_NAME}}.desktop"
+    # Name the desktop file after the app ID so it matches the Wayland app_id and
+    # the AppStream metadata's <launchable>.
+    cp {{DESKTOP_FILE}} "$tmpdir/me.kavishdevar.librepods.desktop"
+    # appimagetool looks for usr/share/metainfo/<desktop file name>.appdata.xml
+    # and validates it with appstreamcli.
+    cp {{METAINFO_FILE}} "$tmpdir/usr/share/metainfo/me.kavishdevar.librepods.appdata.xml"
 
     printf '%s\n' \
         '#!/bin/bash' \
@@ -39,7 +74,7 @@ bundle:
     linuxdeploy \
         --appdir "$tmpdir" \
         --executable "$tmpdir/usr/bin/{{APP_NAME}}" \
-        --desktop-file "$tmpdir/{{APP_NAME}}.desktop" \
+        --desktop-file "$tmpdir/me.kavishdevar.librepods.desktop" \
         --icon-file "$tmpdir/usr/share/icons/hicolor/256x256/apps/me.kavishdevar.librepods.png"
 
 build-appimage: build prepare bundle
@@ -47,7 +82,18 @@ build-appimage: build prepare bundle
     set -euo pipefail
     tmpdir="$(cat .appdir_path)"
     mkdir -p dist
-    appimagetool "$tmpdir" "dist/LibrePods-x86_64.AppImage"
+    # appimagetool validates the AppDir (desktop file, AppStream) and builds the
+    # AppImage, but its bundled mksquashfs only supports zstd. AppImageLauncher
+    # 2.x (still common on Ubuntu) can only open gzip/xz images and fails with
+    # "Can't open squashfs image". Repack with gzip on the same runtime, which
+    # reads both zstd and gzip: an AppImage is the runtime + a squashfs image.
+    appimagetool "$tmpdir" "dist/LibrePods-x86_64.AppImage.zstd"
+    offset="$(./dist/LibrePods-x86_64.AppImage.zstd --appimage-offset)"
+    head -c "$offset" "dist/LibrePods-x86_64.AppImage.zstd" > dist/runtime
+    mksquashfs "$tmpdir" dist/app.squashfs -root-owned -noappend -comp gzip -quiet
+    cat dist/runtime dist/app.squashfs > "dist/LibrePods-x86_64.AppImage"
+    chmod 755 "dist/LibrePods-x86_64.AppImage"
+    rm -f dist/runtime dist/app.squashfs "dist/LibrePods-x86_64.AppImage.zstd"
     rm -rf "$tmpdir" .appdir_path
     echo "Done!"
 

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Name=LibrePods
+Comment=AirPods battery and noise control
+Type=Application
+Exec=librepods-cosmic-applet
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;AirPods;Headphones;Battery;Bluetooth;
+Icon=audio-headphones-symbolic
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicShrinkable=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=10

@@ -1,5 +1,5 @@
 use crate::bluetooth::aacp::{
-    AACPEvent, BatteryComponent, BatteryStatus, ControlCommandIdentifiers,
+    AACPEvent, BatteryComponent, BatteryInfo, BatteryStatus, ControlCommandIdentifiers,
 };
 use crate::bluetooth::managers::DeviceManagers;
 use crate::devices::enums::{
@@ -9,17 +9,18 @@ use crate::devices::enums::{
 use crate::ui::airpods::airpods_view;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::nothing::nothing_view;
-use crate::utils::{MyTheme, get_app_settings_path, get_devices_path};
+use crate::utils::{MyTheme, get_app_settings_path, get_devices_path, is_autostart_enabled, set_autostart};
 use bluer::{Address};
 use iced::border::Radius;
 use iced::overlay::menu;
 use iced::widget::button::Style;
 use iced::widget::rule::FillMode;
 use iced::widget::{
-    Space, button, column, combo_box, container, pane_grid, row, rule, scrollable, text,
+    Space, button, column, combo_box, container, image, row, rule, scrollable, text,
     text_input, toggler
 };
-use iced::{Background, Border, Center, Element, Font, Length, Padding, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
+use crate::ui::components;
+use iced::{Background, Border, Center, Element, Font, Length, Size, Subscription, Task, Theme, daemon, window, Settings, Program};
 use log::{debug, error};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,7 +53,10 @@ pub fn start_ui(
     .theme(App::theme)
     .title(App::title)
     .settings(Settings {
-        id: Some("librepods".to_string()),
+        // On Wayland this becomes the xdg app_id; it must match the .desktop file
+        // basename so COSMIC (and other compositors) can show the right icon/name
+        // in the dock and app switcher.
+        id: Some(APP_ID.to_string()),
         fonts: vec![include_bytes!("../../assets/font/sf_pro.otf").as_slice().into()],
         default_font: Font::with_name("SF Pro Text"),
         ..Settings::default()
@@ -60,9 +64,24 @@ pub fn start_ui(
     .run()
 }
 
+pub const APP_ID: &str = "me.kavishdevar.librepods";
+
+fn main_window_settings() -> window::Settings {
+    let mut settings = window::Settings::default();
+    settings.size = Size::new(DEFAULT_WIDTH, 640.0);
+    settings.min_size = Some(Size::new(360.0, 420.0));
+    // Embed the icon: a relative path is resolved against the current working
+    // directory at runtime, which is never the source tree for an installed app.
+    settings.icon =
+        window::icon::from_file_data(include_bytes!("../../assets/icon.png"), None).ok();
+    settings.platform_specific.application_id = APP_ID.to_string();
+    settings
+}
+
 pub struct App {
     window: Option<window::Id>,
-    panes: pane_grid::State<Pane>,
+    /// Current window width, for the compact layout.
+    window_width: f32,
     selected_tab: Tab,
     theme_state: combo_box::State<MyTheme>,
     selected_theme: MyTheme,
@@ -76,6 +95,27 @@ pub struct App {
     selected_device_type: Option<DeviceType>,
     tray_text_mode: bool,
     stem_control: bool,
+    low_battery_notifications: bool,
+    start_on_login: bool,
+    /// Whether the "About this device" card is expanded.
+    about_expanded: bool,
+    /// Last case battery seen per device, shown while the case is out of reach.
+    /// Last live case battery per device, saved across restarts.
+    saved_cases: HashMap<String, crate::utils::SavedCase>,
+    /// Devices a "Connect" request is in progress for, and the last error per device.
+    connecting: std::collections::HashSet<String>,
+    connect_errors: HashMap<String, String>,
+    /// Saved devices (devices.json), cached instead of re-read on every redraw.
+    devices: HashMap<String, DeviceData>,
+    /// Rename being typed: sent once typing pauses or Enter is pressed.
+    pending_rename: Option<(String, String)>,
+    rename_generation: u64,
+    /// Pairing helper: `None` idle, `Some(None)` searching, `Some(Some(result))` done.
+    pairing: Option<Option<Result<String, String>>>,
+    /// Desktop dark/light preference from the XDG portal, for the "System" theme.
+    system_dark: Option<bool>,
+    /// Bluetooth adapter state: `Some(false)` = off or no adapter, `None` = not known yet.
+    bluetooth_on: Option<bool>,
 }
 
 pub struct BluetoothState {
@@ -94,7 +134,7 @@ impl BluetoothState {
 pub enum Message {
     WindowOpened(window::Id),
     WindowClosed(window::Id),
-    Resized(pane_grid::ResizeEvent),
+    WindowResized(f32),
     SelectTab(Tab),
     ThemeSelected(MyTheme),
     CopyToClipboard(String),
@@ -106,22 +146,71 @@ pub enum Message {
     ConfirmAddDevice,
     CancelAddDevice,
     StateChanged(String, DeviceState),
+    /// A single user change to an AirPods setting. Applied to the current state so
+    /// a stale snapshot from the last render can't overwrite newer values reported
+    /// by the device (upstream issue #423).
+    AirPodsChanged(String, AirPodsChange),
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
+    LowBatteryNotificationsChanged(bool),
+    StartOnLoginChanged(bool),
+    ToggleAboutDevice,
+    /// Connect a paired device, e.g. AirPods that are currently with an iPhone.
+    ConnectDevice(String),
+    ConnectFinished(String, Result<(), String>),
+    /// AirPods state read off the UI thread when a device connects.
+    AirPodsSnapshot(String, Option<AirPodsState>),
+    /// Background work finished; nothing to update.
+    Ignore,
+    /// The name field changed (not sent to the AirPods yet).
+    RenameEdited(String, String),
+    /// Send the pending rename: `Some(generation)` from the typing pause timer,
+    /// `None` on Enter.
+    RenameCommit(Option<u64>),
+    /// The status shared with the tray and applet (includes data from BLE
+    /// broadcasts, such as the case battery, that the AACP connection lacks).
+    SharedStatus(crate::ipc::Status),
+    StartPairing,
+    SystemDarkChanged(bool),
+    BluetoothPowered(bool),
+    PairingFinished(Result<String, String>),
+}
+
+#[derive(Clone, Debug)]
+pub enum AirPodsChange {
+    DeviceName(String),
+    NoiseControlMode(AirPodsNoiseControlMode),
+    ConversationAwareness(bool),
+    PersonalizedVolume(bool),
+    AllowOffMode(bool),
+}
+
+fn noise_control_modes(allow_off: bool) -> combo_box::State<AirPodsNoiseControlMode> {
+    let mut modes = vec![
+        AirPodsNoiseControlMode::Transparency,
+        AirPodsNoiseControlMode::NoiseCancellation,
+        AirPodsNoiseControlMode::Adaptive,
+    ];
+    if allow_off {
+        modes.insert(0, AirPodsNoiseControlMode::Off);
+    }
+    combo_box::State::new(modes)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Tab {
     Device(String),
     Settings,
+    Pair,
     AddDevice,
 }
 
-#[derive(Clone, Copy)]
-pub enum Pane {
-    Sidebar,
-    Content,
-}
+/// Sidebar width, and the icon-only width used in narrow windows.
+const SIDEBAR_WIDTH: f32 = 220.0;
+const DEFAULT_WIDTH: f32 = 920.0;
+const SIDEBAR_COMPACT: f32 = 64.0;
+/// Below this window width, the sidebar shows icons only and cards stack.
+const COMPACT_BELOW: f32 = 720.0;
 
 impl App {
     pub fn new(
@@ -130,9 +219,6 @@ impl App {
         device_managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
         // stem_control: Arc<AtomicBool>,
     ) -> (Self, Task<Message>) {
-        let (mut panes, first_pane) = pane_grid::State::new(Pane::Sidebar);
-        let split = panes.split(pane_grid::Axis::Vertical, first_pane, Pane::Content);
-        panes.resize(split.unwrap().1, 0.2);
 
 
         let wait_task = Task::perform(wait_for_message(Arc::clone(&ui_rx)), |msg| msg);
@@ -140,9 +226,7 @@ impl App {
         let (window, open_task) = if start_minimized {
             (None, Task::none())
         } else {
-            let mut settings = window::Settings::default();
-            settings.min_size = Some(Size::new(400.0, 300.0));
-            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+            let settings = main_window_settings();
             let (id, open) = window::open(settings);
             (Some(id), open.map(Message::WindowOpened))
         };
@@ -155,7 +239,7 @@ impl App {
             .clone()
             .and_then(|v| v.get("theme").cloned())
             .and_then(|t| serde_json::from_value(t).ok())
-            .unwrap_or(MyTheme::Dark);
+            .unwrap_or(MyTheme::System);
         let tray_text_mode = settings
             .clone()
             .and_then(|v| v.get("tray_text_mode").cloned())
@@ -166,6 +250,11 @@ impl App {
             .and_then(|v| v.get("stem_control").cloned())
             .and_then(|s| serde_json::from_value(s).ok())
             .unwrap_or(false);
+        let low_battery_notifications = settings
+            .clone()
+            .and_then(|v| v.get("low_battery_notifications").cloned())
+            .and_then(|s| serde_json::from_value(s).ok())
+            .unwrap_or(true);
 
         let bluetooth_state = BluetoothState::new();
 
@@ -180,9 +269,10 @@ impl App {
         (
             Self {
                 window,
-                panes,
+                window_width: DEFAULT_WIDTH,
                 selected_tab: Tab::Device("none".to_string()),
                 theme_state: combo_box::State::new(vec![
+                    MyTheme::System,
                     MyTheme::Light,
                     MyTheme::Dark,
                     MyTheme::Dracula,
@@ -217,6 +307,18 @@ impl App {
                 device_managers,
                 tray_text_mode,
                 stem_control,
+                low_battery_notifications,
+                start_on_login: is_autostart_enabled(),
+                about_expanded: false,
+                saved_cases: crate::utils::load_last_cases(),
+                connecting: Default::default(),
+                connect_errors: HashMap::new(),
+                devices: crate::utils::load_devices(),
+                pending_rename: None,
+                rename_generation: 0,
+                pairing: None,
+                system_dark: crate::ui::system_theme::read(),
+                bluetooth_on: None,
             },
             Task::batch(vec![open_task, wait_task]),
         )
@@ -238,8 +340,8 @@ impl App {
                 }
                 Task::none()
             }
-            Message::Resized(event) => {
-                self.panes.resize(event.split, event.ratio);
+            Message::WindowResized(width) => {
+                self.window_width = width;
                 Task::none()
             }
             Message::SelectTab(tab) => {
@@ -248,18 +350,7 @@ impl App {
             }
             Message::ThemeSelected(theme) => {
                 self.selected_theme = theme;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
             Message::CopyToClipboard(data) => iced::clipboard::write(data),
@@ -277,9 +368,7 @@ impl App {
                         if let Some(window_id) = self.window {
                             Task::batch(vec![window::gain_focus(window_id), wait_task])
                         } else {
-                            let mut settings = window::Settings::default();
-                            settings.min_size = Some(Size::new(400.0, 300.0));
-                            settings.icon = window::icon::from_file("../../assets/icon.png").ok();
+                            let settings = main_window_settings();
                             let (new_window_task, open_task) = window::open(settings);
                             self.window = Some(new_window_task);
                             Task::batch(vec![open_task.map(Message::WindowOpened), wait_task])
@@ -288,6 +377,8 @@ impl App {
                     BluetoothUIMessage::DeviceConnected(mac) => {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
+                        self.connecting.remove(&mac);
+                        self.connect_errors.remove(&mac);
                         debug!(
                             "Device connected: {}. Adding to connected devices list",
                             mac
@@ -307,82 +398,24 @@ impl App {
                         //     conversation_awareness_enabled: false,
                         // }));
 
-                        let type_ = {
-                            let devices_json = std::fs::read_to_string(get_devices_path())
-                                .unwrap_or_else(|e| {
-                                    error!("Failed to read devices file: {}", e);
-                                    "{}".to_string()
-                                });
-                            let devices_list: HashMap<String, DeviceData> =
-                                serde_json::from_str(&devices_json).unwrap_or_else(|e| {
-                                    error!("Deserialization failed: {}", e);
-                                    HashMap::new()
-                                });
-                            devices_list.get(&mac).map(|d| d.type_.clone())
-                        };
+                        // A newly paired device is saved when it first connects.
+                        if !self.devices.contains_key(&mac) {
+                            self.devices = crate::utils::load_devices();
+                        }
+                        let type_ = self.devices.get(&mac).map(|d| d.type_.clone());
                         match type_ {
                             Some(DeviceType::AirPods) => {
-                                let device_managers = self.device_managers.blocking_read();
-                                let device_manager = device_managers.get(&mac).unwrap();
-                                let aacp_manager = device_manager.get_aacp().unwrap();
-                                let aacp_manager_state = aacp_manager.state.clone();
-                                let state = aacp_manager_state.blocking_lock();
-                                debug!("AACP manager found for AirPods device {}", mac);
-                                let device_name = {
-                                    let devices_json = std::fs::read_to_string(get_devices_path())
-                                        .unwrap_or_else(|e| {
-                                            error!("Failed to read devices file: {}", e);
-                                            "{}".to_string()
-                                        });
-                                    let devices_list: HashMap<String, DeviceData> =
-                                        serde_json::from_str(&devices_json).unwrap_or_else(|e| {
-                                            error!("Deserialization failed: {}", e);
-                                            HashMap::new()
-                                        });
-                                    devices_list
-                                        .get(&mac)
-                                        .map(|d| d.name.clone())
-                                        .unwrap_or_else(|| "Unknown Device".to_string())
-                                };
-                                self.device_states.insert(mac.clone(), DeviceState::AirPods(AirPodsState {
-                                    device_name,
-                                    battery: state.battery_info.clone(),
-                                    noise_control_mode: state.control_command_status_list.iter().find_map(|status| {
-                                        if status.identifier == ControlCommandIdentifiers::ListeningMode {
-                                            status.value.first().map(AirPodsNoiseControlMode::from_byte)
-                                        } else {
-                                            None
-                                        }
-                                    }).unwrap_or(AirPodsNoiseControlMode::Transparency),
-                                    noise_control_state: combo_box::State::new(
-                                        {
-                                            let mut modes = vec![
-                                                AirPodsNoiseControlMode::Transparency,
-                                                AirPodsNoiseControlMode::NoiseCancellation,
-                                                AirPodsNoiseControlMode::Adaptive
-                                            ];
-                                            if state.control_command_status_list.iter().any(|status| {
-                                                status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                                matches!(status.value.as_slice(), [0x01])
-                                            }) {
-                                                modes.insert(0, AirPodsNoiseControlMode::Off);
-                                            }
-                                            modes
-                                        }
+                                let name = self.devices.get(&mac).map(|d| d.name.clone())
+                                    .unwrap_or_else(|| "AirPods".to_string());
+                                let managers = Arc::clone(&self.device_managers);
+                                let mac_for_msg = mac.clone();
+                                return Task::batch(vec![
+                                    wait_task,
+                                    Task::perform(
+                                        airpods_snapshot(managers, mac.clone(), name),
+                                        move |state| Message::AirPodsSnapshot(mac_for_msg.clone(), state),
                                     ),
-                                    conversation_awareness_enabled: state.control_command_status_list.iter().any(|status| {
-                                        status.identifier == ControlCommandIdentifiers::ConversationDetectConfig &&
-                                        matches!(status.value.as_slice(), [0x01])
-                                    }),
-                                    personalized_volume_enabled: state.control_command_status_list.iter().any(|status| {
-                                        status.identifier == ControlCommandIdentifiers::AdaptiveVolumeConfig &&
-                                        matches!(status.value.as_slice(), [0x01])
-                                    }),
-                                    allow_off_mode: state.control_command_status_list.iter().any(|status| {
-                                        status.identifier == ControlCommandIdentifiers::AllowOffOption &&
-                                        matches!(status.value.as_slice(), [0x01])
-                                    }),
-                                }));
+                                ]);
                             }
                             Some(DeviceType::Nothing) => {
                                 self.device_states.insert(
@@ -416,15 +449,31 @@ impl App {
 
                         self.device_states.remove(&mac);
 
-                        if matches!(&self.selected_tab, Tab::Device(selected_mac) if selected_mac == &mac) {
-                            self.selected_tab = Tab::Device("none".to_string());
-                        }
 
                         Task::batch(vec![wait_task])
                     }
                     BluetoothUIMessage::AACPUIEvent(mac, event) => {
                         let ui_rx = Arc::clone(&self.ui_rx);
                         let wait_task = Task::perform(wait_for_message(ui_rx), |msg| msg);
+                        // First connection of new AirPods: they're saved to devices.json
+                        // shortly after connecting, so pick them up on their first event.
+                        if !self.device_states.contains_key(&mac)
+                            && self.bluetooth_state.connected_devices.contains(&mac)
+                        {
+                            self.devices = crate::utils::load_devices();
+                            if let Some(d) = self.devices.get(&mac)
+                                && d.type_ == DeviceType::AirPods
+                            {
+                                let managers = Arc::clone(&self.device_managers);
+                                let (name, m) = (d.name.clone(), mac.clone());
+                                return Task::batch(vec![
+                                    wait_task,
+                                    Task::perform(airpods_snapshot(managers, mac.clone(), name), move |st| {
+                                        Message::AirPodsSnapshot(m.clone(), st)
+                                    }),
+                                ]);
+                            }
+                        }
                         debug!("AACP UI Event for {}: {:?}", mac, event);
                         match event {
                             AACPEvent::ControlCommand(status) => match status.identifier {
@@ -510,11 +559,21 @@ impl App {
                                 }
                             },
                             AACPEvent::BatteryInfo(battery_info) => {
+                                if let Some(case) = battery_info.iter().find(|b| b.component == BatteryComponent::Case) {
+                                    self.remember_case(&mac, case);
+                                }
                                 if let Some(DeviceState::AirPods(state)) =
                                     self.device_states.get_mut(&mac)
                                 {
                                     state.battery = battery_info;
                                     debug!("Updated battery info for {}: {:?}", mac, state.battery);
+                                }
+                            }
+                            AACPEvent::EarDetection(_, new_status) => {
+                                if let Some(DeviceState::AirPods(state)) =
+                                    self.device_states.get_mut(&mac)
+                                {
+                                    state.ear_status = new_status;
                                 }
                             }
                             _ => {}
@@ -559,7 +618,7 @@ impl App {
                 {
                     let devices_path = get_devices_path();
                     let devices_json = std::fs::read_to_string(&devices_path).unwrap_or_else(|e| {
-                        error!("Failed to read devices file: {}", e);
+                        if e.kind() != std::io::ErrorKind::NotFound { error!("Failed to read devices file: {}", e); }
                         "{}".to_string()
                     });
                     let mut devices_list: HashMap<String, DeviceData> =
@@ -582,6 +641,7 @@ impl App {
                     if let Err(e) = std::fs::write(&devices_path, updated_json) {
                         error!("Failed to write devices file: {}", e);
                     }
+                    self.devices = crate::utils::load_devices();
                     self.selected_tab = Tab::Device(addr.to_string());
                 }
                 Task::none()
@@ -591,22 +651,150 @@ impl App {
                 self.selected_device_type = None;
                 Task::none()
             }
+            Message::ConnectDevice(mac) => {
+                let Ok(addr) = mac.parse::<Address>() else {
+                    return Task::none();
+                };
+                self.connect_errors.remove(&mac);
+                self.connecting.insert(mac.clone());
+                Task::perform(
+                    async move { crate::bluetooth::discovery::connect_device(addr).await },
+                    move |result| Message::ConnectFinished(mac.clone(), result),
+                )
+            }
+            Message::Ignore => Task::none(),
+            Message::BluetoothPowered(on) => {
+                self.bluetooth_on = Some(on);
+                Task::none()
+            }
+            Message::SystemDarkChanged(dark) => {
+                debug!("Desktop color scheme changed: {}", if dark { "dark" } else { "light" });
+                self.system_dark = Some(dark);
+                Task::none()
+            }
+            Message::StartPairing => {
+                self.pairing = Some(None);
+                Task::perform(crate::bluetooth::discovery::pair_new_airpods(), Message::PairingFinished)
+            }
+            Message::PairingFinished(result) => {
+                self.pairing = Some(Some(result));
+                Task::none()
+            }
+            Message::SharedStatus(status) => {
+                let mac = self.bluetooth_state.connected_devices.iter().find(|m| {
+                    self.devices.get(*m).is_some_and(|d| d.type_ == DeviceType::AirPods)
+                }).cloned();
+                if let (Some(mac), Some(case)) = (mac, status.case) {
+                    let info = BatteryInfo {
+                        component: BatteryComponent::Case,
+                        level: case.level,
+                        status: if !case.connected {
+                            BatteryStatus::Disconnected
+                        } else if case.charging {
+                            BatteryStatus::Charging
+                        } else {
+                            BatteryStatus::NotCharging
+                        },
+                    };
+                    self.remember_case(&mac, &info);
+                    // Only fill in a live case reading the AirPods didn't give us directly.
+                    if case.connected
+                        && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
+                        && !state.battery.iter().any(|b| b.component == BatteryComponent::Case)
+                    {
+                        state.battery.push(info);
+                    }
+                }
+                Task::none()
+            }
+            Message::RenameEdited(mac, name) => {
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    state.device_name = name.clone();
+                }
+                self.pending_rename = Some((mac, name));
+                self.rename_generation += 1;
+                let generation = self.rename_generation;
+                Task::perform(
+                    async { tokio::time::sleep(std::time::Duration::from_millis(800)).await },
+                    move |_| Message::RenameCommit(Some(generation)),
+                )
+            }
+            Message::RenameCommit(generation) => {
+                if generation.is_some_and(|g| g != self.rename_generation) {
+                    return Task::none(); // more typing happened since
+                }
+                match self.pending_rename.take() {
+                    Some((mac, name)) if !name.trim().is_empty() => self.update(
+                        Message::AirPodsChanged(mac, AirPodsChange::DeviceName(name.trim().to_string())),
+                    ),
+                    _ => Task::none(),
+                }
+            }
+            Message::AirPodsSnapshot(mac, state) => {
+                match state {
+                    Some(state) if self.bluetooth_state.connected_devices.contains(&mac) => {
+                        if let Some(case) = state.battery.iter().find(|b| b.component == BatteryComponent::Case) {
+                            self.remember_case(&mac, &case);
+                        }
+                        self.device_states.insert(mac, DeviceState::AirPods(state));
+                    }
+                    Some(_) => debug!("Ignoring snapshot for {}: no longer connected", mac),
+                    None => error!("AirPods {} connected but no AACP manager was found", mac),
+                }
+                Task::none()
+            }
+            Message::ConnectFinished(mac, result) => {
+                self.connecting.remove(&mac);
+                if let Err(e) = result {
+                    self.connect_errors.insert(mac, e);
+                }
+                Task::none()
+            }
+            Message::ToggleAboutDevice => {
+                self.about_expanded = !self.about_expanded;
+                Task::none()
+            }
+            Message::AirPodsChanged(mac, change) => {
+                // Send the change to the AirPods here, not in the view: buttons build
+                // their message while rendering, so the view must stay side-effect free.
+                {
+                    let managers = Arc::clone(&self.device_managers);
+                    let (mac, change) = (mac.clone(), change.clone());
+                    crate::utils::spawn_bg(async move {
+                        let aacp = managers.read().await.get(&mac).and_then(|m| m.get_aacp());
+                        match aacp {
+                            Some(aacp) => crate::ui::airpods::send_change(aacp, &change),
+                            None => error!("No AACP manager for {}; change not sent", mac),
+                        }
+                    });
+                }
+                if let AirPodsChange::DeviceName(name) = &change {
+                    save_device_name(&mac, name);
+                    if let Some(d) = self.devices.get_mut(&mac) {
+                        d.name = name.clone();
+                    }
+                    crate::ipc::set_device_name(name.clone());
+                }
+                if let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac) {
+                    match change {
+                        AirPodsChange::DeviceName(name) => state.device_name = name,
+                        AirPodsChange::NoiseControlMode(mode) => state.noise_control_mode = mode,
+                        AirPodsChange::ConversationAwareness(v) => {
+                            state.conversation_awareness_enabled = v
+                        }
+                        AirPodsChange::PersonalizedVolume(v) => state.personalized_volume_enabled = v,
+                        AirPodsChange::AllowOffMode(v) => {
+                            state.allow_off_mode = v;
+                            state.noise_control_state = noise_control_modes(v);
+                        }
+                    }
+                }
+                Task::none()
+            }
             Message::StateChanged(mac, state) => {
                 self.device_states.insert(mac.clone(), state);
                 // if airpods, update the noise control state combo box based on allow off mode
-                let type_ = {
-                    let devices_json =
-                        std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-                            error!("Failed to read devices file: {}", e);
-                            "{}".to_string()
-                        });
-                    let devices_list: HashMap<String, DeviceData> =
-                        serde_json::from_str(&devices_json).unwrap_or_else(|e| {
-                            error!("Deserialization failed: {}", e);
-                            HashMap::new()
-                        });
-                    devices_list.get(&mac).map(|d| d.type_.clone())
-                };
+                let type_ = self.devices.get(&mac).map(|d| d.type_.clone());
                 if let Some(DeviceType::AirPods) = type_
                     && let Some(DeviceState::AirPods(state)) = self.device_states.get_mut(&mac)
                 {
@@ -626,682 +814,773 @@ impl App {
             }
             Message::TrayTextModeChanged(is_enabled) => {
                 self.tray_text_mode = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
+                Task::none()
+            }
+            Message::LowBatteryNotificationsChanged(enabled) => {
+                self.low_battery_notifications = enabled;
+                self.save_settings();
+                Task::none()
+            }
+            Message::StartOnLoginChanged(is_enabled) => {
+                match set_autostart(is_enabled) {
+                    Ok(()) => self.start_on_login = is_enabled,
+                    Err(e) => log::error!("Failed to update autostart entry: {}", e),
+                }
                 Task::none()
             }
             Message::StemControlChanged(is_enabled) => {
                 self.stem_control = is_enabled;
-                let app_settings_path = get_app_settings_path();
-                let settings = serde_json::json!({
-                    "theme": self.selected_theme,
-                    "tray_text_mode": self.tray_text_mode,
-                    "stem_control": self.stem_control,
-                });
-                debug!(
-                    "Writing settings to {}: {}",
-                    app_settings_path.to_str().unwrap(),
-                    settings
-                );
-                std::fs::write(app_settings_path, settings.to_string()).ok();
+                self.save_settings();
                 Task::none()
             }
         }
     }
 
     fn view(&self, _id: window::Id) -> Element<'_, Message> {
-        let devices_json = std::fs::read_to_string(get_devices_path()).unwrap_or_else(|e| {
-            error!("Failed to read devices file: {}", e);
-            "{}".to_string()
-        });
-        let devices_list: HashMap<String, DeviceData> = serde_json::from_str(&devices_json)
-            .unwrap_or_else(|e| {
-                error!("Deserialization failed: {}", e);
-                HashMap::new()
-            });
-        let pane_grid = pane_grid::PaneGrid::new(&self.panes, |_pane_id, pane, _is_maximized| {
-            match pane {
-                Pane::Sidebar => {
-                    let create_tab_button = |tab: Tab, label: &str, mac_addr: &str, connected: bool| -> Element<'_, Message> {
-                        let label = label.to_string() + if connected { " 􀉣" } else { "" };
-                        let is_selected = self.selected_tab == tab;
-                        let col = column![
-                            text(label).size(16),
-                            text({
-                                if connected {
-                                    let mac = match tab {
-                                        Tab::Device(ref mac) => mac.as_str(),
-                                        _ => "",
-                                    };
-
-                                    match self.device_states.get(mac) {
-                                        Some(DeviceState::AirPods(state)) => {
-                                            let b = &state.battery;
-                                            let headphone = b.iter().find(|x| x.component == BatteryComponent::Headphone)
-                                                .map(|x| x.level);
-                                            // if headphones is not None, use only that
-                                            if let Some(level) = headphone {
-                                                let charging = b.iter().find(|x| x.component == BatteryComponent::Headphone)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                format!(
-                                                    "􀺹 {}%{}",
-                                                    level, if charging {"\u{1002E6}"} else {""}
-                                                )
-                                            } else {
-                                                let left  = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let right = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let case  = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.level).unwrap_or_default();
-                                                let left_charging = b.iter().find(|x| x.component == BatteryComponent::Left)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let right_charging = b.iter().find(|x| x.component == BatteryComponent::Right)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                let case_charging = b.iter().find(|x| x.component == BatteryComponent::Case)
-                                                    .map(|x| x.status == BatteryStatus::Charging).unwrap_or(false);
-                                                format!(
-                                                    "\u{1018E5} {}%{} \u{1018E8} {}%{} \u{100E6C} {}%{}",
-                                                    left, if left_charging {"\u{1002E6}"} else {""}, right, if right_charging {"\u{1002E6}"} else {""}, case, if case_charging {"\u{1002E6}"} else {""}
-                                                )
-                                            }
-                                        }
-                                        _ => "Connected".to_string(),
-                                    }
-                                } else {
-                                    mac_addr.to_string()
-                                }
-                            }).size(12)
-                        ];
-                        let content = container(col)
-                            .padding(8);
-                        let style = move |theme: &Theme, _status| {
-                            if is_selected {
-                                let mut style = Style::default()
-                                    .with_background(theme.palette().primary);
-                                let mut border = Border::default();
-                                border.color = theme.palette().text;
-                                style.border = border.rounded(12);
-                                style
-                            } else {
-                                let mut style = Style::default()
-                                    .with_background(theme.palette().primary.scale_alpha(0.1));
-                                let mut border = Border::default();
-                                border.color = theme.palette().primary.scale_alpha(0.1);
-                                style.border = border.rounded(8);
-                                style.text_color = theme.palette().text;
-                                style
-                            }
-                        };
-                        button(content)
-                            .style(style)
-                            .padding(5)
-                            .on_press(Message::SelectTab(tab))
-                            .width(Length::Fill)
-                            .into()
-                    };
-
-                    let create_settings_button = || -> Element<'_, Message> {
-                        let label = "Settings".to_string();
-                        let is_selected = self.selected_tab == Tab::Settings;
-                        let col = column![text(label).size(16)];
-                        let content = container(col)
-                            .padding(8);
-                        let style = move |theme: &Theme, _status| {
-                            if is_selected {
-                                let mut style = Style::default()
-                                    .with_background(theme.palette().primary);
-                                let mut border = Border::default();
-                                border.color = theme.palette().text;
-                                style.border = border.rounded(12);
-                                style
-                            } else {
-                                let mut style = Style::default()
-                                    .with_background(theme.palette().primary.scale_alpha(0.1));
-                                let mut border = Border::default();
-                                border.color = theme.palette().primary.scale_alpha(0.1);
-                                style.border = border.rounded(8);
-                                style.text_color = theme.palette().text;
-                                style
-                            }
-                        };
-                        button(content)
-                            .style(style)
-                            .padding(5)
-                            .on_press(Message::SelectTab(Tab::Settings))
-                            .width(Length::Fill)
-                            .into()
-                    };
-
-                    let mut devices = column!().spacing(4);
-                    let mut devices_vec: Vec<(String, DeviceData)> = devices_list.clone().into_iter().collect();
-                    devices_vec.sort_by(|a, b| a.1.name.cmp(&b.1.name));
-                    for (mac, device) in devices_vec {
-                        let name = device.name.clone();
-                        let tab_button = create_tab_button(
-                            Tab::Device(mac.clone()),
-                            &name,
-                            &mac,
-                            self.bluetooth_state.connected_devices.contains(&mac)
-                        );
-                        devices = devices.push(tab_button);
-                    }
-
-                    let settings = create_settings_button();
-
-                    let content = column![
-                        row![
-                            text("Devices").size(18),
-                            // Removing until I actually add support for devices other than AirPods
-                            // Space::new().width(Length::Fill),
-                            // button(
-                            //     container(text("+").size(18)).center_x(Length::Fill).center_y(Length::Fill)
-                            // )
-                            //     .style(
-                            //         |theme: &Theme, _status| {
-                            //             let mut style = Style::default();
-                            //             style.text_color = theme.palette().text;
-                            //             style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                            //             style.border = Border {
-                            //                 width: 1.0,
-                            //                 color: theme.palette().primary.scale_alpha(0.1),
-                            //                 radius: Radius::from(8.0),
-                            //             };
-                            //             style
-                            //         }
-                            //     )
-                            //     .padding(0)
-                            //     .width(Length::from(28))
-                            //     .height(Length::from(28))
-                            //     .on_press(Message::ShowNewDialogTab)
-                        ]
-                        .align_y(Center)
-                        .padding(4),
-                        Space::new().height(Length::from(8)),
-                        devices,
-                        Space::new().height(Length::Fill),
-                        settings
+        let devices_list = &self.devices;
+        let compact = self.is_compact();
+        let (title, body): (String, Element<'_, Message>) = match &self.selected_tab {
+            Tab::Device(id) if id == "none" => (
+                "Overview".to_string(),
+                container(
+                    column![
+                        text(components::glyph::AIRPODS).size(48).style(components::muted_text),
+                        text("No device selected").size(16).font(components::bold()),
+                        text("Connect your AirPods and they'll appear in the sidebar.")
+                            .size(13)
+                            .style(components::muted_text)
+                            .align_x(Center),
                     ]
-                        .padding(12);
-                    pane_grid::Content::new(
-                        row![
-                            content,
-                            rule::vertical(1).style(
-                                |theme: &Theme| {
-                                    rule::Style{
-                                        color: theme.palette().primary.scale_alpha(0.2),
-                                        radius: Radius::from(8.0),
-                                        fill_mode: FillMode::Full,
-                                        snap: false
-                                    }
-                                }
-                            )
-                        ]
-                    )
+                    .spacing(8)
+                    .align_x(Center),
+                )
+                .center_x(Length::Fill)
+                .padding(40)
+                .into(),
+            ),
+            Tab::Device(id) => ("Overview".to_string(), self.device_page(id, devices_list)),
+            Tab::Settings => ("Settings".to_string(), self.settings_page()),
+            Tab::Pair => ("Pair new AirPods".to_string(), self.pair_page()),
+            Tab::AddDevice => ("Add device".to_string(), self.add_device_view(devices_list)),
+        };
+        row![
+            container(self.sidebar(devices_list))
+                .width(if compact { SIDEBAR_COMPACT } else { SIDEBAR_WIDTH })
+                .height(Length::Fill),
+            rule::vertical(1).style(|theme: &Theme| rule::Style {
+                color: theme.extended_palette().background.base.text.scale_alpha(0.08),
+                radius: Radius::from(0.0),
+                fill_mode: FillMode::Full,
+                snap: true,
+            }),
+            column![
+                components::page_header(title, None),
+                scrollable(body).height(Length::Fill),
+            ]
+            .width(Length::Fill),
+        ]
+        .into()
+    }
+
+    fn theme(&self, _id: window::Id) -> Option<Theme> {
+        match (self.selected_theme, self.system_dark) {
+            // Choose explicitly; see ui::system_theme for why not to leave it to iced.
+            (MyTheme::System, Some(true)) => Some(Theme::Dark),
+            (MyTheme::System, Some(false)) => Some(Theme::Light),
+            _ => self.selected_theme.to_theme(),
+        }
+    }
+
+    fn subscription(&self) -> Subscription<Message> {
+        Subscription::batch([
+            window::close_events().map(Message::WindowClosed),
+            Subscription::run(shared_status_stream),
+            window::resize_events().map(|(_, size)| Message::WindowResized(size.width)),
+            Subscription::run(crate::ui::system_theme::changes).map(Message::SystemDarkChanged),
+            Subscription::run(bluetooth_power_stream).map(Message::BluetoothPowered),
+        ])
+    }
+}
+
+impl App {
+    /// Saves a live case reading (not one the AirPods merely remember).
+    fn remember_case(&mut self, mac: &str, case: &BatteryInfo) {
+        if case.status == BatteryStatus::Disconnected {
+            return;
+        }
+        let now = crate::utils::now_unix();
+        let reading = crate::utils::SavedCase {
+            level: case.level,
+            charging: case.status == BatteryStatus::Charging,
+            at: now,
+        };
+        let unchanged = self.saved_cases.get(mac).is_some_and(|prev| {
+            prev.level == reading.level && prev.charging == reading.charging && now.saturating_sub(prev.at) < 60
+        });
+        if !unchanged {
+            self.saved_cases.insert(mac.to_string(), reading);
+            crate::utils::save_last_cases(&self.saved_cases);
+        }
+    }
+
+    fn is_compact(&self) -> bool {
+        self.window_width < COMPACT_BELOW
+    }
+
+    /// Writes app settings, keeping keys this window doesn't know about.
+    fn save_settings(&self) {
+        let path = get_app_settings_path();
+        let mut settings = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .filter(|v| v.is_object())
+            .unwrap_or_else(|| serde_json::json!({}));
+        merge_settings(&mut settings, serde_json::json!({
+            "theme": self.selected_theme,
+            "tray_text_mode": self.tray_text_mode,
+            "stem_control": self.stem_control,
+            "low_battery_notifications": self.low_battery_notifications,
+        }));
+        debug!("Writing settings to {}: {}", path.display(), settings);
+        if let Err(e) = std::fs::write(&path, settings.to_string()) {
+            error!("Failed to save settings: {}", e);
+        }
+    }
+
+    /// Current name: the live one from the AirPods (updated on rename), falling
+    /// back to the saved one.
+    fn device_name(&self, mac: &str, devices_list: &HashMap<String, DeviceData>) -> Option<String> {
+        match self.device_states.get(mac) {
+            Some(DeviceState::AirPods(state)) if !state.device_name.is_empty() => {
+                Some(state.device_name.clone())
+            }
+            _ => devices_list.get(mac).map(|d| d.name.clone()),
+        }
+    }
+
+    fn connected_device_name(&self, devices_list: &HashMap<String, DeviceData>) -> Option<String> {
+        self.bluetooth_state
+            .connected_devices
+            .iter()
+            .find_map(|mac| self.device_name(mac, devices_list))
+    }
+
+    /// Short battery summary for the sidebar, e.g. "L 99% · R 98% · Case 31%".
+    fn battery_summary(&self, mac: &str) -> String {
+        match self.device_states.get(mac) {
+            Some(DeviceState::AirPods(state)) => {
+                let b = &state.battery;
+                let level = |c: BatteryComponent| {
+                    b.iter().find(|x| x.component == c).map(|x| format!("{}%", x.level))
+                };
+                if let Some(h) = level(BatteryComponent::Headphone) {
+                    return h;
                 }
+                let parts: Vec<String> = [("L", BatteryComponent::Left), ("R", BatteryComponent::Right), ("Case", BatteryComponent::Case)]
+                    .iter()
+                    .filter_map(|(n, c)| level(*c).map(|l| format!("{n} {l}")))
+                    .collect();
+                if parts.is_empty() { "Connected".to_string() } else { parts.join(" · ") }
+            }
+            _ => "Connected".to_string(),
+        }
+    }
 
-                Pane::Content => {
-                    let device_managers = self.device_managers.blocking_read();
-                    let content = match &self.selected_tab {
-                        Tab::Device(id) => {
-                            if id == "none" {
-                                container(
-                                    text("Select a device".to_string()).size(16)
-                                )
-                                    .center_x(Length::Fill)
-                                    .center_y(Length::Fill)
-                            } else {
-                                let device_type = devices_list.get(id).map(|d| d.type_.clone());
-                                let device_state = self.device_states.get(id);
-                                debug!("Rendering device view for {}: type={:?}, state={:?}", id, device_type, device_state);
-                                match device_type {
-                                    Some(DeviceType::AirPods) => {
+    fn sidebar(&self, devices_list: &HashMap<String, DeviceData>) -> Element<'_, Message> {
+        let compact = self.is_compact();
+        let connected_name = self.connected_device_name(devices_list);
+        let icon = image(image::Handle::from_bytes(include_bytes!("../../assets/icon.png").as_slice()))
+            .width(32)
+            .height(32);
+        let header: Element<'_, Message> = if compact {
+            container(icon).center_x(Length::Fill).into()
+        } else {
+            row![
+                icon,
+                column![
+                    text("LibrePods").size(16).font(components::bold()),
+                    text(connected_name.clone().unwrap_or_else(|| "No device connected".to_string()))
+                        .size(12)
+                        .style(components::muted_text),
+                ]
+                .spacing(1),
+            ]
+            .spacing(10)
+            .align_y(Center)
+            .padding([4, 6])
+            .into()
+        };
 
-                                        device_state.as_ref().and_then(|state| {
-                                            match state {
-                                                DeviceState::AirPods(state) => {
-                                                    device_managers.get(id).and_then(|managers| {
-                                                        managers.get_aacp().map(|aacp_manager| airpods_view(
-                                                                    id,
-                                                                    &devices_list,
-                                                                    state,
-                                                                    aacp_manager.clone()
-                                                                ))
-                                                    })
-                                                }
-                                                _ => None,
-                                            }
-                                        }).unwrap_or_else(|| {
-                                            container(
-                                                text("Required managers or state not available for this AirPods device").size(16)
-                                            )
-                                                .center_x(Length::Fill)
-                                                .center_y(Length::Fill)
-                                        })
-                                    }
-                                    Some(DeviceType::Nothing) => {
-                                        if let Some(DeviceState::Nothing(state)) = device_state {
-                                            if let Some(device_managers) = device_managers.get(id) {
-                                                if let Some(att_manager) = device_managers.get_att() {
-                                                    nothing_view(id, &devices_list, state, att_manager.clone())
-                                                } else {
-                                                    error!("No ATT manager found for Nothing device {}", id);
-                                                    container(
-                                                        text("No valid ATT manager found for this Nothing device").size(16)
-                                                    )
-                                                        .center_x(Length::Fill)
-                                                        .center_y(Length::Fill)
-                                                }
-                                            } else {
-                                                error!("No manager found for Nothing device {}", id);
-                                                container(
-                                                    text("No manager found for this Nothing device").size(16)
-                                                )
-                                                    .center_x(Length::Fill)
-                                                    .center_y(Length::Fill)
-                                            }
-                                        } else {
-                                            container(
-                                                text("No state available for this Nothing device").size(16)
-                                            )
-                                                .center_x(Length::Fill)
-                                                .center_y(Length::Fill)
-                                        }
-                                    }
-                                    _ => {
-                                        container(text("Unsupported device").size(16))
-                                            .center_x(Length::Fill)
-                                            .center_y(Length::Fill)
-                                    }
-                                }
-                            }
-                        }
-                        Tab::Settings => {
-                            let tray_text_mode_toggle = container(
-                                row![
-                                    column![
-                                        text("Use text in tray").size(16),
-                                        text("Use text for battery status in tray instead of a progress bar.").size(12).style(
-                                            |theme: &Theme| {
-                                                let mut style = text::Style::default();
-                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
-                                                style
-                                            }
-                                        ).width(Length::Fill)
-                                    ].width(Length::Fill),
-                                    toggler(self.tray_text_mode)
-                                        .on_toggle(move |is_enabled| {
-                                            Message::TrayTextModeChanged(is_enabled)
-                                        })
-                                    .spacing(0)
-                                    .size(20)
-                                    ]
-                                        .align_y(Center)
-                                        .spacing(12)
+        let mut devices = column![].spacing(4);
+        if !compact {
+            devices = devices.push(
+                text("DEVICES").size(11).font(components::bold()).style(components::muted_text),
+            );
+        }
+        let mut devices_vec: Vec<(&String, &DeviceData)> = devices_list.iter().collect();
+        devices_vec.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+        for (mac, device) in devices_vec {
+            let connected = self.bluetooth_state.connected_devices.contains(mac);
+            let icon = match device.type_ {
+                DeviceType::AirPods => components::glyph::AIRPODS,
+                _ => components::glyph::HEADPHONES,
+            };
+            devices = devices.push(components::nav_item(
+                icon,
+                self.device_name(mac, devices_list).unwrap_or_else(|| device.name.clone()),
+                Some(if connected { self.battery_summary(mac) } else { "Not connected".to_string() }),
+                self.selected_tab == Tab::Device(mac.clone()),
+                Message::SelectTab(Tab::Device(mac.clone())),
+                compact,
+            ));
+        }
+        if devices_list.is_empty() && !compact {
+            devices = devices.push(
+                text("Connect your AirPods to get started.").size(12).style(components::muted_text),
+            );
+        }
+
+        // Device status is already on each device item; the footer only warns
+        // about Bluetooth being off, which nothing else shows.
+        let warning_style = |theme: &Theme| text::Style {
+            color: Some(theme.extended_palette().warning.base.color),
+        };
+        let bluetooth_off = self.bluetooth_on == Some(false);
+        let mut footer = column![].spacing(4).padding(if compact { [4, 0] } else { [4, 6] });
+        if bluetooth_off {
+            footer = footer.push(if compact {
+                Element::from(container(text("\u{26A0}").size(16).style(warning_style)).center_x(Length::Fill))
+            } else {
+                text("\u{26A0} Bluetooth is off").size(12).style(warning_style).into()
+            });
+        }
+        if !compact {
+            footer = footer.push(
+                text(format!("LibrePods v{}", env!("CARGO_PKG_VERSION"))).size(11).style(components::muted_text),
+            );
+        }
+
+        column![
+            header,
+            Space::new().height(16),
+            devices,
+            Space::new().height(8),
+            components::nav_item(
+                "+",
+                "Pair new AirPods".to_string(),
+                None,
+                self.selected_tab == Tab::Pair,
+                Message::SelectTab(Tab::Pair),
+                compact,
+            ),
+            Space::new().height(Length::Fill),
+            components::nav_item(
+                components::glyph::GEAR,
+                "Settings".to_string(),
+                None,
+                self.selected_tab == Tab::Settings,
+                Message::SelectTab(Tab::Settings),
+                compact,
+            ),
+            Space::new().height(8),
+            footer,
+        ]
+        .padding(if compact { 8 } else { 12 })
+        .into()
+    }
+
+    fn device_page<'a>(&'a self, id: &'a str, devices_list: &HashMap<String, DeviceData>) -> Element<'a, Message> {
+        let centered = |msg: &'a str| -> Element<'a, Message> {
+            container(text(msg).size(15).style(components::muted_text))
+                .center_x(Length::Fill)
+                .padding(40)
+                .into()
+        };
+        match devices_list.get(id).map(|d| d.type_.clone()) {
+            Some(DeviceType::AirPods) => match self.device_states.get(id) {
+                Some(DeviceState::AirPods(state)) => {
+                    let last_case = self.saved_cases.get(id).map(|c| {
+                        (
+                            BatteryInfo { component: BatteryComponent::Case, level: c.level, status: BatteryStatus::Disconnected },
+                            crate::utils::format_age(crate::utils::now_unix().saturating_sub(c.at)),
+                        )
+                    });
+                    airpods_view(id, devices_list, state, self.about_expanded, last_case, self.is_compact())
+                }
+                _ if self.bluetooth_state.connected_devices.iter().any(|m| m == id) => {
+                    centered("Connecting to your AirPods…")
+                }
+                _ => self.not_connected_card(id, devices_list),
+            },
+            Some(DeviceType::Nothing) => {
+                // Never block the UI thread on the managers lock; retry on the next redraw.
+                let att = self.device_managers.try_read().ok().and_then(|m| m.get(id).and_then(|m| m.get_att()));
+                match (self.device_states.get(id), att) {
+                    (Some(DeviceState::Nothing(state)), Some(att)) => {
+                        nothing_view(id, devices_list, state, att).into()
+                    }
+                    _ => centered("Waiting for the device to connect…"),
+                }
+            }
+            None => centered("Unsupported device"),
+        }
+    }
+
+    /// Shown when saved AirPods aren't connected, e.g. after switching to an iPhone.
+    fn not_connected_card<'a>(&'a self, mac: &'a str, devices_list: &HashMap<String, DeviceData>) -> Element<'a, Message> {
+        let name = self.device_name(mac, devices_list).unwrap_or_else(|| "AirPods".to_string());
+        let connecting = self.connecting.contains(mac);
+        let mut info = column![
+            text(name).size(22).font(components::bold()),
+            components::chip("Not connected".to_string(), Some(iced::Color::from_rgb8(0x9a, 0x9a, 0x9a))),
+            text("They may be connected to another device, like your iPhone. Take them out of the case and connect them here.")
+                .size(13)
+                .style(components::muted_text),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+        if let Some(err) = self.connect_errors.get(mac) {
+            info = info.push(text(err.clone()).size(13).style(|theme: &Theme| text::Style {
+                color: Some(theme.extended_palette().danger.base.color),
+            }));
+        }
+        let connect = button(
+            text(if connecting { "Connecting…" } else { "Connect" })
+                .size(14)
+                .align_x(Center)
+                .width(Length::Fill),
+        )
+        .width(140)
+        .padding([8, 16])
+        .style(|theme: &Theme, status| {
+            let p = theme.extended_palette();
+            let bg = match status {
+                button::Status::Hovered => p.primary.strong.color,
+                button::Status::Disabled => p.primary.weak.color,
+                _ => p.primary.base.color,
+            };
+            button::Style {
+                background: Some(Background::Color(bg)),
+                text_color: p.primary.base.text,
+                border: Border::default().rounded(10),
+                ..Default::default()
+            }
+        })
+        .on_press_maybe((!connecting).then(|| Message::ConnectDevice(mac.to_string())));
+        let icon = container(text(components::glyph::AIRPODS).size(44).style(components::muted_text))
+            .center_x(84)
+            .center_y(84);
+        // Narrow windows: stack, so the name and hint keep their width.
+        let content: Element<'_, Message> = if self.is_compact() {
+            column![icon, info, connect].spacing(14).into()
+        } else {
+            row![icon, info, connect].spacing(20).align_y(Center).into()
+        };
+        column![components::card(content).padding(20)]
+            .padding(if self.is_compact() { [16, 12] } else { [20, 24] })
+            .into()
+    }
+
+    fn pair_page(&self) -> Element<'_, Message> {
+        let searching = matches!(self.pairing, Some(None));
+        let steps = [
+            "1. If the AirPods are connected to your iPhone, turn off Bluetooth on the iPhone.",
+            "2. Put both AirPods in the case and open the lid near this computer.",
+            "3. Hold the button on the back of the case until the light flashes white.",
+            "4. Press Start pairing.",
+        ];
+        let mut instructions = column![].spacing(6);
+        for step in steps {
+            instructions = instructions.push(text(step).size(14));
+        }
+        let start = button(
+            text(if searching { "Searching…" } else { "Start pairing" })
+                .size(14)
+                .align_x(Center)
+                .width(Length::Fill),
+        )
+        .width(160)
+        .padding([8, 16])
+        .style(|theme: &Theme, status| {
+            let p = theme.extended_palette();
+            button::Style {
+                background: Some(Background::Color(match status {
+                    button::Status::Hovered => p.primary.strong.color,
+                    button::Status::Disabled => p.primary.weak.color,
+                    _ => p.primary.base.color,
+                })),
+                text_color: p.primary.base.text,
+                border: Border::default().rounded(10),
+                ..Default::default()
+            }
+        })
+        .on_press_maybe((!searching).then_some(Message::StartPairing));
+        let mut body = column![
+            components::card(column![instructions, start].spacing(16)).padding(20),
+        ]
+        .spacing(12);
+        let status: Option<(String, bool)> = match &self.pairing {
+            Some(None) => Some(("Searching for AirPods in pairing mode (up to a minute)…".to_string(), true)),
+            Some(Some(Ok(name))) => Some((format!("{name} paired. They'll appear in the sidebar once connected."), true)),
+            Some(Some(Err(e))) => Some((e.clone(), false)),
+            None => None,
+        };
+        if let Some((msg, ok)) = status {
+            body = body.push(text(msg).size(13).style(move |theme: &Theme| text::Style {
+                color: Some(if ok {
+                    components::muted(theme)
+                } else {
+                    theme.extended_palette().danger.base.color
+                }),
+            }));
+        }
+        body = body.push(
+            text("LibrePods pairs over classic Bluetooth (BR/EDR). Pairing through the AirPods' \"Find My\" identity is what usually makes pairing fail on Linux.")
+                .size(12)
+                .style(components::muted_text),
+        );
+        body.padding(if self.is_compact() { [16, 12] } else { [20, 24] }).into()
+    }
+
+    fn settings_page(&self) -> Element<'_, Message> {
+        let compact = self.is_compact();
+        fn wide_row<'a>(compact: bool, title: &'a str, sub: Option<String>, control: Element<'a, Message>) -> Element<'a, Message> {
+            if compact {
+                components::stacked_row(title, sub, control)
+            } else {
+                components::setting_row(title, sub, control)
+            }
+        }
+        let theme_choice = match self.selected_theme {
+            t @ (MyTheme::System | MyTheme::Light | MyTheme::Dark) => Some(t),
+            _ => None,
+        };
+        column![
+            text("Everything applies instantly.").size(13).style(components::muted_text),
+            components::section("General", vec![
+                components::setting_row(
+                    "Start on login",
+                    Some("Launch LibrePods minimized to the tray when you log in.".to_string()),
+                    toggler(self.start_on_login).on_toggle(Message::StartOnLoginChanged).size(22),
+                ),
+            ]),
+            components::section("Appearance", vec![
+                wide_row(
+                    compact,
+                    "Colors",
+                    None,
+                    container(components::segmented(
+                        vec![
+                            (MyTheme::System, "System".to_string()),
+                            (MyTheme::Light, "Light".to_string()),
+                            (MyTheme::Dark, "Dark".to_string()),
+                        ],
+                        theme_choice,
+                        Message::ThemeSelected,
+                    ))
+                    .width(if compact { Length::Fill } else { Length::Fixed(260.0) })
+                    .into(),
+                ),
+                wide_row(
+                    compact,
+                    "More themes",
+                    Some("Dracula, Nord, Catppuccin, Tokyo Night and more.".to_string()),
+                    combo_box(
+                        &self.theme_state,
+                        "Select theme",
+                        Some(&self.selected_theme),
+                        Message::ThemeSelected,
+                    )
+                    .width(if compact { Length::Fill } else { Length::Fixed(200.0) })
+                    .into(),
+                ),
+            ]),
+            components::section("Notifications", vec![
+                components::setting_row(
+                    "Low battery",
+                    Some("Notify when an AirPod or the case drops to 20% and 10%.".to_string()),
+                    toggler(self.low_battery_notifications)
+                        .on_toggle(Message::LowBatteryNotificationsChanged)
+                        .size(22),
+                ),
+            ]),
+            components::section("Tray", vec![
+                components::setting_row(
+                    "Show battery as text",
+                    Some("Use a number instead of a ring for the tray icon.".to_string()),
+                    toggler(self.tray_text_mode).on_toggle(Message::TrayTextModeChanged).size(22),
+                ),
+            ]),
+            components::section("Controls", vec![
+                components::setting_row(
+                    "Stem press track control",
+                    Some("Double press for next track, triple press for previous. Turn off if your desktop already handles AirPods media buttons.".to_string()),
+                    toggler(self.stem_control).on_toggle(Message::StemControlChanged).size(22),
+                ),
+            ]),
+        ]
+        .spacing(20)
+        .padding(if compact { [16, 12] } else { [20, 24] })
+        .into()
+    }
+
+    /// Kept from the previous UI; not reachable yet (no "add device" entry point).
+    fn add_device_view(&self, devices_list: &HashMap<String, DeviceData>) -> Element<'_, Message> {
+        container(
+            column![
+                text("Pick a paired device to add:").size(18),
+                Space::new().height(Length::from(10)),
+                {
+                    let mut list_col = column![].spacing(12);
+                    for device in self.paired_devices.clone() {
+                        if !devices_list.contains_key(&device.1.to_string()) {
+                            let mut item_col = column![].spacing(8);
+                            let mut row_elements = vec![
+                                column![
+                                    text(device.0.to_string()).size(16),
+                                    text(device.1.to_string()).size(12)
+                                ].into(),
+                                Space::new().height(Length::Fill).into(),
+                            ];
+                            if !matches!(&self.pending_add_device, Some((_, addr)) if addr == &device.1) {
+                                row_elements.push(
+                                    button(
+                                        text("Add").size(14).width(120).align_y(Center).align_x(Center)
                                     )
-                                        .padding(Padding{
-                                            top: 5.0,
-                                            bottom: 5.0,
-                                            left: 18.0,
-                                            right: 18.0,
-                                        })
                                         .style(
-                                            |theme: &Theme| {
-                                                let mut style = container::Style::default();
-                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                                                let mut border = Border::default();
-                                                border.color = theme.palette().primary.scale_alpha(0.5);
-                                                style.border = border.rounded(16);
+                                            |theme: &Theme, _status| {
+                                                let mut style = Style::default();
+                                                style.text_color = theme.palette().text;
+                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.5)));
+                                                style.border = Border {
+                                                    width: 1.0,
+                                                    color: theme.palette().primary,
+                                                    radius: Radius::from(8.0),
+                                                };
                                                 style
                                             }
                                         )
-                                    .align_y(Center);
+                                        .padding(8)
+                                        .on_press(Message::StartAddDevice(device.0.clone(), device.1))
+                                        .into()
+                                );
+                            }
+                            item_col = item_col.push(row(row_elements).align_y(Center));
 
-                            let appearance_settings_col = column![
-                                container(
-                                    text("Appearance").size(20).style(
-                                        |theme: &Theme| {
-                                            let mut style = text::Style::default();
-                                            style.color = Some(theme.palette().primary);
-                                            style
-                                        }
-                                    )
-                                )
-                                .padding(Padding{
-                                    top: 0.0,
-                                    bottom: 0.0,
-                                    left: 18.0,
-                                    right: 18.0,
-                                }),
-                                container(
-                                    row![
-                                        text("Theme")
-                                            .size(16),
-                                        Space::new().width(Length::Fill),
-                                        combo_box(
-                                            &self.theme_state,
-                                            "Select theme",
-                                            Some(&self.selected_theme),
-                                            Message::ThemeSelected
-                                        )
-                                        .input_style(
-                                            |theme: &Theme, _status| {
-                                                text_input::Style {
-                                                    background: Background::Color(theme.palette().primary.scale_alpha(0.2)),
-                                                    border: Border {
-                                                        width: 1.0,
-                                                        color: theme.palette().text.scale_alpha(0.3),
-                                                        radius: Radius::from(4.0)
-                                                    },
-                                                    icon: Default::default(),
-                                                    placeholder: theme.palette().text,
-                                                    value: theme.palette().text,
-                                                    selection: Default::default(),
-                                                }
-                                            }
-                                        )
-                                        .menu_style(
-                                            |theme: &Theme| {
-                                                menu::Style {
-                                                    background: Background::Color(theme.palette().background),
-                                                    border: Border {
-                                                        width: 1.0,
-                                                        color: theme.palette().text,
-                                                        radius: Radius::from(4.0)
-                                                    },
-                                                    text_color: theme.palette().text,
-                                                    selected_text_color: theme.palette().text,
-                                                    selected_background: Background::Color(theme.palette().primary.scale_alpha(0.3)),
-                                                    shadow: Default::default()
-                                                }
-                                            }
-                                        )
-                                        .padding(Padding{
-                                            top: 5.0,
-                                            bottom: 5.0,
-                                            left: 10.0,
-                                            right: 10.0,
-                                        })
-                                        .width(Length::from(200))
-                                    ]
-                                    .align_y(Center)
-                                )
-                                    .padding(Padding{
-                                        top: 5.0,
-                                        bottom: 5.0,
-                                        left: 18.0,
-                                        right: 18.0,
-                                    })
+                            if let Some((_, pending_addr)) = &self.pending_add_device
+                                && pending_addr == &device.1 {
+                                    item_col = item_col.push(
+                                        row![
+                                            text("Device Type:").size(16),
+                                            Space::new().width(Length::Fill),
+                                            combo_box(
+                                                &self.device_type_state,
+                                                "Select device type",
+                                                self.selected_device_type.as_ref(),
+                                                Message::SelectDeviceType
+                                            )
+                                                .input_style(
+                                                    |theme: &Theme, _status| {
+                                                        text_input::Style {
+                                                            background: Background::Color(theme.palette().background),
+                                                            border: Border {
+                                                                width: 1.0,
+                                                                color: theme.palette().text,
+                                                                radius: Radius::from(8.0),
+                                                            },
+                                                            icon: Default::default(),
+                                                            placeholder: theme.palette().text.scale_alpha(0.5),
+                                                            value: theme.palette().text,
+                                                            selection: theme.palette().primary
+                                                        }
+                                                    }
+                                                )
+                                                .menu_style(
+                                                    |theme: &Theme| {
+                                                        menu::Style {
+                                                            background: Background::Color(theme.palette().background),
+                                                            border: Border {
+                                                                width: 1.0,
+                                                                color: theme.palette().text,
+                                                                radius: Radius::from(8.0)
+                                                            },
+                                                            text_color: theme.palette().text,
+                                                            selected_text_color: theme.palette().text,
+                                                            selected_background: Background::Color(theme.palette().primary.scale_alpha(0.3)),
+                                                            shadow: Default::default()
+                                                        }
+                                                    }
+                                                )
+                                                .width(Length::from(200))
+                                        ]
+                                    );
+                                    item_col = item_col.push(
+                                        row![
+                                            Space::new().width(Length::Fill),
+                                            button(text("Cancel").size(16).width(Length::Fill).center())
+                                                .on_press(Message::CancelAddDevice)
+                                                .style(|theme: &Theme, _status| {
+                                                    let mut style = Style::default();
+                                                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
+                                                    style.text_color = theme.palette().text;
+                                                    style.border = Border::default().rounded(8.0);
+                                                    style
+                                                })
+                                                .width(Length::from(120))
+                                                .padding(4),
+                                            Space::new().width(Length::from(20)),
+                                            button(text("Add Device").size(16).width(Length::Fill).center())
+                                                .on_press(Message::ConfirmAddDevice)
+                                                .style(|theme: &Theme, _status| {
+                                                    let mut style = Style::default();
+                                                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.3)));
+                                                    style.text_color = theme.palette().text;
+                                                    style.border = Border::default().rounded(8.0);
+                                                    style
+                                                })
+                                                .width(Length::from(120))
+                                                .padding(4),
+                                        ]
+                                        .align_y(Center)
+                                        .width(Length::Fill)
+                                    );
+                                }
+                            list_col = list_col.push(
+                                container(item_col)
+                                    .padding(8)
                                     .style(
                                         |theme: &Theme| {
                                             let mut style = container::Style::default();
                                             style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
                                             let mut border = Border::default();
-                                            border.color = theme.palette().primary.scale_alpha(0.5);
-                                            style.border = border.rounded(16);
+                                            border.color = theme.palette().text;
+                                            style.border = border.rounded(8);
                                             style
                                         }
                                     )
-                                ]
-                                .spacing(12);
-
-                            let stem_control_value = self.stem_control;
-                            let stem_control_toggle = container(
-                                row![
-                                    column![
-                                        text("Stem press track control").size(16),
-                                        text("Double press = next track, triple press = previous track. Disable if your environment handles AirPods AVRCP commands natively.").size(12).style(
-                                            |theme: &Theme| {
-                                                let mut style = text::Style::default();
-                                                style.color = Some(theme.palette().text.scale_alpha(0.7));
-                                                style
-                                            }
-                                        ).width(Length::Fill)
-                                    ].width(Length::Fill),
-                                    toggler(stem_control_value)
-                                        .on_toggle(move |is_enabled| {
-                                            Message::StemControlChanged(is_enabled)
-                                        })
-                                    .spacing(0)
-                                    .size(20)
-                                    ]
-                                        .align_y(Center)
-                                        .spacing(12)
-                                    )
-                                        .padding(Padding{
-                                            top: 5.0,
-                                            bottom: 5.0,
-                                            left: 18.0,
-                                            right: 18.0,
-                                        })
-                                        .style(
-                                            |theme: &Theme| {
-                                                let mut style = container::Style::default();
-                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                                                let mut border = Border::default();
-                                                border.color = theme.palette().primary.scale_alpha(0.5);
-                                                style.border = border.rounded(16);
-                                                style
-                                            }
-                                        )
-                                    .align_y(Center);
-
-                            let controls_settings_col = column![
-                                container(
-                                    text("Controls").size(20).style(
-                                        |theme: &Theme| {
-                                            let mut style = text::Style::default();
-                                            style.color = Some(theme.palette().primary);
-                                            style
-                                        }
-                                    )
-                                )
-                                .padding(Padding{
-                                    top: 0.0,
-                                    bottom: 0.0,
-                                    left: 18.0,
-                                    right: 18.0,
-                                }),
-                                stem_control_toggle
-                            ]
-                            .spacing(12);
-
-                            container(
-                                column![
-                                    appearance_settings_col,
-                                    Space::new().height(Length::from(20)),
-                                    tray_text_mode_toggle,
-                                    Space::new().height(Length::from(20)),
-                                    controls_settings_col,
-                                ]
-                            )
-                                .padding(20)
-                                .width(Length::Fill)
-                                .height(Length::Fill)
-                        },
-                        Tab::AddDevice => {
-                            container(
-                                column![
-                                    text("Pick a paired device to add:").size(18),
-                                    Space::new().height(Length::from(10)),
-                                    {
-                                        let mut list_col = column![].spacing(12);
-                                        for device in self.paired_devices.clone() {
-                                            if !devices_list.contains_key(&device.1.to_string()) {
-                                                let mut item_col = column![].spacing(8);
-                                                let mut row_elements = vec![
-                                                    column![
-                                                        text(device.0.to_string()).size(16),
-                                                        text(device.1.to_string()).size(12)
-                                                    ].into(),
-                                                    Space::new().height(Length::Fill).into(),
-                                                ];
-                                                if !matches!(&self.pending_add_device, Some((_, addr)) if addr == &device.1) {
-                                                    row_elements.push(
-                                                        button(
-                                                            text("Add").size(14).width(120).align_y(Center).align_x(Center)
-                                                        )
-                                                            .style(
-                                                                |theme: &Theme, _status| {
-                                                                    let mut style = Style::default();
-                                                                    style.text_color = theme.palette().text;
-                                                                    style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.5)));
-                                                                    style.border = Border {
-                                                                        width: 1.0,
-                                                                        color: theme.palette().primary,
-                                                                        radius: Radius::from(8.0),
-                                                                    };
-                                                                    style
-                                                                }
-                                                            )
-                                                            .padding(8)
-                                                            .on_press(Message::StartAddDevice(device.0.clone(), device.1))
-                                                            .into()
-                                                    );
-                                                }
-                                                item_col = item_col.push(row(row_elements).align_y(Center));
-
-                                                if let Some((_, pending_addr)) = &self.pending_add_device
-                                                    && pending_addr == &device.1 {
-                                                        item_col = item_col.push(
-                                                            row![
-                                                                text("Device Type:").size(16),
-                                                                Space::new().width(Length::Fill),
-                                                                combo_box(
-                                                                    &self.device_type_state,
-                                                                    "Select device type",
-                                                                    self.selected_device_type.as_ref(),
-                                                                    Message::SelectDeviceType
-                                                                )
-                                                                    .input_style(
-                                                                        |theme: &Theme, _status| {
-                                                                            text_input::Style {
-                                                                                background: Background::Color(theme.palette().background),
-                                                                                border: Border {
-                                                                                    width: 1.0,
-                                                                                    color: theme.palette().text,
-                                                                                    radius: Radius::from(8.0),
-                                                                                },
-                                                                                icon: Default::default(),
-                                                                                placeholder: theme.palette().text.scale_alpha(0.5),
-                                                                                value: theme.palette().text,
-                                                                                selection: theme.palette().primary
-                                                                            }
-                                                                        }
-                                                                    )
-                                                                    .menu_style(
-                                                                        |theme: &Theme| {
-                                                                            menu::Style {
-                                                                                background: Background::Color(theme.palette().background),
-                                                                                border: Border {
-                                                                                    width: 1.0,
-                                                                                    color: theme.palette().text,
-                                                                                    radius: Radius::from(8.0)
-                                                                                },
-                                                                                text_color: theme.palette().text,
-                                                                                selected_text_color: theme.palette().text,
-                                                                                selected_background: Background::Color(theme.palette().primary.scale_alpha(0.3)),
-                                                                                shadow: Default::default()
-                                                                            }
-                                                                        }
-                                                                    )
-                                                                    .width(Length::from(200))
-                                                            ]
-                                                        );
-                                                        item_col = item_col.push(
-                                                            row![
-                                                                Space::new().width(Length::Fill),
-                                                                button(text("Cancel").size(16).width(Length::Fill).center())
-                                                                    .on_press(Message::CancelAddDevice)
-                                                                    .style(|theme: &Theme, _status| {
-                                                                        let mut style = Style::default();
-                                                                        style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                                                                        style.text_color = theme.palette().text;
-                                                                        style.border = Border::default().rounded(8.0);
-                                                                        style
-                                                                    })
-                                                                    .width(Length::from(120))
-                                                                    .padding(4),
-                                                                Space::new().width(Length::from(20)),
-                                                                button(text("Add Device").size(16).width(Length::Fill).center())
-                                                                    .on_press(Message::ConfirmAddDevice)
-                                                                    .style(|theme: &Theme, _status| {
-                                                                        let mut style = Style::default();
-                                                                        style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.3)));
-                                                                        style.text_color = theme.palette().text;
-                                                                        style.border = Border::default().rounded(8.0);
-                                                                        style
-                                                                    })
-                                                                    .width(Length::from(120))
-                                                                    .padding(4),
-                                                            ]
-                                                            .align_y(Center)
-                                                            .width(Length::Fill)
-                                                        );
-                                                    }
-                                                list_col = list_col.push(
-                                                    container(item_col)
-                                                        .padding(8)
-                                                        .style(
-                                                            |theme: &Theme| {
-                                                                let mut style = container::Style::default();
-                                                                style.background = Some(Background::Color(theme.palette().primary.scale_alpha(0.1)));
-                                                                let mut border = Border::default();
-                                                                border.color = theme.palette().text;
-                                                                style.border = border.rounded(8);
-                                                                style
-                                                            }
-                                                        )
-                                                );
-                                            }
-                                        }
-                                        if self.paired_devices.iter().all(|device| devices_list.contains_key(&device.1.to_string())) && self.pending_add_device.is_none() {
-                                            list_col = list_col.push(
-                                                container(
-                                                    text("No new paired devices found. All paired devices are already added.").size(16)
-                                                )
-                                                .width(Length::Fill)
-                                            );
-                                        }
-                                        scrollable(list_col)
-                                            .height(Length::Fill)
-                                            .width(Length::Fill)
-                                    }
-                                ]
-                            )
-                            .padding(20)
-                            .height(Length::Fill)
-                            .width(Length::Fill)
+                            );
                         }
-                    };
+                    }
+                    if self.paired_devices.iter().all(|device| devices_list.contains_key(&device.1.to_string())) && self.pending_add_device.is_none() {
+                        list_col = list_col.push(
+                            container(
+                                text("No new paired devices found. All paired devices are already added.").size(16)
+                            )
+                            .width(Length::Fill)
+                        );
+                    }
+                    scrollable(list_col)
+                        .height(Length::Fill)
+                        .width(Length::Fill)
+                }
+            ]
+        )
+        .padding(20)
+        .height(Length::Fill)
+        .width(Length::Fill)
+        .into()
+    }
+}
 
-                    pane_grid::Content::new(content)
+/// Reports whether a Bluetooth adapter exists and is powered, on change.
+fn bluetooth_power_stream() -> impl futures::Stream<Item = bool> {
+    iced::stream::channel(4, async |mut out: futures::channel::mpsc::Sender<bool>| {
+        use futures::SinkExt;
+        let mut last = None;
+        loop {
+            let on = match bluer::Session::new().await {
+                Ok(session) => match session.default_adapter().await {
+                    Ok(adapter) => adapter.is_powered().await.unwrap_or(false),
+                    Err(_) => false,
+                },
+                Err(_) => false,
+            };
+            if last != Some(on) {
+                last = Some(on);
+                if out.send(on).await.is_err() {
+                    break;
                 }
             }
-        })
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .on_resize(20, Message::Resized);
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    })
+}
 
-        container(pane_grid).into()
+/// Streams the shared status into the window. Waits for the Bluetooth side to
+/// start, since the window can open first.
+fn shared_status_stream() -> impl futures::Stream<Item = Message> {
+    iced::stream::channel(8, async |mut out: futures::channel::mpsc::Sender<Message>| {
+        use futures::SinkExt;
+        let mut rx = loop {
+            if let Some(rx) = crate::ipc::global_status() {
+                break rx;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        };
+        loop {
+            let status = rx.borrow_and_update().clone();
+            if out.send(Message::SharedStatus(status)).await.is_err() || rx.changed().await.is_err() {
+                break;
+            }
+        }
+    })
+}
+
+/// Builds the window's AirPods state from the AACP manager, off the UI thread.
+async fn airpods_snapshot(
+    managers: Arc<RwLock<HashMap<String, DeviceManagers>>>,
+    mac: String,
+    device_name: String,
+) -> Option<AirPodsState> {
+    let aacp = managers.read().await.get(&mac).and_then(|m| m.get_aacp())?;
+    let state = aacp.state.lock().await;
+    let flag = |id: ControlCommandIdentifiers| {
+        state
+            .control_command_status_list
+            .iter()
+            .any(|s| s.identifier == id && matches!(s.value.as_slice(), [0x01]))
+    };
+    let allow_off = flag(ControlCommandIdentifiers::AllowOffOption);
+    Some(AirPodsState {
+        device_name,
+        battery: state.battery_info.clone(),
+        noise_control_mode: state
+            .control_command_status_list
+            .iter()
+            .find_map(|s| {
+                (s.identifier == ControlCommandIdentifiers::ListeningMode)
+                    .then(|| s.value.first().map(AirPodsNoiseControlMode::from_byte))
+                    .flatten()
+            })
+            .unwrap_or(AirPodsNoiseControlMode::Transparency),
+        noise_control_state: noise_control_modes(allow_off),
+        conversation_awareness_enabled: flag(ControlCommandIdentifiers::ConversationDetectConfig),
+        personalized_volume_enabled: flag(ControlCommandIdentifiers::AdaptiveVolumeConfig),
+        allow_off_mode: allow_off,
+        ear_status: state.ear_detection_status.clone(),
+    })
+}
+
+/// Overwrites the keys in `update` inside `settings`, leaving other keys alone.
+fn merge_settings(settings: &mut serde_json::Value, update: serde_json::Value) {
+    if let (Some(target), serde_json::Value::Object(src)) = (settings.as_object_mut(), update) {
+        target.extend(src);
     }
+}
 
-    fn theme(&self, _id: window::Id) -> Theme {
-        self.selected_theme.into()
-    }
-
-    fn subscription(&self) -> Subscription<Message> {
-        window::close_events().map(Message::WindowClosed)
+/// Saves a renamed device to devices.json so the new name survives restarts.
+fn save_device_name(mac: &str, name: &str) {
+    let path = get_devices_path();
+    let Ok(json) = std::fs::read_to_string(&path) else { return };
+    let Ok(mut devices) = serde_json::from_str::<HashMap<String, DeviceData>>(&json) else { return };
+    if let Some(device) = devices.get_mut(mac) {
+        device.name = name.to_string();
+        if let Ok(updated) = serde_json::to_string(&devices)
+            && let Err(e) = std::fs::write(&path, updated)
+        {
+            error!("Failed to save device name: {}", e);
+        }
     }
 }
 
@@ -1338,3 +1617,16 @@ async fn wait_for_message(ui_rx: Arc<Mutex<UnboundedReceiver<BluetoothUIMessage>
 //
 //     devices
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::merge_settings;
+    use serde_json::json;
+
+    #[test]
+    fn merging_settings_keeps_unknown_keys() {
+        let mut settings = json!({"theme": "Dark", "future_option": 42});
+        merge_settings(&mut settings, json!({"theme": "System", "stem_control": true}));
+        assert_eq!(settings, json!({"theme": "System", "stem_control": true, "future_option": 42}));
+    }
+}
