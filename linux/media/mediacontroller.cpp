@@ -243,6 +243,18 @@ void MediaController::activateA2dpProfile() {
     return;
   }
 
+  if (!isA2dpProfileAvailable()) {
+    // The cached name can be the card of an earlier connection, gone since
+    // the device disconnected (ear detection can fire on reconnect before
+    // setConnectedDeviceMacAddress). Look the card up again so the checks
+    // below query the live card, or wait for it to appear.
+    m_deviceOutputName.clear();
+    if (!ensureDeviceOutputName()) {
+      scheduleA2dpRetry();
+      return;
+    }
+  }
+
   if (!isA2dpProfileAvailable() && m_a2dpRetriesLeft > 0) {
     // A freshly created card may not list its A2DP profiles yet; wait before
     // falling back to the heavyweight WirePlumber restart below.
