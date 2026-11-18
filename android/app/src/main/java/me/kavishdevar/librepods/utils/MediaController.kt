@@ -50,6 +50,7 @@ object MediaController {
     private const val PLAYBACK_DEBOUNCE_MS = 300L
     private var lastPlaybackCallbackAt: Long = 0L
     private var lastKnownIsMusicActive: Boolean? = null
+    private var volumeRunnable: Runnable? = null
 
     private const val PAUSED_FOR_OTHER_DEVICE_CLEAR_MS = 500L
     private val clearPausedForOtherDeviceRunnable = Runnable {
@@ -350,7 +351,8 @@ object MediaController {
         val delay = 50L
         var currentVolume = fromVolume
 
-        handler.post(object : Runnable {
+        volumeRunnable?.let { handler.removeCallbacks(it) }
+        val runnable = object : Runnable {
             override fun run() {
                 if (currentVolume != toVolume) {
                     currentVolume += step
@@ -358,6 +360,8 @@ object MediaController {
                     handler.postDelayed(this, delay)
                 }
             }
-        })
+        }
+        volumeRunnable = runnable
+        handler.post(runnable)
     }
 }
