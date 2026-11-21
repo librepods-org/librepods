@@ -46,15 +46,25 @@ fn verify_rpa(addr: &str, irk: &[u8; 16]) -> bool {
     hash == computed_hash
 }
 
+// None on a failed read or parse, e.g. mid-write, so the caller keeps its copy.
+fn load_devices() -> Option<HashMap<String, DeviceData>> {
+    let json = std::fs::read_to_string(get_devices_path()).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+fn devices_modified() -> Option<std::time::SystemTime> {
+    std::fs::metadata(get_devices_path())
+        .and_then(|m| m.modified())
+        .ok()
+}
+
 pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> bluer::Result<()> {
     let session = Session::new().await?;
     let adapter = session.default_adapter().await?;
     adapter.set_powered(true).await?;
 
-    let all_devices: HashMap<String, DeviceData> = std::fs::read_to_string(get_devices_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let mut all_devices = load_devices().unwrap_or_default();
+    let mut devices_mtime = devices_modified();
 
     let mut verified_macs: HashMap<Address, String> = HashMap::new();
     let mut failed_macs: HashSet<Address> = HashSet::new();
@@ -94,9 +104,19 @@ pub async fn start_le_monitor(tray_handle: Option<ksni::Handle<MyTray>>) -> blue
 
             if let Some(airpods_mac) = verified_macs.get(&addr) {
                 matched_airpods_mac = Some(airpods_mac.clone());
-            } else if failed_macs.contains(&addr) {
-                continue;
             } else {
+                // LE keys are saved after the monitor starts, so reload devices.json when it changes.
+                let mtime = devices_modified();
+                if mtime != devices_mtime
+                    && let Some(devices) = load_devices()
+                {
+                    devices_mtime = mtime;
+                    all_devices = devices;
+                    failed_macs.clear();
+                }
+                if failed_macs.contains(&addr) {
+                    continue;
+                }
                 debug!("Checking RPA for device: {}", addr_str);
                 let mut found_mac = None;
                 for (airpods_mac, device_data) in &all_devices {
