@@ -135,6 +135,18 @@ systemctl --user restart wireplumber
 > [!WARNING]
 > Do NOT run `mpris-proxy` with WirePlumber - it will conflict and break media controls.
 
+If volume control works but play/pause still doesn't, check what key your desktop receives. With the dummy AVRCP player, AirPods Max send a **Pause** key (`KEY_PAUSECD` / `XF86AudioPause`) on every press of the Digital Crown, never Play/Pause. Some desktops (e.g. COSMIC) only bind `XF86AudioPlay` by default, so the press is ignored. On COSMIC, create `~/.config/cosmic/com.system76.CosmicSettings.Shortcuts/v1/custom`:
+
+```ron
+{
+    (modifiers: [], key: "XF86AudioPause"): System(PlayPause),
+}
+```
+
+On other desktops, bind `XF86AudioPause` to `playerctl play-pause`.
+
+If the Crown stops changing volume after restarting WirePlumber, disconnect and reconnect the AirPods so the AVRCP session picks up the newly registered player.
+
 #### PulseAudio
 
 If you're using PulseAudio instead of PipeWire, enable and start `mpris-proxy`:
