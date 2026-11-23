@@ -71,6 +71,7 @@ qt_add_resources(librepods "resources"
         assets/podpro.png
         assets/podpro_case.png
         assets/podmax.png
+        assets/max_case.png
         assets/fonts/SF-Symbols-6.ttf
 )
 
