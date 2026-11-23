@@ -29,7 +29,7 @@ fun isSupported(sharedPreferences: SharedPreferences): Boolean {
     if (isBypassFlagActive) return true
 
     val isPixel = Build.MANUFACTURER.lowercase() == "google"
-    val isOppoFamily = Build.MANUFACTURER.lowercase() in listOf("oneplus", "oppo", "realme")
+    val isOppoFamily = Build.MANUFACTURER.lowercase() in listOf("oneplus", "oppo", "realme", "vivo")
 
     if (isPixel && Build.VERSION.SDK_INT == 36) {
         return Build.ID.startsWith("CP1A")
