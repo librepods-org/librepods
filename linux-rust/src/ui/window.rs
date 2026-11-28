@@ -96,6 +96,7 @@ pub struct App {
     tray_text_mode: bool,
     stem_control: bool,
     low_battery_notifications: bool,
+    call_audio: crate::utils::CallAudio,
     start_on_login: bool,
     /// Whether the "About this device" card is expanded.
     about_expanded: bool,
@@ -153,6 +154,7 @@ pub enum Message {
     TrayTextModeChanged(bool), // yes, I know I should add all settings to a struct, but I'm lazy
     StemControlChanged(bool),
     LowBatteryNotificationsChanged(bool),
+    CallAudioChanged(crate::utils::CallAudio),
     StartOnLoginChanged(bool),
     ToggleAboutDevice,
     /// Connect a paired device, e.g. AirPods that are currently with an iPhone.
@@ -308,6 +310,7 @@ impl App {
                 tray_text_mode,
                 stem_control,
                 low_battery_notifications,
+                call_audio: crate::utils::load_call_audio(),
                 start_on_login: is_autostart_enabled(),
                 about_expanded: false,
                 saved_cases: crate::utils::load_last_cases(),
@@ -817,6 +820,11 @@ impl App {
                 self.save_settings();
                 Task::none()
             }
+            Message::CallAudioChanged(choice) => {
+                self.call_audio = choice;
+                self.save_settings();
+                Task::none()
+            }
             Message::LowBatteryNotificationsChanged(enabled) => {
                 self.low_battery_notifications = enabled;
                 self.save_settings();
@@ -941,6 +949,7 @@ impl App {
             "tray_text_mode": self.tray_text_mode,
             "stem_control": self.stem_control,
             "low_battery_notifications": self.low_battery_notifications,
+            "call_audio": self.call_audio,
         }));
         debug!("Writing settings to {}: {}", path.display(), settings);
         if let Err(e) = std::fs::write(&path, settings.to_string()) {
@@ -1296,6 +1305,59 @@ impl App {
                     .into(),
                 ),
             ]),
+            components::section("Calls (advanced)", {
+                let mut rows = vec![wide_row(
+                    compact,
+                    "Call audio",
+                    Some(
+                        match self.call_audio {
+                            crate::utils::CallAudio::Auto => "Recommended. Keeps the system's call codec. LibrePods still fixes calls that drop to music mode mid-call.",
+                            crate::utils::CallAudio::Reliable => "mSBC, applied when a call starts. Doesn't work on every Bluetooth adapter and can leave calls silent.",
+                            crate::utils::CallAudio::Quality => "The best codec your system offers (LC3 on recent PipeWire), applied when a call starts.",
+                            crate::utils::CallAudio::Compatible => "CVSD (phone quality), applied when a call starts. Doesn't work on every Bluetooth adapter and can leave calls silent.",
+                        }
+                        .to_string(),
+                    ),
+                    container(components::segmented(
+                        vec![
+                            (crate::utils::CallAudio::Auto, "Automatic".to_string()),
+                            (crate::utils::CallAudio::Reliable, "Reliable".to_string()),
+                            (crate::utils::CallAudio::Quality, "Quality".to_string()),
+                            (crate::utils::CallAudio::Compatible, "Compatible".to_string()),
+                        ],
+                        Some(self.call_audio),
+                        Message::CallAudioChanged,
+                    ))
+                    .width(if compact { Length::Fill } else { Length::Fixed(380.0) })
+                    .into(),
+                )];
+                // Tell the user when their choice was found not to work.
+                if let Some(target) = self.call_audio.profile()
+                    && crate::media_controller::silent_call_profiles().iter().any(|p| p == target)
+                {
+                    rows.push(
+                        container(
+                            text("This option didn't work on your AirPods during the last call, so LibrePods isn't applying it. Choose it again to retry, or use Automatic.")
+                                .size(12)
+                                .style(|theme: &Theme| text::Style {
+                                    color: Some(theme.extended_palette().warning.base.color),
+                                }),
+                        )
+                        .padding([0, 16])
+                        .into(),
+                    );
+                }
+                rows.push(
+                    container(
+                        text("Changes apply from the next call; a call in progress isn't switched.")
+                            .size(12)
+                            .style(components::muted_text),
+                    )
+                    .padding(iced::Padding { top: 0.0, right: 16.0, bottom: 12.0, left: 16.0 })
+                    .into(),
+                );
+                rows
+            }),
             components::section("Notifications", vec![
                 components::setting_row(
                     "Low battery",
@@ -1488,13 +1550,19 @@ fn bluetooth_power_stream() -> impl futures::Stream<Item = bool> {
     iced::stream::channel(4, async |mut out: futures::channel::mpsc::Sender<bool>| {
         use futures::SinkExt;
         let mut last = None;
+        // Keep one BlueZ session: a new one every poll made BlueZ log an
+        // "Adv Monitor app disconnected" and re-process its monitors each time.
+        let mut session: Option<bluer::Session> = None;
         loop {
-            let on = match bluer::Session::new().await {
-                Ok(session) => match session.default_adapter().await {
+            if session.is_none() {
+                session = bluer::Session::new().await.ok();
+            }
+            let on = match &session {
+                Some(s) => match s.default_adapter().await {
                     Ok(adapter) => adapter.is_powered().await.unwrap_or(false),
                     Err(_) => false,
                 },
-                Err(_) => false,
+                None => false,
             };
             if last != Some(on) {
                 last = Some(on);

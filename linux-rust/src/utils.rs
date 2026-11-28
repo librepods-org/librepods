@@ -267,6 +267,18 @@ mod tests {
     }
 
     #[test]
+    fn call_audio_maps_to_profiles_and_serializes() {
+        use super::CallAudio::*;
+        assert_eq!(Auto.profile(), None);
+        assert_eq!(Reliable.profile(), Some("headset-head-unit-msbc"));
+        assert_eq!(Quality.profile(), Some("headset-head-unit"));
+        assert_eq!(Compatible.profile(), Some("headset-head-unit-cvsd"));
+        assert_eq!(serde_json::to_string(&Reliable).unwrap(), "\"reliable\"");
+        assert_eq!(serde_json::from_str::<super::CallAudio>("\"compatible\"").unwrap(), Compatible);
+        assert_eq!(super::CallAudio::default(), Auto);
+    }
+
+    #[test]
     fn formats_ages() {
         use super::format_age;
         assert_eq!(format_age(0), "just now");
@@ -398,4 +410,43 @@ pub fn format_age(seconds: u64) -> String {
         86_400..=172_799 => "1 day ago".to_string(),
         _ => format!("{} days ago", seconds / 86_400),
     }
+}
+
+/// Which Bluetooth call (headset) profile to use while an app uses the
+/// AirPods' microphone. Works on any desktop: it switches the PipeWire /
+/// PulseAudio card profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CallAudio {
+    /// Keep whatever PipeWire picks (its best codec, e.g. LC3).
+    #[default]
+    Auto,
+    /// mSBC: wideband and mature; the safest choice if calls drop out.
+    Reliable,
+    /// The best codec PipeWire offers (LC3 on recent PipeWire).
+    Quality,
+    /// CVSD: narrowband, works with everything.
+    Compatible,
+}
+
+impl CallAudio {
+    /// The PipeWire card profile to switch to, or `None` to leave it alone.
+    pub fn profile(self) -> Option<&'static str> {
+        match self {
+            CallAudio::Auto => None,
+            CallAudio::Reliable => Some("headset-head-unit-msbc"),
+            CallAudio::Quality => Some("headset-head-unit"),
+            CallAudio::Compatible => Some("headset-head-unit-cvsd"),
+        }
+    }
+}
+
+/// The saved "Call audio" preference (app settings key `call_audio`).
+pub fn load_call_audio() -> CallAudio {
+    std::fs::read_to_string(get_app_settings_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("call_audio").cloned())
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }

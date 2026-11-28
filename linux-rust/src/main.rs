@@ -260,6 +260,7 @@ async fn async_main(
     let tray_handle = Some(ipc::TrayHandle::new(ksni_handle, tray_state(), !args.no_tray));
     ipc::set_global(tray_handle.clone().unwrap());
     tokio::spawn(notify::run(tray_handle.as_ref().unwrap().subscribe()));
+    tokio::spawn(media_controller::call_audio_watcher());
 
     if let Some(listener) = instance_listener {
         tokio::spawn(ipc::serve(
