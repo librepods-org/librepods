@@ -10,11 +10,25 @@
 
     <description>
         <p>
-            Key  - Noise Control Modes: Easily switch between noise control modes without having to reach out to your AirPods to long  - Ear Detection: Controls your music automatically when you put your AirPods in or take them out, and switch to phone speaker when you take them out - Battery Status: Accurate battery levels - Conversational Awareness: Volume automatically lowers when you speak - Hearing Aid: Setup Hearing Aid, even in an unsupported region
+            LibrePods brings AirPods features that are normally limited to Apple
+            devices to Linux.
         </p>
+        <ul>
+            <li>Noise control modes: switch between noise cancellation, transparency and adaptive</li>
+            <li>Ear detection: pause and resume playback when you take your AirPods out or put them in</li>
+            <li>Battery status: accurate levels for each earbud and the case</li>
+            <li>Conversational awareness: lower the volume automatically when you speak</li>
+            <li>Tray icon, COSMIC panel applet and a command-line interface</li>
+        </ul>
     </description>
 
     <launchable type="desktop-id">me.kavishdevar.librepods.desktop</launchable>
+
+    <url type="homepage">https://github.com/librepods-org/librepods</url>
+    <url type="bugtracker">https://github.com/librepods-org/librepods/issues</url>
+
+    <content_rating type="oars-1.1" />
+
     <screenshots>
         <screenshot type="default">
             <image>https://raw.githubusercontent.com/kavishdevar/librepods/refs/heads/main/linux/imgs/main-app.png</image>

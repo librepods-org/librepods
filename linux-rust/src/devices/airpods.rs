@@ -4,7 +4,7 @@ use crate::media_controller::MediaController;
 use crate::ui::messages::BluetoothUIMessage;
 use crate::ui::tray::MyTray;
 use bluer::Address;
-use ksni::Handle;
+use crate::ipc::TrayHandle;
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ pub struct AirPodsDevice {
 impl AirPodsDevice {
     pub async fn new(
         mac_address: Address,
-        tray_handle: Option<Handle<MyTray>>,
+        tray_handle: Option<TrayHandle>,
         ui_tx: tokio::sync::mpsc::UnboundedSender<BluetoothUIMessage>,
     ) -> Self {
         info!("Creating new AirPodsDevice for {}", mac_address);
@@ -33,10 +33,14 @@ impl AirPodsDevice {
         // let mut att_manager = ATTManager::new();
         // att_manager.connect(mac_address).await.expect("Failed to connect ATT");
 
+        let saved_name = crate::bluetooth::discovery::saved_device_name(&mac_address.to_string())
+            .unwrap_or_else(|| "AirPods".to_string());
         if let Some(handle) = &tray_handle {
             handle
-                .update(|tray: &mut MyTray| {
+                .update(move |tray: &mut MyTray| {
                     tray.connected = true;
+                    tray.device_name = Some(saved_name);
+                    tray.saved_airpods = crate::bluetooth::discovery::saved_airpods();
                     tray.battery_headphone = None;
                     tray.battery_headphone_status = None;
                     tray.battery_l = None;
@@ -248,6 +252,11 @@ impl AirPodsDevice {
                         controller
                             .handle_ear_detection(old_status, new_status)
                             .await;
+                        drop(controller);
+                        let _ = ui_tx_clone.send(BluetoothUIMessage::AACPUIEvent(
+                            mac_address.to_string(),
+                            event_clone,
+                        ));
                     }
                     AACPEvent::BatteryInfo(battery_info) => {
                         debug!("Received BatteryInfo event: {:?}", battery_info);

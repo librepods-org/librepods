@@ -1,0 +1,20 @@
+[package]
+name = "librepods-cosmic-applet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["net", "io-util", "time", "rt"] }
+futures = "0.3"
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic"
+default-features = false
+features = ["applet", "applet-token", "tokio", "wayland"]
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = true

@@ -308,10 +308,21 @@ pub enum AACPEvent {
     StemPress(StemPressType, StemPressBudType),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AirPodsLEKeys {
     pub irk: String,
     pub enc_key: String,
+}
+
+/// Redacted so the keys never end up in logs via `{:?}`.
+impl std::fmt::Debug for AirPodsLEKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mark = |k: &str| if k.is_empty() { "<none>" } else { "<redacted>" };
+        f.debug_struct("AirPodsLEKeys")
+            .field("irk", &mark(&self.irk))
+            .field("enc_key", &mark(&self.enc_key))
+            .finish()
+    }
 }
 
 pub struct AACPManagerState {
@@ -439,8 +450,11 @@ impl AACPManager {
     }
 
     async fn send_packet(&self, data: &[u8]) -> Result<()> {
-        let state = self.state.lock().await;
-        if let Some(sender) = &state.sender {
+        // Clone the sender and release the lock before sending: if the channel is
+        // full, holding the lock here would stall the receive loop and everything
+        // else that needs the state (upstream #775).
+        let sender = self.state.lock().await.sender.clone();
+        if let Some(sender) = &sender {
             sender.send(data.to_vec()).await.map_err(|e| {
                 error!("Failed to send packet to channel: {}", e);
                 Error::from(std::io::Error::new(
@@ -512,48 +526,15 @@ impl AACPManager {
 
         match opcode {
             opcodes::BATTERY_INFO => {
-                if payload.len() < 3 {
-                    error!("Battery Info packet too short: {}", hex::encode(payload));
+                let Some(batteries) = parse_battery_info(payload) else {
+                    error!("Malformed Battery Info packet: {}", hex::encode(payload));
                     return;
-                }
-                let count = payload[2] as usize;
-                if payload.len() < 3 + count * 5 {
-                    error!(
-                        "Battery Info packet length mismatch: {}",
-                        hex::encode(payload)
-                    );
-                    return;
-                }
-                let mut batteries = Vec::with_capacity(count);
-                for i in 0..count {
-                    let base_index = 3 + i * 5;
-                    batteries.push(BatteryInfo {
-                        component: match payload[base_index] {
-                            0x01 => BatteryComponent::Headphone,
-                            0x02 => BatteryComponent::Right,
-                            0x04 => BatteryComponent::Left,
-                            0x08 => BatteryComponent::Case,
-                            _ => {
-                                error!("Unknown battery component: {:#04x}", payload[base_index]);
-                                continue;
-                            }
-                        },
-                        level: payload[base_index + 2],
-                        status: match payload[base_index + 3] {
-                            0x01 => BatteryStatus::Charging,
-                            0x02 => BatteryStatus::NotCharging,
-                            0x04 => BatteryStatus::Disconnected,
-                            _ => {
-                                error!("Unknown battery status: {:#04x}", payload[base_index + 3]);
-                                continue;
-                            }
-                        },
-                    });
-                }
+                };
                 let mut state = self.state.lock().await;
-                state.battery_info = batteries.clone();
+                merge_battery_info(&mut state.battery_info, batteries);
+                let merged = state.battery_info.clone();
                 if let Some(ref tx) = state.event_tx {
-                    let _ = tx.send(AACPEvent::BatteryInfo(batteries));
+                    let _ = tx.send(AACPEvent::BatteryInfo(merged));
                 }
                 info!("Received Battery Info: {:?}", state.battery_info);
             }
@@ -603,15 +584,19 @@ impl AACPManager {
                         hex::encode(&value)
                     );
                 } else {
-                    error!(
-                        "Unknown Control Command identifier: {:#04x}",
+                    debug!(
+                        "Unknown Control Command identifier (ignored): {:#04x}",
                         identifier_byte
                     );
                 }
             }
             opcodes::EAR_DETECTION => {
-                let primary_status = packet[6];
-                let secondary_status = packet[7];
+                // Bounds-check: release builds abort on panic, so a short packet
+                // would take down the whole app.
+                let (Some(&primary_status), Some(&secondary_status)) = (packet.get(6), packet.get(7)) else {
+                    error!("Ear Detection packet too short: {}", hex::encode(packet));
+                    return;
+                };
                 let mut statuses = Vec::new();
                 statuses.push(match primary_status {
                     0x00 => EarDetectionStatus::InEar,
@@ -768,9 +753,11 @@ impl AACPManager {
                     offset += key_length;
                 }
                 info!(
+                    // Never log key material: these keys identify the AirPods and
+                    // decrypt their BLE advertisements (upstream #897).
                     "Received Proximity Keys Response: {:?}",
                     keys.iter()
-                        .map(|(kt, kd)| (kt, hex::encode(kd)))
+                        .map(|(kt, kd)| format!("type {} ({} bytes)", kt, kd.len()))
                         .collect::<Vec<_>>()
                 );
                 let mut state = self.state.lock().await;
@@ -865,7 +852,8 @@ impl AACPManager {
                     return;
                 }
                 let count = payload[2] as usize;
-                if payload.len() < 3 + count * 8 {
+                // Entries start at offset 5 (2 bytes after the count), 8 bytes each.
+                if payload.len() < 5 + count * 8 {
                     error!(
                         "Connected Devices packet length mismatch: {}",
                         hex::encode(payload)
@@ -905,7 +893,7 @@ impl AACPManager {
                 info!("Received Connected Devices: {:?}", state.connected_devices);
             }
             opcodes::SMART_ROUTING_RESP => {
-                let packet_string = String::from_utf8_lossy(&payload[2..]);
+                let packet_string = String::from_utf8_lossy(payload.get(2..).unwrap_or_default());
                 info!("Received Smart Routing Response: {}", packet_string);
                 if packet_string.contains("SetOwnershipToFalse") {
                     info!("Received OwnershipToFalse request");
@@ -1212,7 +1200,12 @@ async fn recv_thread(manager: AACPManager, sp: Arc<SeqPacket>) {
             }
             Ok(n) => {
                 let data = &buf[..n];
-                debug!("Received {} bytes: {}", n, hex::encode(data));
+                if data.get(4) == Some(&opcodes::PROXIMITY_KEYS_RSP) {
+                    // Contains the IRK and encryption key; never log them (upstream #897).
+                    debug!("Received {} bytes: <proximity keys redacted>", n);
+                } else {
+                    debug!("Received {} bytes: {}", n, hex::encode(data));
+                }
                 manager.receive_packet(data).await;
             }
             Err(e) => {
@@ -1253,4 +1246,307 @@ async fn send_thread(mut rx: mpsc::Receiver<Vec<u8>>, sp: Arc<SeqPacket>) {
         }
     }
     info!("Send thread finished.");
+}
+
+/// Parses a Battery Info payload (starting at the opcode byte). Returns `None`
+/// for a malformed packet; unknown components or statuses are skipped.
+pub(crate) fn parse_battery_info(payload: &[u8]) -> Option<Vec<BatteryInfo>> {
+    let count = *payload.get(2)? as usize;
+    if payload.len() < 3 + count * 5 {
+        return None;
+    }
+    let mut batteries = Vec::with_capacity(count);
+    for entry in payload[3..3 + count * 5].chunks_exact(5) {
+        let component = match entry[0] {
+            0x01 => BatteryComponent::Headphone,
+            0x02 => BatteryComponent::Right,
+            0x04 => BatteryComponent::Left,
+            0x08 => BatteryComponent::Case,
+            other => {
+                error!("Unknown battery component: {:#04x}", other);
+                continue;
+            }
+        };
+        let status = match entry[3] {
+            0x01 => BatteryStatus::Charging,
+            0x02 => BatteryStatus::NotCharging,
+            0x04 => BatteryStatus::Disconnected,
+            other => {
+                error!("Unknown battery status: {:#04x}", other);
+                continue;
+            }
+        };
+        batteries.push(BatteryInfo { component, level: entry[2], status });
+    }
+    Some(batteries)
+}
+
+/// Merges new battery readings into `current` (upstream issue #422):
+/// - AirPods use two "unknown" sentinels, which are dropped: a level above 100
+///   (sent while the case works out what it holds) and level 0 with status
+///   Disconnected (component out of contact, e.g. case lid shut). Disconnected
+///   with a real level is valid: a bud sitting in the case.
+/// - Packets don't always mention every component, so readings are merged by
+///   component; replacing the list would erase the case and the other bud.
+pub(crate) fn merge_battery_info(current: &mut Vec<BatteryInfo>, incoming: Vec<BatteryInfo>) {
+    for b in incoming {
+        if b.level > 100 || (b.status == BatteryStatus::Disconnected && b.level == 0) {
+            continue;
+        }
+        match current.iter_mut().find(|x| x.component == b.component) {
+            Some(existing) => *existing = b,
+            None => current.push(b),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn b(component: BatteryComponent, level: u8, status: BatteryStatus) -> BatteryInfo {
+        BatteryInfo { component, level, status }
+    }
+
+    /// A real Battery Info packet from AirPods Pro 2 (header stripped):
+    /// left 99% charging, right 99% charging, case 32% not charging.
+    #[test]
+    fn parses_real_battery_packet() {
+        let packet = hex::decode("04000400040003040163010102016301010801200201").unwrap();
+        let parsed = parse_battery_info(&packet[4..]).unwrap();
+        assert_eq!(
+            parsed,
+            vec![
+                b(BatteryComponent::Left, 99, BatteryStatus::Charging),
+                b(BatteryComponent::Right, 99, BatteryStatus::Charging),
+                b(BatteryComponent::Case, 32, BatteryStatus::NotCharging),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_battery_packet() {
+        let packet = hex::decode("040003040163010102").unwrap(); // says 3 entries, has 1.x
+        assert_eq!(parse_battery_info(&packet), None);
+        assert_eq!(parse_battery_info(&[0x04]), None);
+    }
+
+    #[test]
+    fn skips_unknown_components() {
+        // count 2: unknown component 0x10, then left 50% not charging
+        let payload = [0x04, 0x00, 0x02, 0x10, 0x01, 0x32, 0x02, 0x01, 0x04, 0x01, 0x32, 0x02, 0x01];
+        assert_eq!(
+            parse_battery_info(&payload).unwrap(),
+            vec![b(BatteryComponent::Left, 50, BatteryStatus::NotCharging)]
+        );
+    }
+
+    #[test]
+    fn merge_drops_unknown_sentinels() {
+        let mut current = vec![b(BatteryComponent::Case, 86, BatteryStatus::NotCharging)];
+        merge_battery_info(
+            &mut current,
+            vec![
+                b(BatteryComponent::Case, 255, BatteryStatus::NotCharging), // "working it out"
+                b(BatteryComponent::Case, 0, BatteryStatus::Disconnected),  // lid shut
+            ],
+        );
+        assert_eq!(current, vec![b(BatteryComponent::Case, 86, BatteryStatus::NotCharging)]);
+    }
+
+    #[test]
+    fn merge_keeps_components_not_mentioned() {
+        let mut current = vec![
+            b(BatteryComponent::Left, 80, BatteryStatus::NotCharging),
+            b(BatteryComponent::Right, 81, BatteryStatus::NotCharging),
+            b(BatteryComponent::Case, 46, BatteryStatus::NotCharging),
+        ];
+        merge_battery_info(&mut current, vec![b(BatteryComponent::Left, 79, BatteryStatus::NotCharging)]);
+        assert_eq!(current.len(), 3);
+        assert_eq!(current[0].level, 79);
+        assert_eq!(current[2].level, 46, "case must survive a left-bud-only packet");
+    }
+
+    #[test]
+    fn merge_keeps_bud_resting_in_case() {
+        // Disconnected with a real level means "in the case", not unknown.
+        let mut current = vec![];
+        merge_battery_info(&mut current, vec![b(BatteryComponent::Right, 87, BatteryStatus::Disconnected)]);
+        assert_eq!(current, vec![b(BatteryComponent::Right, 87, BatteryStatus::Disconnected)]);
+    }
+}
+
+/// End-to-end tests of `receive_packet`: synthetic packets in, state and events out.
+#[cfg(test)]
+mod packet_tests {
+    use super::*;
+
+    fn packet(opcode: u8, rest: &[u8]) -> Vec<u8> {
+        let mut p = HEADER_BYTES.to_vec();
+        p.push(opcode);
+        p.extend_from_slice(rest);
+        p
+    }
+
+    async fn manager_with_events() -> (AACPManager, mpsc::UnboundedReceiver<AACPEvent>) {
+        let manager = AACPManager::new();
+        let (tx, rx) = mpsc::unbounded_channel();
+        manager.set_event_channel(tx).await;
+        (manager, rx)
+    }
+
+    #[tokio::test]
+    async fn ignores_foreign_and_short_packets() {
+        let (m, mut rx) = manager_with_events().await;
+        m.receive_packet(&[0x01, 0x00, 0x04, 0x00, 0x04]).await; // wrong header
+        m.receive_packet(&HEADER_BYTES).await; // no opcode
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn battery_packet_updates_state_and_emits_merged_event() {
+        let (m, mut rx) = manager_with_events().await;
+        m.receive_packet(&hex::decode("04000400040003040163010102016301010801200201").unwrap()).await;
+        // A later packet that only mentions the left bud keeps the others.
+        m.receive_packet(&packet(0x04, &[0x00, 0x01, 0x04, 0x01, 0x50, 0x02, 0x01])).await;
+        let state = m.state.lock().await;
+        assert_eq!(state.battery_info.len(), 3);
+        assert_eq!(state.battery_info[0].level, 80);
+        drop(state);
+        let _first = rx.try_recv().unwrap();
+        match rx.try_recv().unwrap() {
+            AACPEvent::BatteryInfo(b) => assert_eq!(b.len(), 3, "event carries the merged list"),
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn control_command_is_stored_trimmed_and_updated() {
+        let (m, mut rx) = manager_with_events().await;
+        // ListeningMode = transparency (0x03), value padded with zeros
+        m.receive_packet(&packet(0x09, &[0x00, 0x0D, 0x03, 0x00, 0x00, 0x00])).await;
+        m.receive_packet(&packet(0x09, &[0x00, 0x0D, 0x02, 0x00, 0x00, 0x00])).await;
+        let state = m.state.lock().await;
+        let modes: Vec<_> = state
+            .control_command_status_list
+            .iter()
+            .filter(|s| s.identifier == ControlCommandIdentifiers::ListeningMode)
+            .collect();
+        assert_eq!(modes.len(), 1, "updated in place, not duplicated");
+        assert_eq!(modes[0].value, vec![0x02]);
+        drop(state);
+        assert!(matches!(rx.try_recv(), Ok(AACPEvent::ControlCommand(_))));
+    }
+
+    #[tokio::test]
+    async fn control_command_notifies_subscribers_and_tracks_ownership() {
+        let m = AACPManager::new();
+        let (tx, mut sub) = mpsc::unbounded_channel();
+        m.subscribe_to_control_command(ControlCommandIdentifiers::ConversationDetectConfig, tx).await;
+        m.receive_packet(&packet(0x09, &[0x00, 0x28, 0x01, 0x00, 0x00, 0x00])).await;
+        assert_eq!(sub.try_recv().unwrap(), vec![0x01]);
+        m.receive_packet(&packet(0x09, &[0x00, 0x06, 0x01, 0x00, 0x00, 0x00])).await;
+        assert!(m.state.lock().await.owns);
+        // all-zero value is kept as a single 0
+        m.receive_packet(&packet(0x09, &[0x00, 0x06, 0x00, 0x00, 0x00, 0x00])).await;
+        let state = m.state.lock().await;
+        assert!(!state.owns);
+    }
+
+    #[tokio::test]
+    async fn control_command_too_short_or_unknown_is_ignored() {
+        let (m, mut rx) = manager_with_events().await;
+        m.receive_packet(&packet(0x09, &[0x00, 0x0D])).await;
+        m.receive_packet(&packet(0x09, &[0x00, 0xEE, 0x01, 0x00, 0x00, 0x00])).await;
+        assert!(m.state.lock().await.control_command_status_list.is_empty());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn ear_detection_tracks_old_and_new() {
+        let (m, mut rx) = manager_with_events().await;
+        m.receive_packet(&packet(0x06, &[0x00, 0x02, 0x02])).await; // both in case
+        m.receive_packet(&packet(0x06, &[0x00, 0x00, 0x00])).await; // both in ear
+        let _ = rx.try_recv();
+        match rx.try_recv().unwrap() {
+            AACPEvent::EarDetection(old, new) => {
+                assert_eq!(old, vec![EarDetectionStatus::InCase, EarDetectionStatus::InCase]);
+                assert_eq!(new, vec![EarDetectionStatus::InEar, EarDetectionStatus::InEar]);
+            }
+            other => panic!("unexpected event {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn short_ear_detection_packet_does_not_crash() {
+        let (m, _rx) = manager_with_events().await;
+        m.receive_packet(&packet(0x06, &[0x00])).await;
+        m.receive_packet(&packet(0x06, &[0x00, 0x00])).await;
+        assert!(m.state.lock().await.ear_detection_status.is_empty());
+    }
+
+    #[tokio::test]
+    async fn conversation_awareness_status() {
+        let (m, mut rx) = manager_with_events().await;
+        // exactly 10 bytes; the status is the last one
+        m.receive_packet(&packet(0x4B, &[0x00, 0x02, 0x00, 0x00, 0x01])).await;
+        assert_eq!(m.state.lock().await.conversational_awareness_status, 0x01);
+        assert!(matches!(rx.try_recv(), Ok(AACPEvent::ConversationalAwareness(1))));
+    }
+
+    #[tokio::test]
+    async fn stem_press_event() {
+        let (m, mut rx) = manager_with_events().await;
+        m.receive_packet(&packet(0x19, &[0x00, 0x06, 0x02])).await;
+        match rx.try_recv().unwrap() {
+            AACPEvent::StemPress(press, bud) => {
+                assert_eq!(press, StemPressType::DoublePress);
+                assert_eq!(bud, StemPressBudType::Right);
+            }
+            other => panic!("unexpected event {other:?}"),
+        }
+        m.receive_packet(&packet(0x19, &[0x00, 0x42, 0x02])).await; // invalid press type
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn audio_source_mac_is_byte_reversed() {
+        let (m, _rx) = manager_with_events().await;
+        m.receive_packet(&packet(0x0E, &[0x00, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x01])).await;
+        let state = m.state.lock().await;
+        assert_eq!(state.audio_source.as_ref().unwrap().mac, "11:22:33:44:55:66");
+    }
+
+    #[tokio::test]
+    async fn connected_devices_list() {
+        let (m, _rx) = manager_with_events().await;
+        m.receive_packet(&packet(
+            0x2E,
+            &[0x00, 0x01, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x01, 0x02],
+        ))
+        .await;
+        let state = m.state.lock().await;
+        assert_eq!(state.connected_devices.len(), 1);
+        assert_eq!(state.connected_devices[0].mac, "11:22:33:44:55:66");
+        assert_eq!((state.connected_devices[0].info1, state.connected_devices[0].info2), (1, 2));
+    }
+
+    #[tokio::test]
+    async fn truncated_connected_devices_packet_does_not_crash() {
+        let (m, _rx) = manager_with_events().await;
+        // Says 1 device and passes a "3 + 8" length check, but entries start at
+        // offset 5, so the last 2 bytes of the entry are missing.
+        m.receive_packet(&packet(0x2E, &[0x00, 0x01, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66])).await;
+        assert!(m.state.lock().await.connected_devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn smart_routing_ownership_request_and_short_packet() {
+        let (m, mut rx) = manager_with_events().await;
+        m.receive_packet(&packet(0x11, &[])).await; // must not crash
+        let mut body = vec![0x00];
+        body.extend_from_slice(b"..SetOwnershipToFalse..");
+        m.receive_packet(&packet(0x11, &body)).await;
+        assert!(matches!(rx.try_recv(), Ok(AACPEvent::OwnershipToFalseRequest)));
+    }
 }

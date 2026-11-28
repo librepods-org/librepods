@@ -58,9 +58,11 @@ pub struct AirPodsState {
     pub personalized_volume_enabled: bool,
     pub allow_off_mode: bool,
     pub battery: Vec<BatteryInfo>,
+    /// Per bud (primary first), as last reported by the AirPods.
+    pub ear_status: Vec<crate::bluetooth::aacp::EarDetectionStatus>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AirPodsNoiseControlMode {
     Off,
     NoiseCancellation,
@@ -148,5 +150,19 @@ impl NothingAncMode {
             NothingAncMode::Transparency => 0x07,
             NothingAncMode::Off => 0x05,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AirPodsNoiseControlMode as M;
+
+    #[test]
+    fn noise_control_mode_bytes_round_trip() {
+        for m in [M::Off, M::NoiseCancellation, M::Transparency, M::Adaptive] {
+            assert_eq!(M::from_byte(&m.to_byte()), m);
+        }
+        assert_eq!(M::NoiseCancellation.to_byte(), 0x02);
+        assert_eq!(M::from_byte(&0x99), M::Off, "unknown values fall back to Off");
     }
 }

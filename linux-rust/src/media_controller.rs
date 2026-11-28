@@ -13,10 +13,9 @@ use libpulse_binding::proplist::Proplist;
 use libpulse_binding::volume::{ChannelVolumes, Volume};
 use log::{debug, error, info, warn};
 use std::cell::RefCell;
-use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 #[derive(Clone, Debug)]
@@ -28,6 +27,7 @@ struct OwnedCardProfileInfo {
 struct OwnedCardInfo {
     index: u32,
     proplist: Proplist,
+    active_profile: Option<String>,
     profiles: Vec<OwnedCardProfileInfo>,
 }
 
@@ -138,11 +138,19 @@ impl MediaController {
             drop(state);
 
             if !was_playing && is_playing {
-                let aacp_state = aacp_manager.state.lock().await;
-                if !aacp_state
-                    .ear_detection_status
-                    .contains(&EarDetectionStatus::InEar)
-                {
+                // Copy what we need and release the lock: the sends below lock the
+                // same state, so holding it here deadlocks as soon as another device
+                // (e.g. an iPhone) is connected to the AirPods (upstream #896).
+                let (in_ear, connected_devices) = {
+                    let aacp_state = aacp_manager.state.lock().await;
+                    (
+                        aacp_state
+                            .ear_detection_status
+                            .contains(&EarDetectionStatus::InEar),
+                        aacp_state.connected_devices.clone(),
+                    )
+                };
+                if !in_ear {
                     info!("Media playback started but buds not in ear, skipping takeover");
                     continue;
                 }
@@ -155,7 +163,6 @@ impl MediaController {
 
                 info!("already connected locally, hijacking connection by asking AirPods");
 
-                let connected_devices = aacp_state.connected_devices.clone();
                 for device in connected_devices {
                     if device.mac != local_mac {
                         if let Err(e) = aacp_manager
@@ -236,7 +243,17 @@ impl MediaController {
             }
         }
 
-        if new_has_at_least_one_in && old_all_out {
+        // During a call, leave playback and the audio profile alone: pausing or
+        // switching profiles would drop the call's audio, and a bud's proximity
+        // sensor can flicker while it's adjusted.
+        if self.call_in_progress().await {
+            info!("Call in progress; ear detection won't pause media or change the audio profile.");
+            self.state.lock().await.old_in_ear_data = new_in_ear_data;
+            return;
+        }
+
+        let transition = ear_transition(&old_in_ear_data, &new_in_ear_data);
+        if transition == EarTransition::Inserted {
             debug!("Condition met: buds inserted, activating A2DP and checking play state");
             self.activate_a2dp_profile().await;
             {
@@ -246,7 +263,9 @@ impl MediaController {
                     debug!("Set user_played_the_media to true as media was playing");
                 }
             }
-        } else if new_all_out {
+        } else if transition == EarTransition::Removed {
+            // Only when the last bud comes out, not on every repeated "out" report
+            // (which used to pause and turn the audio off again and again).
             debug!("Condition met: buds removed, pausing media");
             self.pause().await;
             {
@@ -310,40 +329,61 @@ impl MediaController {
             return;
         }
 
-        let device_index = state.device_index;
         let mac = state.connected_device_mac.clone();
         drop(state);
 
-        let mut current_device_index = device_index;
+        let Some(card_index) = self.resolve_card_index_with(&mac, true).await else {
+            warn!("Could not find the audio card. Cannot activate A2DP profile.");
+            return;
+        };
 
-        if current_device_index.is_none() {
-            warn!("Device index not found, trying to get it.");
-            current_device_index = self.get_audio_device_index(&mac).await;
-            if let Some(idx) = current_device_index {
-                self.state.lock().await.device_index = Some(idx);
-            } else {
-                warn!("Could not get device index. Cannot activate A2DP profile.");
+        // Switching the profile recreates the PipeWire sink, which interrupts the
+        // stream that is starting and makes WirePlumber pause the player. Skip it
+        // when A2DP is already active (upstream #766 / #913).
+        match active_profile(card_index).await.as_deref() {
+            Some(p) if p.starts_with("a2dp-sink") => {
+                debug!("A2DP profile already active; not switching.");
                 return;
             }
+            // An app (e.g. a Google Meet call) is using the AirPods' microphone.
+            // Switching to A2DP would cut the call's audio and microphone, and
+            // WirePlumber would switch straight back, so the call keeps dropping.
+            Some(p) if is_call_profile(p) => {
+                info!("A call is using the AirPods ({p}); not switching to A2DP.");
+                return;
+            }
+            _ => {}
         }
 
-        if !self.is_a2dp_profile_available().await {
-            warn!("A2DP profile not available, attempting to restart WirePlumber");
-            if self.restart_wire_plumber().await {
-                let mut state = self.state.lock().await;
-                state.device_index = self
-                    .get_audio_device_index(&state.connected_device_mac)
-                    .await;
-                debug!(
-                    "Updated device_index after WirePlumber restart: {:?}",
-                    state.device_index
-                );
-                if !self.is_a2dp_profile_available().await {
-                    error!("A2DP profile still not available after WirePlumber restart");
-                    return;
+        // Profiles can appear shortly after the card itself; only fall back to
+        // restarting WirePlumber (which interrupts all audio) if they never do.
+        let mut a2dp_available = false;
+        for _ in 0..6 {
+            if self.is_a2dp_profile_available().await {
+                a2dp_available = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        if !a2dp_available {
+            // The card exists without A2DP: the profile itself isn't connected.
+            // Ask BlueZ for it rather than restarting WirePlumber, which cuts all
+            // audio on the system and can drop the very connection being set up.
+            warn!("A2DP profile not available; asking BlueZ to connect it");
+            bluez_connect_a2dp(&mac).await;
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if let Some(idx) = self.get_audio_device_index(&mac).await {
+                    self.state.lock().await.device_index = Some(idx);
+                    if self.is_a2dp_profile_available().await {
+                        a2dp_available = true;
+                        break;
+                    }
                 }
-            } else {
-                error!("Could not restart WirePlumber, A2DP profile unavailable");
+            }
+            if !a2dp_available {
+                error!("A2DP profile still not available for {}", mac);
                 return;
             }
         }
@@ -594,23 +634,32 @@ impl MediaController {
             .unwrap_or(false)
     }
 
-    async fn restart_wire_plumber(&self) -> bool {
-        info!("Restarting WirePlumber to rediscover A2DP profiles");
-        let result = Command::new("systemctl")
-            .args(["--user", "restart", "wireplumber"])
-            .output();
-
-        match result {
-            Ok(output) if output.status.success() => {
-                info!("WirePlumber restarted successfully");
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                true
+    /// Looks up the PipeWire/PulseAudio card for `mac`, waiting up to 10 s for it to
+    /// appear. Never trusts a previously cached index: cards are recreated (with a
+    /// new index) whenever the device reconnects or Bluetooth restarts.
+    ///
+    /// With `connect_audio`, also asks BlueZ to (re)connect the A2DP profile if the
+    /// card doesn't show up: BlueZ's own A2DP setup can fail with EBUSY when it
+    /// races our AAP L2CAP connection right after the AirPods connect, and it
+    /// does not retry by itself, leaving the AirPods with no audio at all.
+    async fn resolve_card_index_with(&self, mac: &str, connect_audio: bool) -> Option<u32> {
+        for attempt in 0..30 {
+            if let Some(idx) = self.get_audio_device_index(mac).await {
+                self.state.lock().await.device_index = Some(idx);
+                return Some(idx);
             }
-            _ => {
-                error!("Failed to restart WirePlumber. Do you use wireplumber?");
-                false
+            if connect_audio && matches!(attempt, 4 | 12 | 20) {
+                bluez_connect_a2dp(mac).await;
             }
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
+        self.state.lock().await.device_index = None;
+        error!("No Bluetooth audio card appeared for {}", mac);
+        None
+    }
+
+    async fn resolve_card_index(&self, mac: &str) -> Option<u32> {
+        self.resolve_card_index_with(mac, false).await
     }
 
     async fn get_audio_device_index(&self, mac: &str) -> Option<u32> {
@@ -628,29 +677,52 @@ impl MediaController {
                     return Some(card.index);
                 }
             }
-            error!("No matching Bluetooth card found for MAC address: {}", mac_clone);
+            debug!("No matching Bluetooth card found for MAC address: {}", mac_clone);
             None
         })
             .await
             .unwrap_or(None)
     }
 
+    /// True while the AirPods are in a headset profile, i.e. a call is using them.
+    async fn call_in_progress(&self) -> bool {
+        let mac = self.state.lock().await.connected_device_mac.clone();
+        if mac.is_empty() {
+            return false;
+        }
+        let profile_says_call = match self.get_audio_device_index(&mac).await {
+            Some(index) => active_profile(index).await.is_some_and(|p| is_call_profile(&p)),
+            None => false,
+        };
+        // The microphone check also covers WirePlumber having dropped to A2DP mid-call.
+        profile_says_call
+            || tokio::task::spawn_blocking(move || mic_users_sync(&mac) > 0)
+                .await
+                .unwrap_or(false)
+    }
+
     pub async fn deactivate_a2dp_profile(&self) {
         debug!("Entering deactivate_a2dp_profile");
-        let mut state = self.state.lock().await;
-
-        if state.device_index.is_none() {
-            state.device_index = self
-                .get_audio_device_index(&state.connected_device_mac)
-                .await;
-        }
-
-        if state.connected_device_mac.is_empty() || state.device_index.is_none() {
-            warn!("Connected device MAC or index is empty, cannot deactivate A2DP profile");
+        let mac = self.state.lock().await.connected_device_mac.clone();
+        if mac.is_empty() {
+            warn!("Connected device MAC is empty, cannot deactivate A2DP profile");
             return;
         }
-        let device_index = state.device_index.unwrap();
-        drop(state);
+        let Some(device_index) = self.resolve_card_index(&mac).await else {
+            warn!("Could not find the audio card, cannot deactivate A2DP profile");
+            return;
+        };
+        match active_profile(device_index).await.as_deref() {
+            Some(p) if is_call_profile(p) => {
+                info!("A call is using the AirPods ({p}); not turning their audio off.");
+                return;
+            }
+            Some("off") => {
+                debug!("Audio profile already off.");
+                return;
+            }
+            _ => {}
+        }
 
         info!("Deactivating A2DP profile for AirPods by setting to off");
 
@@ -901,6 +973,293 @@ fn pulse_connect() -> Option<(Mainloop, Context)> {
     Some((mainloop, context))
 }
 
+/// The card's active profile, e.g. "a2dp-sink-sbc_xq", "headset-head-unit", "off".
+async fn active_profile(card_index: u32) -> Option<String> {
+    tokio::task::spawn_blocking(move || {
+        get_card_info_list_sync()
+            .into_iter()
+            .find(|c| c.index == card_index)
+            .and_then(|c| c.active_profile)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Headset (HFP/HSP) profiles carry the microphone: an app is in a call or
+/// recording. WirePlumber switches to them automatically when that starts.
+pub(crate) fn is_call_profile(profile: &str) -> bool {
+    profile.starts_with("headset")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EarTransition {
+    /// The first bud went in (from none in).
+    Inserted,
+    /// The last bud came out (from at least one in).
+    Removed,
+    Unchanged,
+}
+
+/// Compares in-ear flags (one per bud) before and after an ear-detection event.
+pub(crate) fn ear_transition(old: &[bool], new: &[bool]) -> EarTransition {
+    let old_any_in = old.iter().any(|&b| b);
+    let new_any_in = new.iter().any(|&b| b);
+    match (old_any_in, new_any_in) {
+        (false, true) => EarTransition::Inserted,
+        (true, false) => EarTransition::Removed,
+        _ => EarTransition::Unchanged,
+    }
+}
+
+/// What the call watcher should do for one card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CallAction {
+    /// An app uses the AirPods' microphone but the card is on A2DP (no mic):
+    /// switch back to a call profile.
+    Repair(String),
+    /// Apply the "Call audio" preference at the start of a call.
+    Prefer(String),
+    /// Undo a preference applied this call (the user went back to Automatic).
+    Revert(String),
+    /// A profile LibrePods applied was switched away from within a minute:
+    /// treat it as not working on this adapter (e.g. silent mSBC / CVSD).
+    MarkSilent(String),
+}
+
+const PREFER_WINDOW: Duration = Duration::from_secs(10);
+const PROBATION: Duration = Duration::from_secs(60);
+
+/// Per-card state across one call, so the "Call audio" preference is applied
+/// at most once, only at the start of a call, and can be undone safely.
+#[derive(Debug, Default)]
+pub(crate) struct CallSession {
+    started: Option<Instant>,
+    preference_handled: bool,
+    repair_polls: u8,
+    /// The last call profile that was active and not on probation, i.e. one
+    /// that was working before LibrePods changed anything.
+    last_good: Option<String>,
+    /// A profile LibrePods applied, when, and what was active before it.
+    applied: Option<(String, Instant, String)>,
+}
+
+impl CallSession {
+    pub(crate) fn tick(
+        &mut self,
+        now: Instant,
+        active: &str,
+        available: &[String],
+        mic_in_use: bool,
+        preference: crate::utils::CallAudio,
+        silent: &[String],
+    ) -> Vec<CallAction> {
+        let offered = |p: &str| available.iter().any(|a| a == p);
+        if !mic_in_use && !is_call_profile(active) {
+            *self = Self::default(); // not in a call
+            return vec![];
+        }
+        let mut actions = vec![];
+        let started = *self.started.get_or_insert(now);
+
+        if let Some((profile, at, before)) = self.applied.clone() {
+            let target = preference.profile();
+            if active == profile && target != Some(profile.as_str()) && offered(&before) {
+                // Preference changed away mid-call: put back what worked.
+                actions.push(CallAction::Revert(before.clone()));
+                actions.push(CallAction::MarkSilent(profile));
+                self.applied = None;
+            } else if is_call_profile(active) && active != profile && now.duration_since(at) < PROBATION {
+                actions.push(CallAction::MarkSilent(profile));
+                self.applied = None;
+            } else if now.duration_since(at) >= PROBATION {
+                self.applied = None; // survived probation: it works
+            }
+        }
+
+        if is_call_profile(active) {
+            self.repair_polls = 0;
+            if self.applied.is_none() {
+                self.last_good = Some(active.to_string());
+            }
+            if !self.preference_handled {
+                self.preference_handled = true;
+                if let Some(target) = preference.profile()
+                    && target != active
+                    && offered(target)
+                    && !silent.iter().any(|s| s == target)
+                    && now.duration_since(started) < PREFER_WINDOW
+                {
+                    actions.push(CallAction::Prefer(target.to_string()));
+                    self.applied = Some((target.to_string(), now, active.to_string()));
+                }
+            }
+        } else if mic_in_use {
+            // Needs two polls in a row so WirePlumber's own switch goes first.
+            self.repair_polls += 1;
+            if self.repair_polls >= 2 {
+                self.repair_polls = 0;
+                const BEST_FIRST: [&str; 3] = ["headset-head-unit", "headset-head-unit-msbc", "headset-head-unit-cvsd"];
+                let usable = |p: &str| offered(p) && !silent.iter().any(|s| s == p);
+                let target = self
+                    .last_good
+                    .clone()
+                    .filter(|p| offered(p))
+                    .or_else(|| preference.profile().filter(|p| usable(p)).map(str::to_string))
+                    .or_else(|| BEST_FIRST.iter().find(|p| usable(p)).map(|p| p.to_string()))
+                    .or_else(|| BEST_FIRST.iter().find(|p| offered(p)).map(|p| p.to_string()));
+                if let Some(target) = target {
+                    actions.push(CallAction::Repair(target));
+                }
+            }
+        }
+        actions
+    }
+}
+
+/// Call profiles found not to work on each device during this run (e.g. silent
+/// mSBC), shown in Settings and not applied again until the preference changes.
+static SILENT_PROFILES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Vec<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// The call profiles found silent on any connected AirPods.
+pub fn silent_call_profiles() -> Vec<String> {
+    SILENT_PROFILES
+        .lock()
+        .map(|m| m.values().flatten().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// Keeps calls working on saved AirPods, on any desktop (PipeWire's PulseAudio
+/// interface only): repairs the case where an app uses the AirPods' microphone
+/// but the card dropped to A2DP (the other side heard silence), and applies the
+/// "Call audio" preference once at the start of each call. One instance for the
+/// whole app, so it doesn't pile up across reconnects.
+pub async fn call_audio_watcher() {
+    let mut sessions: std::collections::HashMap<String, CallSession> = Default::default();
+    let mut macs: Vec<String> = vec![];
+    let mut last_preference = crate::utils::load_call_audio();
+    for tick in 0u64.. {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if tick % 10 == 0 {
+            macs = crate::bluetooth::discovery::saved_airpods().into_iter().map(|(mac, _)| mac).collect();
+        }
+        if macs.is_empty() {
+            continue;
+        }
+        let preference = crate::utils::load_call_audio();
+        if preference != last_preference {
+            // Choosing an option again is a request to retry it.
+            if let Ok(mut silent) = SILENT_PROFILES.lock() {
+                silent.clear();
+            }
+            last_preference = preference;
+        }
+        let cards_macs = macs.clone();
+        let cards = tokio::task::spawn_blocking(move || {
+            get_card_info_list_sync()
+                .into_iter()
+                .filter_map(|card| {
+                    let device = card.proplist.get_str("device.string")?;
+                    let mac = cards_macs.iter().find(|m: &&String| device.contains(String::as_str(m)))?.clone();
+                    let active = card.active_profile.clone()?;
+                    let available: Vec<String> =
+                        card.profiles.iter().filter_map(|p| p.name.clone()).collect();
+                    let mic_in_use = mic_users_sync(&mac) > 0;
+                    Some((mac, card.index, active, available, mic_in_use))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+
+        sessions.retain(|mac, _| cards.iter().any(|c| &c.0 == mac));
+        for (mac, index, active, available, mic_in_use) in cards {
+            let silent = SILENT_PROFILES.lock().ok().and_then(|m| m.get(&mac).cloned()).unwrap_or_default();
+            let actions = sessions.entry(mac.clone()).or_default().tick(
+                Instant::now(), &active, &available, mic_in_use, preference, &silent,
+            );
+            for action in actions {
+                let target = match &action {
+                    CallAction::MarkSilent(profile) => {
+                        warn!("Call audio: {profile} was switched away from right after being applied; not using it again on {mac}");
+                        if let Ok(mut silent) = SILENT_PROFILES.lock() {
+                            let list = silent.entry(mac.clone()).or_default();
+                            if !list.contains(profile) {
+                                list.push(profile.clone());
+                            }
+                        }
+                        continue;
+                    }
+                    CallAction::Repair(t) => {
+                        info!("Call guard: an app is using the AirPods' microphone but they're on {active}; switching to {t}");
+                        t.clone()
+                    }
+                    CallAction::Prefer(t) => {
+                        info!("Call audio: call started on {active}; applying preference {preference:?} -> {t}");
+                        t.clone()
+                    }
+                    CallAction::Revert(t) => {
+                        info!("Call audio: preference changed mid-call; restoring {t}");
+                        t.clone()
+                    }
+                };
+                let ok = tokio::task::spawn_blocking(move || set_card_profile_sync(index, &target))
+                    .await
+                    .unwrap_or(false);
+                if !ok {
+                    warn!("Could not switch the AirPods' audio profile");
+                }
+            }
+        }
+    }
+}
+
+/// Active (not paused) recording streams on the AirPods' microphone. WirePlumber
+/// keeps a placeholder microphone source for Bluetooth headsets in every
+/// profile, so apps can be "recording" from it even on A2DP.
+fn mic_users_sync(mac: &str) -> usize {
+    let Some((mut mainloop, context)) = pulse_connect() else {
+        return 0;
+    };
+    let introspector = context.introspect();
+    let sources: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+    let op = introspector.get_source_info_list({
+        let sources = sources.clone();
+        let mac = mac.to_string();
+        move |result| {
+            if let ListResult::Item(source) = result
+                && source.monitor_of_sink.is_none()
+                && source.proplist.get_str("api.bluez5.address").is_some_and(|a| a.eq_ignore_ascii_case(&mac))
+            {
+                sources.borrow_mut().push(source.index);
+            }
+        }
+    });
+    while op.get_state() == OperationState::Running {
+        mainloop.iterate(false);
+    }
+    let count = Rc::new(RefCell::new(0usize));
+    let op = introspector.get_source_output_info_list({
+        let sources = sources.clone();
+        let count = count.clone();
+        move |result| {
+            if let ListResult::Item(output) = result
+                && !output.corked
+                && sources.borrow().contains(&output.source)
+            {
+                *count.borrow_mut() += 1;
+            }
+        }
+    });
+    while op.get_state() == OperationState::Running {
+        mainloop.iterate(false);
+    }
+    mainloop.quit(Retval(0));
+    let n = *count.borrow();
+    n
+}
+
 fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
     let (mut mainloop, context) = match pulse_connect() {
         Some(c) => c,
@@ -923,6 +1282,10 @@ fn get_card_info_list_sync() -> Vec<OwnedCardInfo> {
                 cards.borrow_mut().push(OwnedCardInfo {
                     index: item.index,
                     proplist: item.proplist.clone(),
+                    active_profile: item
+                        .active_profile
+                        .as_ref()
+                        .and_then(|p| p.name.as_ref().map(|n| n.to_string())),
                     profiles,
                 });
             }
@@ -1079,4 +1442,149 @@ async fn get_sink_name_by_mac(mac: &str) -> Option<String> {
     })
         .await
         .unwrap_or(None)
+}
+/// Asks BlueZ to connect the AirPods' A2DP sink profile.
+async fn bluez_connect_a2dp(mac: &str) {
+    const A2DP_SINK: &str = "0000110b-0000-1000-8000-00805f9b34fb";
+    let Ok(addr) = mac.parse::<bluer::Address>() else {
+        return;
+    };
+    let result = async {
+        let session = bluer::Session::new().await?;
+        let device = session.default_adapter().await?.device(addr)?;
+        device
+            .connect_profile(&A2DP_SINK.parse().expect("valid UUID"))
+            .await
+    }
+    .await;
+    match result {
+        Ok(()) => info!("Connected A2DP profile for {}", mac),
+        Err(e) => warn!("BlueZ could not connect A2DP for {}: {}", mac, e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_call_profiles() {
+        for p in ["headset-head-unit", "headset-head-unit-msbc", "headset-head-unit-cvsd"] {
+            assert!(is_call_profile(p), "{p}");
+        }
+        for p in ["a2dp-sink", "a2dp-sink-sbc_xq", "off"] {
+            assert!(!is_call_profile(p), "{p}");
+        }
+    }
+
+    fn profiles(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    use crate::utils::CallAudio;
+    use std::time::{Duration, Instant};
+
+    const AVAIL: [&str; 4] = ["a2dp-sink-sbc_xq", "headset-head-unit", "headset-head-unit-msbc", "headset-head-unit-cvsd"];
+
+    fn tick(s: &mut CallSession, t0: Instant, secs: u64, active: &str, mic: bool, pref: CallAudio, silent: &[&str]) -> Vec<CallAction> {
+        let silent: Vec<String> = silent.iter().map(|s| s.to_string()).collect();
+        s.tick(t0 + Duration::from_secs(secs), active, &profiles(&AVAIL), mic, pref, &silent)
+    }
+
+    #[test]
+    fn automatic_never_switches_codecs() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        assert!(tick(&mut s, t0, 0, "headset-head-unit", true, CallAudio::Auto, &[]).is_empty());
+        assert!(tick(&mut s, t0, 5, "headset-head-unit", true, CallAudio::Auto, &[]).is_empty());
+    }
+
+    #[test]
+    fn preference_applies_once_at_call_start() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        assert_eq!(
+            tick(&mut s, t0, 1, "headset-head-unit", true, CallAudio::Reliable, &[]),
+            vec![CallAction::Prefer("headset-head-unit-msbc".into())]
+        );
+        assert!(tick(&mut s, t0, 2, "headset-head-unit-msbc", true, CallAudio::Reliable, &[]).is_empty());
+        assert!(tick(&mut s, t0, 90, "headset-head-unit-msbc", true, CallAudio::Reliable, &[]).is_empty());
+    }
+
+    #[test]
+    fn preference_is_not_applied_mid_call() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        assert!(tick(&mut s, t0, 0, "headset-head-unit", true, CallAudio::Auto, &[]).is_empty());
+        // Chosen 5 minutes into the call: next call only.
+        assert!(tick(&mut s, t0, 300, "headset-head-unit", true, CallAudio::Reliable, &[]).is_empty());
+    }
+
+    #[test]
+    fn going_back_to_automatic_restores_the_working_codec() {
+        // Today's case: Reliable (mSBC) was silent; choosing Automatic must bring LC3 back.
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        tick(&mut s, t0, 1, "headset-head-unit", true, CallAudio::Reliable, &[]);
+        assert_eq!(
+            tick(&mut s, t0, 20, "headset-head-unit-msbc", true, CallAudio::Auto, &[]),
+            vec![CallAction::Revert("headset-head-unit".into()), CallAction::MarkSilent("headset-head-unit-msbc".into())]
+        );
+    }
+
+    #[test]
+    fn codec_switched_away_quickly_is_marked_silent() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        tick(&mut s, t0, 1, "headset-head-unit", true, CallAudio::Compatible, &[]);
+        assert_eq!(
+            tick(&mut s, t0, 15, "headset-head-unit", true, CallAudio::Compatible, &[]),
+            vec![CallAction::MarkSilent("headset-head-unit-cvsd".into())]
+        );
+    }
+
+    #[test]
+    fn silent_codec_is_not_applied_again() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        assert!(tick(&mut s, t0, 1, "headset-head-unit", true, CallAudio::Reliable, &["headset-head-unit-msbc"]).is_empty());
+    }
+
+    #[test]
+    fn repairs_mic_on_a2dp_with_last_working_codec() {
+        // The 14:37 / 15:06 case: mid-call drop to A2DP while Chrome uses the mic.
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        tick(&mut s, t0, 0, "headset-head-unit", true, CallAudio::Auto, &[]);
+        assert!(tick(&mut s, t0, 30, "a2dp-sink-sbc_xq", true, CallAudio::Auto, &[]).is_empty(), "first poll waits");
+        assert_eq!(
+            tick(&mut s, t0, 31, "a2dp-sink-sbc_xq", true, CallAudio::Auto, &[]),
+            vec![CallAction::Repair("headset-head-unit".into())]
+        );
+    }
+
+    #[test]
+    fn repair_avoids_silent_codecs() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        tick(&mut s, t0, 0, "a2dp-sink-sbc_xq", true, CallAudio::Reliable, &["headset-head-unit-msbc"]);
+        assert_eq!(
+            tick(&mut s, t0, 1, "a2dp-sink-sbc_xq", true, CallAudio::Reliable, &["headset-head-unit-msbc"]),
+            vec![CallAction::Repair("headset-head-unit".into())]
+        );
+    }
+
+    #[test]
+    fn music_without_a_call_is_left_alone() {
+        let (mut s, t0) = (CallSession::default(), Instant::now());
+        for secs in 0..5 {
+            assert!(tick(&mut s, t0, secs, "a2dp-sink-sbc_xq", false, CallAudio::Reliable, &[]).is_empty());
+        }
+    }
+
+    #[test]
+    fn ear_transitions_fire_once() {
+        use EarTransition::*;
+        assert_eq!(ear_transition(&[false, false], &[true, false]), Inserted);
+        assert_eq!(ear_transition(&[], &[true, true]), Inserted);
+        assert_eq!(ear_transition(&[true, false], &[false, false]), Removed);
+        assert_eq!(ear_transition(&[true, true], &[false, false]), Removed);
+        // Repeated "both out" reports must not count as removing them again.
+        assert_eq!(ear_transition(&[false, false], &[false, false]), Unchanged);
+        assert_eq!(ear_transition(&[], &[false, false]), Unchanged);
+        // One bud out of two is not "removed".
+        assert_eq!(ear_transition(&[true, true], &[true, false]), Unchanged);
+    }
 }
